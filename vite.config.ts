@@ -12,5 +12,12 @@ export default defineConfig({
   },
   server: {
     hmr: true,
+    proxy: {
+      '/api/openclaw': {
+        target: 'http://192.168.3.215:18789',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/openclaw/, ''),
+      },
+    },
   },
 });

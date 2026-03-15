@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useState} from 'react'
 import {
   AlertTriangle, FileSearch, Loader2, MessageCircle, Pause, Play,
-  Search, Settings,
+  Search, Settings, Square,
 } from 'lucide-react'
 import {motion} from 'motion/react'
 import {Button} from '@/components/ui/button'
@@ -11,7 +11,7 @@ import {Skeleton} from '@/components/ui/skeleton'
 import {Progress} from '@/components/ui/progress'
 import PageHeader from '@/components/shared/PageHeader'
 import {useI18n} from '@/contexts/I18nContext'
-import {useWebSocket} from '@/contexts/WebSocketContext'
+import {useOpenClaw} from '@/contexts/OpenClawContext'
 import {useAutomationTasks} from '@/hooks/useAutomationTasks'
 import {useSettingsStore} from '@/stores/useSettingsStore'
 import {buildTaskPayload} from '@/lib/skills'
@@ -41,16 +41,17 @@ const WORKFLOW_DEFS: WorkflowCard[] = [
 
 export default function Automation() {
   const {t} = useI18n()
-  const {isConnected, service} = useWebSocket()
+  const {isReady, service, startTask, cancelTask} = useOpenClaw()
   const {loading} = useAutomationTasks()
   const {platformProfiles, aiSystemPrompt, platformConfigs} = useSettingsStore()
 
-  // Workflow states: maps workflow key to { status, taskId, progress }
+  // Workflow states
   const [workflowStates, setWorkflowStates] = useState<Record<string, {
-    status: 'stopped' | 'starting' | 'running' | 'paused'
+    status: 'stopped' | 'starting' | 'running'
     taskId?: string
     progress?: number
     message?: string
+    accumulatedText?: string
   }>>({
     sourcing: {status: 'stopped'},
     screening: {status: 'stopped'},
@@ -64,12 +65,18 @@ export default function Automation() {
   // Subscribe to task events
   useEffect(() => {
     const unsubProgress = service.onTaskProgress((data: TaskProgressPayload) => {
-      // Find which workflow this task belongs to
       setWorkflowStates(prev => {
         const updated = {...prev}
         for (const key of Object.keys(updated)) {
           if (updated[key].taskId === data.task_id) {
-            updated[key] = {...updated[key], progress: data.progress, message: data.message, status: 'running'}
+            const accumulated = (data.details?.accumulated as string) || (updated[key].accumulatedText || '') + data.message
+            updated[key] = {
+              ...updated[key],
+              progress: data.progress >= 0 ? data.progress : undefined,
+              message: data.message,
+              accumulatedText: accumulated,
+              status: 'running',
+            }
           }
         }
         return updated
@@ -81,7 +88,12 @@ export default function Automation() {
         const updated = {...prev}
         for (const key of Object.keys(updated)) {
           if (updated[key].taskId === data.task_id) {
-            updated[key] = {status: 'stopped', progress: 100, message: '任务完成'}
+            updated[key] = {
+              status: 'stopped',
+              progress: 100,
+              message: '任务完成',
+              accumulatedText: (data as any).full_response || updated[key].accumulatedText,
+            }
           }
         }
         return updated
@@ -112,50 +124,21 @@ export default function Automation() {
     const skillId = SKILL_MAP[key]
 
     if (current.status === 'running' && current.taskId) {
-      // Pause the task
-      try {
-        await service.pauseTask(current.taskId)
-        setWorkflowStates(prev => ({
-          ...prev,
-          [key]: {...prev[key], status: 'paused'},
-        }))
-      } catch (err) {
-        setWorkflowStates(prev => ({
-          ...prev,
-          [key]: {...prev[key], message: err instanceof Error ? err.message : '暂停失败'},
-        }))
-      }
-    } else if (current.status === 'paused' && current.taskId) {
-      // Resume the task
-      try {
-        await service.resumeTask(current.taskId)
-        setWorkflowStates(prev => ({
-          ...prev,
-          [key]: {...prev[key], status: 'running'},
-        }))
-      } catch (err) {
-        setWorkflowStates(prev => ({
-          ...prev,
-          [key]: {...prev[key], message: err instanceof Error ? err.message : '恢复失败'},
-        }))
-      }
-    } else {
-      // Start new task
-      if (activePlatforms.length === 0) {
-        setWorkflowStates(prev => ({
-          ...prev,
-          [key]: {status: 'stopped', message: '请先在"系统设置 > 账号管理"中配置并登录平台账号'},
-        }))
-        return
-      }
-
+      // 停止任务
+      cancelTask(current.taskId)
       setWorkflowStates(prev => ({
         ...prev,
-        [key]: {status: 'starting', progress: 0},
+        [key]: {status: 'stopped', message: '已停止'},
+      }))
+    } else {
+      // 启动新任务
+      setWorkflowStates(prev => ({
+        ...prev,
+        [key]: {status: 'starting', progress: 0, accumulatedText: ''},
       }))
 
       try {
-        const platform = activePlatforms[0] // Use first active platform
+        const platform = activePlatforms[0] || 'boss_zhipin'
         const payload = buildTaskPayload(skillId, {
           platform,
           keywords: ['招聘'],
@@ -165,12 +148,16 @@ export default function Automation() {
           aiSystemPrompt,
         })
 
-        const result = await service.startTask(payload)
+        const sessionId = crypto.randomUUID()
+        const taskId = `${skillId}-${Date.now()}`
 
         setWorkflowStates(prev => ({
           ...prev,
-          [key]: {status: 'running', taskId: result.taskId, progress: 0},
+          [key]: {status: 'running', taskId, progress: 0, accumulatedText: ''},
         }))
+
+        // 异步发送，不 await（SSE 流会通过事件回调更新状态）
+        startTask(payload.prompt, sessionId, taskId)
 
       } catch (err) {
         setWorkflowStates(prev => ({
@@ -179,7 +166,7 @@ export default function Automation() {
         }))
       }
     }
-  }, [workflowStates, service, activePlatforms, platformConfigs, aiSystemPrompt])
+  }, [workflowStates, startTask, cancelTask, activePlatforms, platformConfigs, aiSystemPrompt])
 
   if (loading) {
     return (
@@ -198,7 +185,7 @@ export default function Automation() {
     <div className="space-y-6">
       <PageHeader title={t('automation.title')} description={t('automation.desc')}/>
 
-      {!isConnected && (
+      {!isReady && (
         <motion.div
           initial={{opacity: 0, y: -10}}
           animate={{opacity: 1, y: 0}}
@@ -206,8 +193,8 @@ export default function Automation() {
         >
           <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0"/>
           <div>
-            <p className="font-medium text-yellow-800 dark:text-yellow-400">{t('automation.disconnected.title')}</p>
-            <p className="text-sm text-yellow-700 dark:text-yellow-500">{t('automation.disconnected.desc')}</p>
+            <p className="font-medium text-yellow-800 dark:text-yellow-400">未连接 OpenClaw</p>
+            <p className="text-sm text-yellow-700 dark:text-yellow-500">请先在"系统设置"中配置 OpenClaw 连接地址和 Auth Token</p>
           </div>
         </motion.div>
       )}
@@ -216,7 +203,6 @@ export default function Automation() {
         {WORKFLOW_DEFS.map((wf) => {
           const state = workflowStates[wf.key]
           const isRunning = state.status === 'running'
-          const isPaused = state.status === 'paused'
           const isStarting = state.status === 'starting'
 
           return (
@@ -227,10 +213,9 @@ export default function Automation() {
                     <div className="p-2 rounded-lg bg-primary/10">
                       <wf.icon className="h-5 w-5 text-primary"/>
                     </div>
-                    <Badge variant={isRunning ? 'default' : isPaused ? 'secondary' : 'outline'}>
+                    <Badge variant={isRunning ? 'default' : 'outline'}>
                       {isRunning ? t('automation.status.running')
-                        : isPaused ? t('automation.status.paused')
-                          : isStarting ? '启动中...' : '已停止'}
+                        : isStarting ? '启动中...' : '已停止'}
                     </Badge>
                   </div>
                   <CardTitle className="text-base">{t(wf.titleKey as any)}</CardTitle>
@@ -242,7 +227,7 @@ export default function Automation() {
                       <span>{t('automation.platforms')}</span>
                       <span>{activePlatformNames}</span>
                     </div>
-                    {(isRunning || isPaused) && state.progress !== undefined && (
+                    {isRunning && state.progress !== undefined && state.progress >= 0 && (
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span>进度</span>
@@ -254,20 +239,25 @@ export default function Automation() {
                     {state.message && (
                       <p className="text-xs truncate">{state.message}</p>
                     )}
+                    {isRunning && state.accumulatedText && (
+                      <div className="mt-2 max-h-24 overflow-y-auto rounded bg-muted/50 p-2 text-xs font-mono whitespace-pre-wrap">
+                        {state.accumulatedText.slice(-500)}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
                 <CardFooter className="gap-2">
                   <Button
                     size="sm"
-                    variant={isRunning ? 'secondary' : 'default'}
+                    variant={isRunning ? 'destructive' : 'default'}
                     className="flex-1"
                     onClick={() => toggleWorkflow(wf.key)}
-                    disabled={!isConnected || isStarting}
+                    disabled={!isReady || isStarting}
                   >
                     {isStarting ? (
                       <><Loader2 className="mr-1 h-3 w-3 animate-spin"/>启动中</>
                     ) : isRunning ? (
-                      <><Pause className="mr-1 h-3 w-3"/>{t('automation.action.pause')}</>
+                      <><Square className="mr-1 h-3 w-3"/>停止</>
                     ) : (
                       <><Play className="mr-1 h-3 w-3"/>{t('automation.action.start')}</>
                     )}

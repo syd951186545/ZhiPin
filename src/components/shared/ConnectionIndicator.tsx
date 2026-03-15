@@ -1,54 +1,43 @@
 import React from 'react'
-import {Loader2, Wifi, WifiOff} from 'lucide-react'
-import {useWebSocket} from '@/contexts/WebSocketContext'
+import {CheckCircle2, Loader2, WifiOff} from 'lucide-react'
+import {useOpenClaw} from '@/contexts/OpenClawContext'
 import {useI18n} from '@/contexts/I18nContext'
 import {cn} from '@/lib/utils'
 
 export default function ConnectionIndicator() {
-  const {isConnected, connectionState, reconnect} = useWebSocket()
+  const {isReady, serviceState} = useOpenClaw()
   const {t} = useI18n()
 
   const stateConfig = {
-    connected: {
+    ready: {
       className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400',
-      icon: <Wifi className="w-4 h-4"/>,
+      icon: <CheckCircle2 className="w-4 h-4"/>,
       label: t('status.connected'),
-      clickable: false,
     },
-    connecting: {
-      className: 'bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400',
-      icon: <Loader2 className="w-4 h-4 animate-spin"/>,
-      label: t('status.connecting'),
-      clickable: false,
-    },
-    reconnecting: {
+    idle: {
       className: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20 dark:text-yellow-400',
-      icon: <Loader2 className="w-4 h-4 animate-spin"/>,
-      label: t('status.reconnecting'),
-      clickable: false,
+      icon: <WifiOff className="w-4 h-4"/>,
+      label: '未配置',
     },
-    disconnected: {
-      className: 'bg-destructive/10 text-destructive border-destructive/20 cursor-pointer hover:bg-destructive/20',
+    error: {
+      className: 'bg-destructive/10 text-destructive border-destructive/20',
       icon: <WifiOff className="w-4 h-4"/>,
       label: t('status.disconnected'),
-      clickable: true,
     },
   }
 
-  const config = stateConfig[connectionState]
+  const config = stateConfig[serviceState]
 
   return (
-    <button
-      type="button"
-      onClick={() => config.clickable && reconnect()}
+    <div
       className={cn(
         'flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-full border transition-colors',
         config.className,
       )}
-      title={isConnected ? 'OpenClaw 已连接' : '点击重新连接 OpenClaw'}
+      title={isReady ? 'OpenClaw 已就绪' : '请在设置中配置 OpenClaw 连接'}
     >
       {config.icon}
       {config.label}
-    </button>
+    </div>
   )
 }

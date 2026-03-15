@@ -2,7 +2,7 @@ import React from 'react';
 import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import {ThemeProvider} from './contexts/ThemeContext';
 import {AuthProvider} from './contexts/AuthContext';
-import {WebSocketProvider} from './contexts/WebSocketContext';
+import {OpenClawProvider} from './contexts/OpenClawContext';
 import {I18nProvider} from './contexts/I18nContext';
 import {ToastProvider} from './components/ui/toast';
 
@@ -24,7 +24,7 @@ export default function App() {
     <ThemeProvider defaultTheme="system" storageKey="zhipinyun-theme">
       <I18nProvider>
         <AuthProvider>
-          <WebSocketProvider>
+          <OpenClawProvider>
             <ToastProvider>
               <BrowserRouter>
                 <Routes>
@@ -50,7 +50,7 @@ export default function App() {
                 </Routes>
               </BrowserRouter>
             </ToastProvider>
-          </WebSocketProvider>
+          </OpenClawProvider>
         </AuthProvider>
       </I18nProvider>
     </ThemeProvider>

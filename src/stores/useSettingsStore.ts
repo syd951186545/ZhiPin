@@ -1,6 +1,7 @@
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
 import type {PlatformConfigLocal, PlatformKey, PlatformProfile} from '@/types/openclaw'
+import {OPENCLAW_DEFAULT_AGENT_ID, PLATFORMS} from '@/lib/constants'
 
 // ============================================================
 // Settings Store — persisted to localStorage
@@ -10,6 +11,7 @@ interface SettingsState {
   // Connection
   gatewayUrl: string
   authToken: string
+  agentId: string
   proxyMode: boolean
 
   // Platform accounts
@@ -36,7 +38,7 @@ interface SettingsState {
   retentionDays: number
 
   // ---- Actions ----
-  updateConnection: (updates: { gatewayUrl?: string; authToken?: string; proxyMode?: boolean }) => void
+  updateConnection: (updates: { gatewayUrl?: string; authToken?: string; agentId?: string; proxyMode?: boolean }) => void
   addProfile: (profile: PlatformProfile) => void
   updateProfile: (id: string, updates: Partial<PlatformProfile>) => void
   removeProfile: (id: string) => void
@@ -52,8 +54,9 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       // ---- Default Values ----
-      gatewayUrl: import.meta.env.VITE_OPENCLAW_WS_URL || 'ws://192.168.3.215:18789',
+      gatewayUrl: import.meta.env.VITE_OPENCLAW_URL || import.meta.env.VITE_OPENCLAW_WS_URL || 'http://192.168.3.215:18789',
       authToken: '',
+      agentId: OPENCLAW_DEFAULT_AGENT_ID,
       proxyMode: false,
 
       platformProfiles: [],
@@ -106,15 +109,24 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       updatePlatformConfig: (platform, config) =>
-        set((state) => ({
-          platformConfigs: {
-            ...state.platformConfigs,
-            [platform]: {
-              ...(state.platformConfigs[platform] || { nickname: '', boundProfileId: '', customUrl: '' }),
-              ...config,
+        set((state) => {
+          const defaultUrl = PLATFORMS[platform as keyof typeof PLATFORMS]?.loginUrl || ''
+          const baseConfig: PlatformConfigLocal = {
+            nickname: '',
+            boundProfileId: '',
+            customUrl: defaultUrl,
+          }
+          return {
+            platformConfigs: {
+              ...state.platformConfigs,
+              [platform]: {
+                ...(state.platformConfigs[platform] || baseConfig),
+                ...config,
+                customUrl: (config.customUrl ?? state.platformConfigs[platform]?.customUrl ?? defaultUrl),
+              },
             },
-          },
-        })),
+          }
+        }),
 
       updateProxy: (updates) =>
         set((state) => ({ ...state, ...updates })),

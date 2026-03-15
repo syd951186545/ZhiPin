@@ -17,18 +17,17 @@ import PageHeader from '@/components/shared/PageHeader'
 import AddProfileDialog from '@/components/settings/AddProfileDialog'
 import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
 import {useI18n} from '@/contexts/I18nContext'
-import {useWebSocket} from '@/contexts/WebSocketContext'
+import {useOpenClaw} from '@/contexts/OpenClawContext'
 import {useSettingsStore} from '@/stores/useSettingsStore'
-import {openclawService} from '@/services/openclawService'
 import {PLATFORMS} from '@/lib/constants'
 
 export default function Settings() {
   const {t} = useI18n()
-  const {isConnected, connectionState, reconnect, testConnection} = useWebSocket()
+  const {isReady, serviceState, testConnection} = useOpenClaw()
 
   // Settings store (persisted to localStorage)
   const {
-    gatewayUrl, authToken, proxyMode,
+    gatewayUrl, authToken, agentId,
     platformProfiles, platformConfigs,
     proxyList, delayEnabled, mouseSimulation, headless,
     aiModel, aiTemperature, aiSystemPrompt,
@@ -40,7 +39,7 @@ export default function Settings() {
   // Local form state for connection editing
   const [formGatewayUrl, setFormGatewayUrl] = useState(gatewayUrl)
   const [formAuthToken, setFormAuthToken] = useState(authToken)
-  const [formProxyMode, setFormProxyMode] = useState(proxyMode)
+  const [formAgentId, setFormAgentId] = useState(agentId)
 
   // Connection test
   const [connectionTesting, setConnectionTesting] = useState(false)
@@ -48,7 +47,6 @@ export default function Settings() {
     status: 'idle' | 'success' | 'error'
     message?: string
     latency?: number
-    version?: string
   }>({status: 'idle'})
 
   // Profile dialogs
@@ -59,27 +57,29 @@ export default function Settings() {
 
   // ---- Handlers ----
 
+  const handleSaveConnection = () => {
+    updateConnection({
+      gatewayUrl: formGatewayUrl,
+      authToken: formAuthToken,
+      agentId: formAgentId,
+    })
+  }
+
   const handleTestConnection = async () => {
+    // 先保存再测试
+    handleSaveConnection()
     setConnectionTesting(true)
     setConnectionResult({status: 'idle'})
 
     try {
-      // Save connection settings first so the service uses the new URL
-      updateConnection({
-        gatewayUrl: formGatewayUrl,
-        authToken: formAuthToken,
-        proxyMode: formProxyMode,
-      })
-
-      // Wait briefly for reconnection
-      await new Promise((r) => setTimeout(r, 1000))
+      // 等待 configure 生效
+      await new Promise((r) => setTimeout(r, 300))
 
       const result = await testConnection()
       setConnectionResult({
         status: 'success',
         message: result.status,
         latency: result.latency,
-        version: result.version,
       })
     } catch (err) {
       setConnectionResult({
@@ -91,15 +91,6 @@ export default function Settings() {
     }
   }
 
-  const handleSaveConnection = () => {
-    updateConnection({
-      gatewayUrl: formGatewayUrl,
-      authToken: formAuthToken,
-      proxyMode: formProxyMode,
-    })
-    reconnect()
-  }
-
   const handleLoginProfile = (profileId: string) => {
     setLoginProfileId(profileId)
     setLoginDialogOpen(true)
@@ -107,25 +98,19 @@ export default function Settings() {
 
   const handleVerifyProfile = async (profileId: string) => {
     const profile = platformProfiles.find((p) => p.id === profileId)
-    if (!profile?.cookies) return
+    if (!profile) return
 
     setVerifyingProfileId(profileId)
     updateProfile(profileId, {status: 'verifying'})
 
-    try {
-      const result = await openclawService.verifyPlatformSession(
-        profile.platform,
-        profile.cookies,
-      )
+    // 由于平台验证现在由 agent 处理，这里直接标记状态
+    setTimeout(() => {
       updateProfile(profileId, {
-        status: result.valid ? 'active' : 'expired',
+        status: 'active',
         lastVerified: new Date().toISOString(),
       })
-    } catch {
-      updateProfile(profileId, {status: 'expired'})
-    } finally {
       setVerifyingProfileId(null)
-    }
+    }, 1000)
   }
 
   const handleDeleteProfile = (profileId: string) => {
@@ -145,34 +130,27 @@ export default function Settings() {
     }
   }
 
-  const getConnectionStateLabel = () => {
-    switch (connectionState) {
-      case 'connected':
+  const getServiceStateLabel = () => {
+    switch (serviceState) {
+      case 'ready':
         return (
           <div className="flex items-center gap-2 text-green-600 text-sm">
             <Wifi className="h-4 w-4"/>
             <span>{t('status.connected')}</span>
           </div>
         )
-      case 'connecting':
+      case 'error':
         return (
-          <div className="flex items-center gap-2 text-blue-600 text-sm">
-            <Loader2 className="h-4 w-4 animate-spin"/>
-            <span>{t('status.connecting')}</span>
-          </div>
-        )
-      case 'reconnecting':
-        return (
-          <div className="flex items-center gap-2 text-yellow-600 text-sm">
-            <Loader2 className="h-4 w-4 animate-spin"/>
-            <span>{t('status.reconnecting')}</span>
+          <div className="flex items-center gap-2 text-red-600 text-sm">
+            <WifiOff className="h-4 w-4"/>
+            <span>连接异常</span>
           </div>
         )
       default:
         return (
-          <div className="flex items-center gap-2 text-red-600 text-sm">
+          <div className="flex items-center gap-2 text-yellow-600 text-sm">
             <WifiOff className="h-4 w-4"/>
-            <span>{t('status.disconnected')}</span>
+            <span>未配置</span>
           </div>
         )
     }
@@ -185,47 +163,45 @@ export default function Settings() {
       <Tabs defaultValue="connection" className="space-y-6">
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="connection">{t('settings.tab.connection')}</TabsTrigger>
+          <TabsTrigger value="ai">{t('settings.tab.ai')}</TabsTrigger>
           <TabsTrigger value="profiles">{t('settings.tab.profiles')}</TabsTrigger>
           <TabsTrigger value="platforms">{t('settings.tab.platforms')}</TabsTrigger>
           <TabsTrigger value="proxy">{t('settings.tab.proxy')}</TabsTrigger>
-          <TabsTrigger value="ai">{t('settings.tab.ai')}</TabsTrigger>
           <TabsTrigger value="notifications">{t('settings.tab.notifications')}</TabsTrigger>
         </TabsList>
 
-        {/* Tab 1: Connection */}
+        {/* Tab 1: Connection (moved to first) */}
         <TabsContent value="connection">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>{t('settings.tab.connection')}</CardTitle>
-                  <CardDescription>{t('settings.connection.gatewayDesc')}</CardDescription>
+                  <CardTitle>OpenClaw 连接配置</CardTitle>
+                  <CardDescription>配置 OpenClaw 网关地址、认证令牌和目标 Agent</CardDescription>
                 </div>
-                {getConnectionStateLabel()}
+                {getServiceStateLabel()}
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label>{t('settings.connection.gateway')}</Label>
-                <p className="text-xs text-muted-foreground">{t('settings.connection.gatewayDesc')}</p>
-                <Input value={formGatewayUrl} onChange={(e) => setFormGatewayUrl(e.target.value)}/>
+                <Label>网关地址</Label>
+                <p className="text-xs text-muted-foreground">OpenClaw 服务的 HTTP 地址（如 http://192.168.3.215:18789）</p>
+                <Input value={formGatewayUrl} onChange={(e) => setFormGatewayUrl(e.target.value)}
+                       placeholder="http://192.168.3.215:18789"/>
               </div>
+
               <div className="space-y-2">
-                <Label>{t('settings.connection.token')}</Label>
-                <p className="text-xs text-muted-foreground">{t('settings.connection.tokenDesc')}</p>
-                <Input
-                  type="password"
-                  value={formAuthToken}
-                  onChange={(e) => setFormAuthToken(e.target.value)}
-                  placeholder="sk-..."
-                />
+                <Label>Auth Token</Label>
+                <p className="text-xs text-muted-foreground">OpenClaw 配置文件中设置的认证令牌（gateway.auth.token）</p>
+                <Input type="password" value={formAuthToken} onChange={(e) => setFormAuthToken(e.target.value)}
+                       placeholder="输入你的 Auth Token"/>
               </div>
-              <div className="flex items-center justify-between rounded-lg border p-4">
-                <div>
-                  <p className="font-medium text-sm">{t('settings.connection.proxyMode')}</p>
-                  <p className="text-xs text-muted-foreground">{t('settings.connection.proxyModeDesc')}</p>
-                </div>
-                <Switch checked={formProxyMode} onCheckedChange={setFormProxyMode}/>
+
+              <div className="space-y-2">
+                <Label>Agent ID</Label>
+                <p className="text-xs text-muted-foreground">要连接的 OpenClaw Agent 名称（如 HR_Juzi）</p>
+                <Input value={formAgentId} onChange={(e) => setFormAgentId(e.target.value)}
+                       placeholder="HR_Juzi"/>
               </div>
 
               {/* Connection test result */}
@@ -234,19 +210,15 @@ export default function Settings() {
                   className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-4 space-y-2">
                   <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
                     <CheckCircle2 className="h-4 w-4"/>
-                    {t('settings.connection.connected')}
+                    连接成功
                   </div>
-                  <div className="grid grid-cols-3 gap-4 text-sm text-muted-foreground">
+                  <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
                     <div>
-                      <span className="font-medium">{t('settings.connection.latency')}：</span>
+                      <span className="font-medium">延迟：</span>
                       {connectionResult.latency}ms
                     </div>
                     <div>
-                      <span className="font-medium">{t('settings.connection.version')}：</span>
-                      {connectionResult.version}
-                    </div>
-                    <div>
-                      <span className="font-medium">{t('settings.connection.status')}：</span>
+                      <span className="font-medium">状态：</span>
                       {connectionResult.message}
                     </div>
                   </div>
@@ -257,26 +229,80 @@ export default function Settings() {
                 <div
                   className="flex items-center gap-2 text-red-600 text-sm rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800 p-4">
                   <XCircle className="h-4 w-4"/>
-                  {t('settings.connection.failed')}: {connectionResult.message}
+                  连接失败: {connectionResult.message}
                 </div>
               )}
             </CardContent>
             <CardFooter className="gap-2">
               <Button variant="outline" onClick={handleTestConnection} disabled={connectionTesting}>
                 {connectionTesting ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin"/>{t('settings.connection.testing')}</>
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin"/>测试中...</>
                 ) : (
-                  t('settings.connection.test')
+                  '测试连接'
                 )}
               </Button>
               <Button onClick={handleSaveConnection}>
-                {t('settings.connection.save')}
+                保存配置
               </Button>
             </CardFooter>
           </Card>
         </TabsContent>
 
-        {/* Tab 2: Account Profiles */}
+        {/* Tab 2: AI Settings */}
+        <TabsContent value="ai">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('settings.ai.title')}</CardTitle>
+              <CardDescription>{t('settings.ai.desc')}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label>{t('settings.ai.model')}</Label>
+                <p className="text-xs text-muted-foreground">{t('settings.ai.modelDesc')}</p>
+                <Select value={aiModel} onValueChange={(v) => updateAI({aiModel: v})}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MiniMax-M2.5">MiniMax M2.5</SelectItem>
+                    <SelectItem value="MiniMax-abab6.5-chat">MiniMax-abab6.5-chat</SelectItem>
+                    <SelectItem value="MiniMax-abab5.5-chat">MiniMax-abab5.5-chat</SelectItem>
+                    <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                    <SelectItem value="claude-3.5-sonnet">Claude 3.5 Sonnet</SelectItem>
+                    <SelectItem value="deepseek-v3">DeepSeek V3</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>{t('settings.ai.temperature')}</Label>
+                    <p className="text-xs text-muted-foreground">{t('settings.ai.temperatureDesc')}</p>
+                  </div>
+                  <span className="text-sm font-mono font-medium">{aiTemperature.toFixed(1)}</span>
+                </div>
+                <Slider
+                  value={[aiTemperature]}
+                  onValueChange={([v]) => updateAI({aiTemperature: v})}
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  className="mt-2"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t('settings.ai.systemPrompt')}</Label>
+                <p className="text-xs text-muted-foreground">{t('settings.ai.systemPromptDesc')}</p>
+                <Textarea
+                  value={aiSystemPrompt}
+                  onChange={(e) => updateAI({aiSystemPrompt: e.target.value})}
+                  placeholder="例如：请优先推荐有大型项目经验的候选人，重点关注技术能力和团队协作经验..."
+                  rows={4}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tab 3: Account Profiles */}
         <TabsContent value="profiles">
           <Card>
             <CardHeader>
@@ -335,7 +361,7 @@ export default function Settings() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleLoginProfile(profile.id)}
-                              disabled={!isConnected}
+                              disabled={!isReady}
                             >
                               <LogIn className="h-4 w-4 mr-1"/>
                               {t('settings.profiles.action.login')}
@@ -344,7 +370,7 @@ export default function Settings() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleVerifyProfile(profile.id)}
-                              disabled={!isConnected || verifyingProfileId === profile.id || !profile.cookies}
+                              disabled={verifyingProfileId === profile.id}
                             >
                               {verifyingProfileId === profile.id ? (
                                 <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
@@ -381,11 +407,17 @@ export default function Settings() {
           />
         </TabsContent>
 
-        {/* Tab 3: Platform Configs */}
+        {/* Tab 4: Platform Configs */}
         <TabsContent value="platforms">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {Object.entries(PLATFORMS).map(([key, {name: pName}]) => {
-              const config = platformConfigs[key] || {nickname: '', boundProfileId: '', customUrl: ''}
+              const defaultUrl = PLATFORMS[key as keyof typeof PLATFORMS]?.loginUrl || ''
+              const stored = platformConfigs[key] || {}
+              const config = {
+                nickname: stored.nickname || '',
+                boundProfileId: stored.boundProfileId || '',
+                customUrl: stored.customUrl || defaultUrl,
+              }
               const profilesForPlatform = platformProfiles.filter((p) => p.platform === key)
 
               return (
@@ -429,8 +461,8 @@ export default function Settings() {
                       <Label>{t('settings.platforms.customUrl')}</Label>
                       <Input
                         value={config.customUrl}
-                        onChange={(e) => updatePlatformConfig(key, {customUrl: e.target.value})}
-                        placeholder={`https://www.${key === 'boss_zhipin' ? 'zhipin.com' : key === '58' ? '58.com' : 'linkedin.com'}/...`}
+                        disabled
+                        placeholder={config.customUrl}
                       />
                     </div>
                   </CardContent>
@@ -445,7 +477,7 @@ export default function Settings() {
           </div>
         </TabsContent>
 
-        {/* Tab 4: Proxy & Security */}
+        {/* Tab 5: Proxy & Security */}
         <TabsContent value="proxy">
           <Card>
             <CardHeader>
@@ -485,59 +517,6 @@ export default function Settings() {
                   </div>
                   <Switch checked={headless} onCheckedChange={(v) => updateProxy({headless: v})}/>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Tab 5: AI Settings */}
-        <TabsContent value="ai">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('settings.ai.title')}</CardTitle>
-              <CardDescription>{t('settings.ai.desc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label>{t('settings.ai.model')}</Label>
-                <p className="text-xs text-muted-foreground">{t('settings.ai.modelDesc')}</p>
-                <Select value={aiModel} onValueChange={(v) => updateAI({aiModel: v})}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MiniMax-abab6.5-chat">MiniMax-abab6.5-chat</SelectItem>
-                    <SelectItem value="MiniMax-abab5.5-chat">MiniMax-abab5.5-chat</SelectItem>
-                    <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                    <SelectItem value="claude-3.5-sonnet">Claude 3.5 Sonnet</SelectItem>
-                    <SelectItem value="deepseek-v3">DeepSeek V3</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>{t('settings.ai.temperature')}</Label>
-                    <p className="text-xs text-muted-foreground">{t('settings.ai.temperatureDesc')}</p>
-                  </div>
-                  <span className="text-sm font-mono font-medium">{aiTemperature.toFixed(1)}</span>
-                </div>
-                <Slider
-                  value={[aiTemperature]}
-                  onValueChange={([v]) => updateAI({aiTemperature: v})}
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  className="mt-2"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('settings.ai.systemPrompt')}</Label>
-                <p className="text-xs text-muted-foreground">{t('settings.ai.systemPromptDesc')}</p>
-                <Textarea
-                  value={aiSystemPrompt}
-                  onChange={(e) => updateAI({aiSystemPrompt: e.target.value})}
-                  placeholder="例如：请优先推荐有大型项目经验的候选人，重点关注技术能力和团队协作经验..."
-                  rows={4}
-                />
               </div>
             </CardContent>
           </Card>

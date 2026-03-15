@@ -1,5 +1,5 @@
 import {useEffect} from 'react'
-import {useWebSocket} from '@/contexts/WebSocketContext'
+import {useOpenClaw} from '@/contexts/OpenClawContext'
 
 /**
  * Hook for subscribing to OpenClaw events.
@@ -14,7 +14,7 @@ export function useOpenClawEvent(
   callback: (payload: Record<string, unknown>) => void,
   enabled = true
 ) {
-  const { onEvent } = useWebSocket()
+  const { onEvent } = useOpenClaw()
 
   useEffect(() => {
     if (!enabled) return
@@ -30,7 +30,7 @@ export function useOpenClawEvents(
   handlers: Record<string, (payload: Record<string, unknown>) => void>,
   enabled = true
 ) {
-  const { onEvent } = useWebSocket()
+  const { onEvent } = useOpenClaw()
 
   useEffect(() => {
     if (!enabled) return

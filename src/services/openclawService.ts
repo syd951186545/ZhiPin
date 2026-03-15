@@ -1,298 +1,327 @@
 import type {
-    BrowserScreenshotPayload,
-    ConnectionState,
-    OpenClawAction,
-    OpenClawRequest,
-    OpenClawResponse,
-    PlatformLoginStatusPayload,
-    PlatformVerifyResultPayload,
-    SystemStatusPayload,
-    TaskCompletePayload,
-    TaskErrorPayload,
-    TaskProgressPayload,
+  ServiceState,
+  TaskCompletePayload,
+  TaskErrorPayload,
+  TaskProgressPayload,
 } from '@/types/openclaw'
-import {OPENCLAW_HEARTBEAT_INTERVAL, OPENCLAW_MAX_RECONNECT_ATTEMPTS, OPENCLAW_REQUEST_TIMEOUT,} from '@/lib/constants'
+import {OPENCLAW_REQUEST_TIMEOUT, OPENCLAW_SSE_TIMEOUT} from '@/lib/constants'
 
 // ============================================================
-// OpenClaw WebSocket Service
+// OpenClaw HTTP + SSE Service (OpenResponses API)
 // ============================================================
 
 type EventCallback = (payload: Record<string, unknown>) => void
 
-interface PendingRequest {
-  resolve: (value: OpenClawResponse) => void
-  reject: (reason: Error) => void
-  timer: ReturnType<typeof setTimeout>
-}
-
 class OpenClawService {
-  private ws: WebSocket | null = null
-  private pendingRequests = new Map<string, PendingRequest>()
-  private eventListeners = new Map<string, Set<EventCallback>>()
-  private stateListeners = new Set<(state: ConnectionState) => void>()
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private reconnectAttempts = 0
-  private _connectionState: ConnectionState = 'disconnected'
-  private _url = ''
+  private _baseUrl = ''
   private _authToken = ''
-  private _lastLatency = 0
-  private _serverVersion = ''
-  private pingTimestamp = 0
+  private _agentId = 'HR_Juzi'
+  private _serviceState: ServiceState = 'idle'
+  private activeRequests = new Map<string, AbortController>()
+  private eventListeners = new Map<string, Set<EventCallback>>()
+  private stateListeners = new Set<(state: ServiceState) => void>()
 
-  // ---- Connection State ----
+  // ---- State ----
 
-  get connectionState(): ConnectionState {
-    return this._connectionState
+  get serviceState(): ServiceState {
+    return this._serviceState
   }
 
-  get isConnected(): boolean {
-    return this._connectionState === 'connected'
+  get isReady(): boolean {
+    return this._serviceState === 'ready'
   }
 
-  get lastLatency(): number {
-    return this._lastLatency
+  get baseUrl(): string {
+    return this._baseUrl
   }
 
-  get serverVersion(): string {
-    return this._serverVersion
+  get agentId(): string {
+    return this._agentId
   }
 
-  private setConnectionState(state: ConnectionState) {
-    this._connectionState = state
+  private setServiceState(state: ServiceState) {
+    this._serviceState = state
     this.stateListeners.forEach((cb) => cb(state))
   }
 
-  onStateChange(callback: (state: ConnectionState) => void): () => void {
+  onStateChange(callback: (state: ServiceState) => void): () => void {
     this.stateListeners.add(callback)
     return () => this.stateListeners.delete(callback)
   }
 
-  // ---- Connection Management ----
+  // ---- Configuration ----
 
-  connect(url: string, authToken?: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.ws) {
-        this.disconnect()
+  configure(baseUrl: string, authToken: string, agentId?: string) {
+    // 将 ws:// 转换为 http://
+    this._baseUrl = baseUrl.replace(/^ws(s?):\/\//, 'http$1://')
+    this._authToken = authToken
+    if (agentId) this._agentId = agentId
+
+    if (this._baseUrl && this._authToken) {
+      this.setServiceState('ready')
+    } else {
+      this.setServiceState('idle')
+    }
+  }
+
+  // ---- API Helpers ----
+
+  private getApiUrl(path: string): string {
+    // 开发环境使用 Vite proxy，生产环境直连
+    if (import.meta.env.DEV) {
+      return `/api/openclaw${path}`
+    }
+    return `${this._baseUrl}${path}`
+  }
+
+  private getHeaders(): Record<string, string> {
+    return {
+      'Authorization': `Bearer ${this._authToken}`,
+      'Content-Type': 'application/json',
+      'x-openclaw-agent-id': this._agentId,
+    }
+  }
+
+  // ---- Test Connection ----
+
+  async testConnection(): Promise<{ latency: number; status: string }> {
+    const start = Date.now()
+
+    const response = await fetch(this.getApiUrl('/v1/responses'), {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        model: 'openclaw',
+        input: '你好，请简短回复确认连接正常。',
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(OPENCLAW_REQUEST_TIMEOUT),
+    })
+
+    const latency = Date.now() - start
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '')
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('认证失败，请检查 Auth Token')
+      }
+      throw new Error(`连接失败 (${response.status}): ${errorText}`)
+    }
+
+    const data = await response.json()
+    this.setServiceState('ready')
+
+    return {
+      latency,
+      status: `Agent: ${this._agentId} | 响应正常`,
+    }
+  }
+
+  // ---- Start Task (SSE Streaming) ----
+
+  async startTask(params: {
+    prompt: string
+    sessionId: string
+    taskId: string
+  }): Promise<void> {
+    if (!this._baseUrl || !this._authToken) {
+      throw new Error('请先配置 OpenClaw 连接地址和 Auth Token')
+    }
+
+    const controller = new AbortController()
+    this.activeRequests.set(params.taskId, controller)
+
+    // 设置超时
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, OPENCLAW_SSE_TIMEOUT)
+
+    try {
+      const response = await fetch(this.getApiUrl('/v1/responses'), {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({
+          model: 'openclaw',
+          input: params.prompt,
+          stream: true,
+          user: params.sessionId,
+        }),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '')
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('认证失败，请检查 Auth Token')
+        }
+        throw new Error(`请求失败 (${response.status}): ${errorText}`)
       }
 
-      this._url = url
-      this._authToken = authToken || ''
-      this.setConnectionState('connecting')
+      if (!response.body) {
+        throw new Error('响应体为空，无法读取 SSE 流')
+      }
 
-      try {
-        const ws = new WebSocket(url)
+      // 解析 SSE 流
+      await this.parseSSEStream(response.body, params.taskId)
 
-        const connectTimeout = setTimeout(() => {
-          ws.close()
-          this.setConnectionState('disconnected')
-          reject(new Error('连接超时'))
-        }, 10000)
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        // 用户主动取消或超时
+        this.emit('task.error', {
+          task_id: params.taskId,
+          error_code: 'CANCELLED',
+          error_message: '任务已取消',
+        } as unknown as Record<string, unknown>)
+      } else {
+        this.emit('task.error', {
+          task_id: params.taskId,
+          error_code: 'REQUEST_FAILED',
+          error_message: (err as Error).message || '请求失败',
+        } as unknown as Record<string, unknown>)
+      }
+    } finally {
+      clearTimeout(timeoutId)
+      this.activeRequests.delete(params.taskId)
+    }
+  }
 
-        ws.onopen = () => {
-          clearTimeout(connectTimeout)
-          console.log('[OpenClaw] 连接已建立:', url)
-          this.ws = ws
-          this.reconnectAttempts = 0
-          this.setConnectionState('connected')
-          this.startHeartbeat()
-          resolve()
-        }
+  // ---- Cancel Task ----
 
-        ws.onmessage = (event) => {
-          this.handleMessage(event.data)
-        }
+  cancelTask(taskId: string) {
+    const controller = this.activeRequests.get(taskId)
+    if (controller) {
+      controller.abort()
+      this.activeRequests.delete(taskId)
+    }
+  }
 
-        ws.onclose = (event) => {
-          clearTimeout(connectTimeout)
-          console.log('[OpenClaw] 连接已断开:', event.code, event.reason)
-          this.ws = null
-          this.stopHeartbeat()
+  // ---- SSE Parser ----
 
-          if (this._connectionState !== 'disconnected') {
-            this.handleReconnect()
+  private async parseSSEStream(body: ReadableStream<Uint8Array>, taskId: string) {
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let fullResponse = ''
+
+    try {
+      while (true) {
+        const {done, value} = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, {stream: true})
+
+        // SSE 事件以 \n\n 分隔
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() || '' // 最后一部分可能不完整
+
+        for (const part of parts) {
+          const event = this.parseSSEEvent(part)
+          if (!event) continue
+
+          this.handleSSEEvent(event, taskId, fullResponse)
+
+          // 累积文本响应
+          if (event.event === 'response.output_text.delta') {
+            const delta = (event.data as Record<string, unknown>).delta as string
+            if (delta) fullResponse += delta
           }
         }
-
-        ws.onerror = (error) => {
-          console.error('[OpenClaw] 连接错误:', error)
-          // onclose will be called after onerror
-        }
-      } catch (err) {
-        this.setConnectionState('disconnected')
-        reject(err)
       }
-    })
-  }
 
-  disconnect() {
-    this.stopHeartbeat()
-    this.clearReconnectTimer()
-    this.reconnectAttempts = 0
+      // 流正常结束，发送完成事件
+      this.emit('task.complete', {
+        task_id: taskId,
+        result_summary: {},
+        full_response: fullResponse,
+      } as unknown as Record<string, unknown>)
 
-    if (this.ws) {
-      this.ws.onclose = null // prevent reconnect
-      this.ws.close()
-      this.ws = null
-    }
-
-    // Reject all pending requests
-    this.pendingRequests.forEach((req) => {
-      clearTimeout(req.timer)
-      req.reject(new Error('连接已断开'))
-    })
-    this.pendingRequests.clear()
-
-    this.setConnectionState('disconnected')
-  }
-
-  private startHeartbeat() {
-    this.stopHeartbeat()
-    this.heartbeatTimer = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.pingTimestamp = Date.now()
-        this.sendRaw({
-          id: crypto.randomUUID(),
-          action: 'ping',
-          payload: {},
-          timestamp: new Date().toISOString(),
-        })
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        this.emit('task.error', {
+          task_id: taskId,
+          error_code: 'STREAM_ERROR',
+          error_message: (err as Error).message || 'SSE 流读取失败',
+        } as unknown as Record<string, unknown>)
       }
-    }, OPENCLAW_HEARTBEAT_INTERVAL)
-  }
-
-  private stopHeartbeat() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer)
-      this.heartbeatTimer = null
+    } finally {
+      reader.releaseLock()
     }
   }
 
-  private clearReconnectTimer() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-  }
+  private parseSSEEvent(raw: string): { event: string; data: Record<string, unknown> } | null {
+    let eventType = 'message'
+    let dataStr = ''
 
-  private handleReconnect() {
-    if (this.reconnectAttempts >= OPENCLAW_MAX_RECONNECT_ATTEMPTS) {
-      console.log('[OpenClaw] 达到最大重连次数，停止重连')
-      this.setConnectionState('disconnected')
-      return
+    for (const line of raw.split('\n')) {
+      if (line.startsWith('event:')) {
+        eventType = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataStr += line.slice(5).trim()
+      }
     }
 
-    this.setConnectionState('reconnecting')
-    this.reconnectAttempts++
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000) // exponential backoff, max 30s
+    if (!dataStr) return null
 
-    console.log(`[OpenClaw] ${delay / 1000}秒后尝试第${this.reconnectAttempts}次重连...`)
-    this.reconnectTimer = setTimeout(() => {
-      this.connect(this._url, this._authToken).catch(() => {
-        // will trigger handleReconnect again via onclose
-      })
-    }, delay)
-  }
-
-  // ---- Message Handling ----
-
-  private handleMessage(raw: string) {
-    let data: OpenClawResponse
     try {
-      data = JSON.parse(raw)
+      return {event: eventType, data: JSON.parse(dataStr)}
     } catch {
-      console.warn('[OpenClaw] 消息解析失败:', raw)
-      return
+      return {event: eventType, data: {raw: dataStr}}
     }
+  }
 
-    // Handle heartbeat
-    if (data.action === 'pong' || data.type === 'heartbeat') {
-      if (this.pingTimestamp > 0) {
-        this._lastLatency = Date.now() - this.pingTimestamp
-        this.pingTimestamp = 0
+  private handleSSEEvent(
+    event: { event: string; data: Record<string, unknown> },
+    taskId: string,
+    accumulatedText: string,
+  ) {
+    switch (event.event) {
+      case 'response.output_text.delta': {
+        const delta = event.data.delta as string || ''
+        this.emit('task.progress', {
+          task_id: taskId,
+          progress: -1, // -1 表示无法确定进度百分比，UI 应显示为不确定状态
+          message: delta,
+          details: {accumulated: accumulatedText + delta},
+        } as unknown as Record<string, unknown>)
+        break
       }
-      if (data.payload?.version) {
-        this._serverVersion = data.payload.version as string
+
+      case 'response.completed': {
+        // 由 parseSSEStream 的 finally 统一处理
+        break
       }
-      return
+
+      case 'response.failed': {
+        const error = event.data.error as Record<string, unknown> | undefined
+        this.emit('task.error', {
+          task_id: taskId,
+          error_code: (error?.type as string) || 'RESPONSE_FAILED',
+          error_message: (error?.message as string) || 'Agent 执行失败',
+        } as unknown as Record<string, unknown>)
+        break
+      }
+
+      default:
+        // 其他事件通过通配符监听器广播
+        this.emit(event.event, {...event.data, _taskId: taskId})
+        break
     }
+  }
 
-    // Handle pending request response
-    if (data.type === 'response' && data.id) {
-      const pending = this.pendingRequests.get(data.id)
-      if (pending) {
-        clearTimeout(pending.timer)
-        this.pendingRequests.delete(data.id)
-        if (data.status === 'failed') {
-          pending.reject(new Error(data.error?.message || '请求失败'))
-        } else {
-          pending.resolve(data)
-        }
-        return
-      }
-    }
+  // ---- Event Emitter ----
 
-    // Handle events (broadcast to listeners)
-    const listeners = this.eventListeners.get(data.action)
+  private emit(action: string, payload: Record<string, unknown>) {
+    const listeners = this.eventListeners.get(action)
     if (listeners) {
-      listeners.forEach((cb) => cb(data.payload))
+      listeners.forEach((cb) => cb(payload))
     }
 
-    // Also broadcast to wildcard listeners
+    // 广播到通配符监听器
     const wildcardListeners = this.eventListeners.get('*')
     if (wildcardListeners) {
-      wildcardListeners.forEach((cb) => cb({ ...data.payload, _action: data.action, _raw: data }))
+      wildcardListeners.forEach((cb) => cb({...payload, _action: action}))
     }
   }
-
-  // ---- Send Methods ----
-
-  private sendRaw(message: OpenClawRequest) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message))
-    }
-  }
-
-  sendRequest(action: OpenClawAction, payload: Record<string, unknown> = {}, timeoutMs = OPENCLAW_REQUEST_TIMEOUT): Promise<OpenClawResponse> {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error('WebSocket 未连接'))
-        return
-      }
-
-      const id = crypto.randomUUID()
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(id)
-        reject(new Error(`请求超时 (${timeoutMs}ms): ${action}`))
-      }, timeoutMs)
-
-      this.pendingRequests.set(id, { resolve, reject, timer })
-
-      const request: OpenClawRequest = {
-        id,
-        action,
-        payload,
-        timestamp: new Date().toISOString(),
-        auth_token: this._authToken || undefined,
-      }
-
-      this.sendRaw(request)
-    })
-  }
-
-  /** 发送消息，不等待响应（fire-and-forget） */
-  sendCommand(action: OpenClawAction, payload: Record<string, unknown> = {}) {
-    const request: OpenClawRequest = {
-      id: crypto.randomUUID(),
-      action,
-      payload,
-      timestamp: new Date().toISOString(),
-      auth_token: this._authToken || undefined,
-    }
-    this.sendRaw(request)
-  }
-
-  // ---- Event Subscription ----
 
   on(action: string, callback: EventCallback): () => void {
     if (!this.eventListeners.has(action)) {
@@ -304,65 +333,6 @@ class OpenClawService {
 
   off(action: string, callback: EventCallback) {
     this.eventListeners.get(action)?.delete(callback)
-  }
-
-  // ---- High-Level API ----
-
-  async testConnection(): Promise<{ latency: number; version: string; status: string }> {
-    const start = Date.now()
-    const response = await this.sendRequest('system.status', {}, 5000)
-    const latency = Date.now() - start
-    const payload = response.payload as Partial<SystemStatusPayload>
-    return {
-      latency,
-      version: payload.version || 'unknown',
-      status: `CPU: ${payload.cpu_percent || 0}% | 内存: ${payload.memory_percent || 0}% | 活跃任务: ${payload.active_tasks || 0}`,
-    }
-  }
-
-  async startManualLogin(platform: string, profileId: string): Promise<void> {
-    await this.sendRequest('platform.login.manual', { platform, profile_id: profileId }, 60000) // 60s timeout for manual login start
-  }
-
-  async autoLogin(platform: string, cookies: string): Promise<{ success: boolean; cookies?: string }> {
-    const response = await this.sendRequest('platform.login.auto', { platform, cookies }, 30000)
-    const payload = response.payload as Partial<PlatformLoginStatusPayload>
-    return { success: payload.success ?? false, cookies: payload.cookies }
-  }
-
-  async verifyPlatformSession(platform: string, cookies: string): Promise<{ valid: boolean }> {
-    const response = await this.sendRequest('platform.verify', { platform, cookies }, 15000)
-    const payload = response.payload as Partial<PlatformVerifyResultPayload>
-    return { valid: payload.valid ?? false }
-  }
-
-  async startTask(payload: {
-    skill_id: string
-    task_name: string
-    config: Record<string, unknown>
-    prompt: string
-    platform?: string
-    job_id?: string
-  }): Promise<{ taskId: string }> {
-    const response = await this.sendRequest('task.start', payload, 30000)
-    return { taskId: (response.payload.task_id as string) || response.id }
-  }
-
-  async pauseTask(taskId: string): Promise<void> {
-    await this.sendRequest('task.pause', { task_id: taskId })
-  }
-
-  async resumeTask(taskId: string): Promise<void> {
-    await this.sendRequest('task.resume', { task_id: taskId })
-  }
-
-  async cancelTask(taskId: string): Promise<void> {
-    await this.sendRequest('task.cancel', { task_id: taskId })
-  }
-
-  async getSystemStatus(): Promise<SystemStatusPayload> {
-    const response = await this.sendRequest('system.status', {})
-    return response.payload as unknown as SystemStatusPayload
   }
 
   // ---- Event Type Helpers ----
@@ -377,14 +347,6 @@ class OpenClawService {
 
   onTaskError(callback: (data: TaskErrorPayload) => void): () => void {
     return this.on('task.error', (payload) => callback(payload as unknown as TaskErrorPayload))
-  }
-
-  onLoginStatus(callback: (data: PlatformLoginStatusPayload) => void): () => void {
-    return this.on('platform.login.status', (payload) => callback(payload as unknown as PlatformLoginStatusPayload))
-  }
-
-  onScreenshot(callback: (data: BrowserScreenshotPayload) => void): () => void {
-    return this.on('browser.screenshot', (payload) => callback(payload as unknown as BrowserScreenshotPayload))
   }
 }
 

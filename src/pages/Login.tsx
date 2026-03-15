@@ -1,4 +1,4 @@
-import React, {type FormEvent, useState} from 'react';
+import React, {type FormEvent, useEffect, useRef, useState} from 'react';
 import {Link, useNavigate} from 'react-router-dom';
 import {motion} from 'motion/react';
 import {LogIn} from 'lucide-react';
@@ -14,11 +14,29 @@ export default function Login() {
   const { t } = useI18n();
   const navigate = useNavigate();
 
+  const defaultEmail = import.meta.env.VITE_DEFAULT_LOGIN_EMAIL;
+  const defaultPassword = import.meta.env.VITE_DEFAULT_LOGIN_PASSWORD;
+  const autoLoginAttempted = useRef(false);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (autoLoginAttempted.current) return;
+    if (!defaultEmail || !defaultPassword) return;
+    autoLoginAttempted.current = true;
+    setEmail(defaultEmail);
+    setPassword(defaultPassword);
+    setError('');
+    setSubmitting(true);
+    login(defaultEmail, defaultPassword)
+      .then(() => navigate('/'))
+      .catch(() => setError(t('login.error')))
+      .finally(() => setSubmitting(false));
+  }, [defaultEmail, defaultPassword, login, navigate, t]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

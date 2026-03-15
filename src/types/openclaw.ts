@@ -1,102 +1,28 @@
 // ============================================================
-// OpenClaw WebSocket Protocol Types
+// OpenClaw HTTP API Types (OpenResponses API)
 // ============================================================
 
-/** 所有发送到 OpenClaw 的请求消息 */
-export interface OpenClawRequest {
-  id: string
-  action: OpenClawAction
-  payload: Record<string, unknown>
-  timestamp: string
-  auth_token?: string
+/** 服务状态 */
+export type ServiceState = 'idle' | 'ready' | 'error'
+
+/** OpenResponses API 请求体 */
+export interface OpenClawResponsesRequest {
+  model: string
+  input: string
+  stream?: boolean
+  user?: string
+  instructions?: string
 }
 
-/** 所有来自 OpenClaw 的响应消息 */
-export interface OpenClawResponse {
-  id: string
-  type: 'response' | 'event' | 'heartbeat' | 'error'
-  action: string
-  status: 'success' | 'failed' | 'progress' | 'pending'
-  payload: Record<string, unknown>
-  timestamp: string
-  error?: { code: string; message: string }
+/** SSE 事件 */
+export interface OpenClawSSEEvent {
+  event: string
+  data: Record<string, unknown>
 }
 
 // ============================================================
-// Action Types
+// Task Event Payloads (内部事件，由 SSE 映射而来)
 // ============================================================
-
-export type OpenClawAction =
-  // Heartbeat
-  | 'ping'
-  | 'pong'
-  // Platform login
-  | 'platform.login.manual'
-  | 'platform.login.auto'
-  | 'platform.login.status'
-  | 'platform.verify'
-  | 'platform.verify.result'
-  // Task management
-  | 'task.start'
-  | 'task.pause'
-  | 'task.resume'
-  | 'task.cancel'
-  // Task events (server → client)
-  | 'task.progress'
-  | 'task.complete'
-  | 'task.error'
-  // Skill management
-  | 'skill.list'
-  | 'skill.list.result'
-  // Browser events
-  | 'browser.screenshot'
-  // System status
-  | 'system.status'
-  | 'system.status.result'
-  // Raw commands
-  | 'raw'
-
-// ============================================================
-// Payload Types per Action
-// ============================================================
-
-export interface PlatformLoginManualPayload {
-  platform: PlatformKey
-  profile_id: string
-}
-
-export interface PlatformLoginAutoPayload {
-  platform: PlatformKey
-  cookies: string
-}
-
-export interface PlatformLoginStatusPayload {
-  platform: PlatformKey
-  success: boolean
-  cookies?: string
-  error?: string
-  account_name?: string
-}
-
-export interface PlatformVerifyPayload {
-  platform: PlatformKey
-  cookies: string
-}
-
-export interface PlatformVerifyResultPayload {
-  platform: PlatformKey
-  valid: boolean
-  expires_at?: string
-}
-
-export interface TaskStartPayload {
-  skill_id: string
-  task_name: string
-  config: Record<string, unknown>
-  prompt: string
-  platform?: PlatformKey
-  job_id?: string
-}
 
 export interface TaskProgressPayload {
   task_id: string
@@ -114,6 +40,7 @@ export interface TaskCompletePayload {
     messages_sent?: number
     match_rate?: number
   }
+  full_response?: string
 }
 
 export interface TaskErrorPayload {
@@ -121,28 +48,6 @@ export interface TaskErrorPayload {
   error_code: string
   error_message: string
 }
-
-export interface BrowserScreenshotPayload {
-  task_id?: string
-  profile_id?: string
-  image_base64: string
-  timestamp: string
-}
-
-export interface SystemStatusPayload {
-  cpu_percent: number
-  memory_percent: number
-  active_tasks: number
-  uptime_seconds: number
-  version: string
-  available_browsers: number
-}
-
-// ============================================================
-// Connection State
-// ============================================================
-
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
 
 // ============================================================
 // Platform & Skill Types

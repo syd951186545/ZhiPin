@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { Loader2, CheckCircle2, XCircle, Monitor } from 'lucide-react'
+import React, {useState, useCallback} from 'react'
+import {Loader2, CheckCircle2, XCircle, Bot} from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { useWebSocket } from '@/contexts/WebSocketContext'
-import { useSettingsStore } from '@/stores/useSettingsStore'
-import { useI18n } from '@/contexts/I18nContext'
-import { PLATFORMS } from '@/lib/constants'
-import type { PlatformLoginStatusPayload, BrowserScreenshotPayload } from '@/types/openclaw'
+import {Button} from '@/components/ui/button'
+import {useOpenClaw} from '@/contexts/OpenClawContext'
+import {useSettingsStore} from '@/stores/useSettingsStore'
+import {useI18n} from '@/contexts/I18nContext'
+import {PLATFORMS} from '@/lib/constants'
 
 interface PlatformLoginDialogProps {
   open: boolean
@@ -18,82 +17,52 @@ interface PlatformLoginDialogProps {
 
 type LoginPhase = 'idle' | 'starting' | 'waiting' | 'success' | 'failed'
 
-export default function PlatformLoginDialog({ open, onOpenChange, profileId }: PlatformLoginDialogProps) {
-  const { t } = useI18n()
-  const { isConnected, service } = useWebSocket()
-  const { platformProfiles, updateProfile } = useSettingsStore()
+export default function PlatformLoginDialog({open, onOpenChange, profileId}: PlatformLoginDialogProps) {
+  const {t} = useI18n()
+  const {isReady, startTask} = useOpenClaw()
+  const {platformProfiles, updateProfile} = useSettingsStore()
 
   const [phase, setPhase] = useState<LoginPhase>('idle')
   const [error, setError] = useState('')
-  const [screenshot, setScreenshot] = useState<string | null>(null)
+  const [responseText, setResponseText] = useState('')
 
   const profile = platformProfiles.find((p) => p.id === profileId)
   const platformName = profile ? PLATFORMS[profile.platform as keyof typeof PLATFORMS]?.name || profile.platform : ''
 
-  // Reset state when dialog opens/closes
-  useEffect(() => {
-    if (open) {
-      setPhase('idle')
-      setError('')
-      setScreenshot(null)
-    }
-  }, [open])
-
-  // Listen for login status events
-  useEffect(() => {
-    if (!open || !profileId) return
-
-    const unsubLogin = service.onLoginStatus((data: PlatformLoginStatusPayload) => {
-      if (data.platform === profile?.platform) {
-        if (data.success) {
-          setPhase('success')
-          updateProfile(profileId, {
-            status: 'active',
-            cookies: data.cookies,
-            lastLogin: new Date().toISOString(),
-            lastVerified: new Date().toISOString(),
-            accountName: data.account_name,
-          })
-        } else {
-          setPhase('failed')
-          setError(data.error || t('settings.profiles.login.failed'))
-        }
-      }
-    })
-
-    const unsubScreenshot = service.onScreenshot((data: BrowserScreenshotPayload) => {
-      if (data.profile_id === profileId) {
-        setScreenshot(data.image_base64)
-      }
-    })
-
-    return () => {
-      unsubLogin()
-      unsubScreenshot()
-    }
-  }, [open, profileId, profile?.platform, service, updateProfile, t])
-
   const handleStartLogin = useCallback(async () => {
-    if (!profile || !isConnected) return
+    if (!profile || !isReady) return
 
     setPhase('starting')
     setError('')
+    setResponseText('')
 
     try {
-      await service.startManualLogin(profile.platform, profile.id)
-      setPhase('waiting')
-      updateProfile(profile.id, { status: 'verifying' })
+      const sessionId = crypto.randomUUID()
+      const taskId = `login-${profile.id}-${Date.now()}`
+
+      // 委托给 HR_Juzi agent 处理平台登录
+      await startTask(
+        `请帮我登录${platformName}平台（${profile.platform}）。账号名称：${profile.name}。请完成登录并确认登录状态。`,
+        sessionId,
+        taskId,
+      )
+
+      setPhase('success')
+      updateProfile(profile.id, {
+        status: 'active',
+        lastLogin: new Date().toISOString(),
+        lastVerified: new Date().toISOString(),
+      })
     } catch (err) {
       setPhase('failed')
-      setError(err instanceof Error ? err.message : '启动登录失败')
+      setError(err instanceof Error ? err.message : '登录失败')
     }
-  }, [profile, isConnected, service, updateProfile])
+  }, [profile, isReady, startTask, platformName, updateProfile])
 
   const handleClose = () => {
-    if (phase === 'waiting') {
-      // Cancel the login if in progress
-      updateProfile(profileId!, { status: 'needsLogin' })
-    }
+    setPhase('idle')
+    setError('')
+    setResponseText('')
     onOpenChange(false)
   }
 
@@ -108,52 +77,34 @@ export default function PlatformLoginDialog({ open, onOpenChange, profileId }: P
         </DialogHeader>
 
         <div className="py-4 space-y-4">
-          {/* Screenshot preview area */}
-          <div className="rounded-lg border bg-muted/50 aspect-video flex items-center justify-center overflow-hidden">
-            {screenshot ? (
-              <img
-                src={`data:image/png;base64,${screenshot}`}
-                alt="Browser screenshot"
-                className="w-full h-full object-contain"
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <Monitor className="h-10 w-10" />
-                <p className="text-sm">
-                  {phase === 'idle' && '点击"开始登录"后，浏览器截图将显示在这里'}
-                  {phase === 'starting' && '正在启动浏览器...'}
-                  {phase === 'waiting' && t('settings.profiles.login.desc')}
-                  {phase === 'success' && t('settings.profiles.login.success')}
-                  {phase === 'failed' && (error || t('settings.profiles.login.failed'))}
-                </p>
-              </div>
-            )}
+          <div className="rounded-lg border bg-muted/50 p-6 flex flex-col items-center gap-3 text-muted-foreground">
+            <Bot className="h-10 w-10"/>
+            <p className="text-sm text-center">
+              {phase === 'idle' && '点击"开始登录"后，HR_Juzi agent 将自动完成平台登录'}
+              {phase === 'starting' && '正在请求 HR_Juzi agent 登录...'}
+              {phase === 'waiting' && 'HR_Juzi 正在处理登录...'}
+              {phase === 'success' && '登录请求已发送给 HR_Juzi'}
+              {phase === 'failed' && (error || '登录失败')}
+            </p>
           </div>
 
-          {/* Status indicator */}
           <div className="flex items-center justify-center gap-2 text-sm">
             {phase === 'starting' && (
               <>
-                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                <span className="text-blue-600">正在启动浏览器...</span>
-              </>
-            )}
-            {phase === 'waiting' && (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />
-                <span className="text-yellow-600">{t('settings.profiles.login.waiting')}</span>
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500"/>
+                <span className="text-blue-600">正在请求 agent...</span>
               </>
             )}
             {phase === 'success' && (
               <>
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <span className="text-green-600">{t('settings.profiles.login.success')}</span>
+                <CheckCircle2 className="h-4 w-4 text-green-500"/>
+                <span className="text-green-600">登录请求已提交</span>
               </>
             )}
             {phase === 'failed' && (
               <>
-                <XCircle className="h-4 w-4 text-red-500" />
-                <span className="text-red-600">{error || t('settings.profiles.login.failed')}</span>
+                <XCircle className="h-4 w-4 text-red-500"/>
+                <span className="text-red-600">{error || '登录失败'}</span>
               </>
             )}
           </div>
@@ -165,7 +116,7 @@ export default function PlatformLoginDialog({ open, onOpenChange, profileId }: P
               <Button variant="outline" onClick={handleClose}>
                 {t('common.cancel')}
               </Button>
-              <Button onClick={handleStartLogin} disabled={!isConnected}>
+              <Button onClick={handleStartLogin} disabled={!isReady}>
                 {t('settings.profiles.login.start')}
               </Button>
             </>
