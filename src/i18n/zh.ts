@@ -22,6 +22,9 @@ export const zh = {
   'dashboard.funnel.desc': '过去 7 天的职位浏览量与申请量',
   'dashboard.activity.title': '最近动态',
   'dashboard.activity.desc': '系统自动执行的最新操作',
+  'dashboard.tab.overview': '概览',
+  'dashboard.tab.monitor': '任务监控',
+  'dashboard.tab.history': '执行记录',
 
   // 职位管理
   'jobs.title': '职位管理',

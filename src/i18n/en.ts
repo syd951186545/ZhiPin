@@ -20,6 +20,9 @@ export const en = {
   'dashboard.funnel.desc': 'Views vs Applicants over the last 7 days',
   'dashboard.activity.title': 'Recent Activity',
   'dashboard.activity.desc': 'Latest automated actions performed by the system',
+  'dashboard.tab.overview': 'Overview',
+  'dashboard.tab.monitor': 'Task Monitor',
+  'dashboard.tab.history': 'Execution Records',
 
   'jobs.title': 'Jobs',
   'jobs.desc': 'Create and manage job postings, publish to multiple platforms with one click.',

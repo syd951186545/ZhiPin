@@ -22,13 +22,6 @@ export function useRealtimeSubscription<T extends Record<string, unknown> = Reco
   callbackRef.current = callback
 
   useEffect(() => {
-    // Check if Supabase is properly configured
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
-      // Supabase not configured, skip subscription
-      return
-    }
-
     const event = options?.event || '*'
     const schema = options?.schema || 'public'
 

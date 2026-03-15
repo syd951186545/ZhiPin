@@ -12,8 +12,6 @@ import {
   Sun,
   Moon,
   Cpu,
-  Activity,
-  History,
   Languages,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -35,8 +33,6 @@ export default function MainLayout() {
     { name: t('nav.jobs'), path: '/jobs', icon: Briefcase },
     { name: t('nav.candidates'), path: '/candidates', icon: Users },
     { name: t('nav.automation'), path: '/automation', icon: Cpu },
-    { name: t('nav.monitor'), path: '/monitor/latest', icon: Activity },
-    { name: t('nav.history'), path: '/history', icon: History },
     { name: t('nav.settings'), path: '/settings', icon: Settings },
   ];
 
