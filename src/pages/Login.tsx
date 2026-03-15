@@ -10,7 +10,7 @@ import {useAuth} from '@/contexts/AuthContext';
 import {useI18n} from '@/contexts/I18nContext';
 
 export default function Login() {
-  const { login, loading } = useAuth();
+  const { login } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
 
@@ -18,15 +18,19 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
     try {
       await login(email, password);
       navigate('/');
     } catch {
       setError(t('login.error'));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -93,8 +97,8 @@ export default function Login() {
               </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? (
+              <Button type="submit" className="w-full" disabled={submitting}>
+                {submitting ? (
                   <>{t('login.loading')}</>
                 ) : (
                   <>
