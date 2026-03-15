@@ -26,17 +26,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session
-    const storedUser = localStorage.getItem('zhipinyun_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
-
-    // Listen for Supabase auth changes (when Supabase is configured)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // Check for existing Supabase session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        // Load profile from Supabase
         const { data: profile } = await supabase
           .from('profiles')
           .select('full_name, tenant_id, role')
@@ -52,11 +44,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             role: profile.role,
           };
           setUser(userData);
-          localStorage.setItem('zhipinyun_user', JSON.stringify(userData));
+        }
+      }
+      setLoading(false);
+    });
+
+    // Listen for Supabase auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, tenant_id, role')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profile) {
+          const userData: User = {
+            id: session.user.id,
+            name: profile.full_name,
+            email: session.user.email || '',
+            tenantId: profile.tenant_id,
+            role: profile.role,
+          };
+          setUser(userData);
         }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
-        localStorage.removeItem('zhipinyun_user');
       }
     });
 
@@ -66,31 +79,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      // Try Supabase auth first
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        // Fallback to mock login for development
-        const mockUser: User = {
-          id: 'usr_dev_1',
-          name: email.split('@')[0],
-          email,
-          tenantId: 'tenant_dev_1',
-          role: 'owner',
-        };
-        setUser(mockUser);
-        localStorage.setItem('zhipinyun_user', JSON.stringify(mockUser));
-      }
-    } catch {
-      // Mock login when Supabase is not configured
-      const mockUser: User = {
-        id: 'usr_dev_1',
-        name: email.split('@')[0],
-        email,
-        tenantId: 'tenant_dev_1',
-        role: 'owner',
-      };
-      setUser(mockUser);
-      localStorage.setItem('zhipinyun_user', JSON.stringify(mockUser));
+      if (error) throw error;
+      // User state will be set by onAuthStateChange listener
     } finally {
       setLoading(false);
     }
@@ -104,24 +95,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password,
         options: { data: { full_name: name, company_name: companyName } },
       });
-      if (error) {
-        // Fallback to mock
-        const mockUser: User = { id: 'usr_dev_1', name, email, tenantId: 'tenant_dev_1', role: 'owner' };
-        setUser(mockUser);
-        localStorage.setItem('zhipinyun_user', JSON.stringify(mockUser));
-      }
-    } catch {
-      const mockUser: User = { id: 'usr_dev_1', name, email, tenantId: 'tenant_dev_1', role: 'owner' };
-      setUser(mockUser);
-      localStorage.setItem('zhipinyun_user', JSON.stringify(mockUser));
+      if (error) throw error;
+      // User state will be set by onAuthStateChange listener
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = () => {
-    supabase.auth.signOut().catch(() => {});
-    localStorage.removeItem('zhipinyun_user');
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
   };
 

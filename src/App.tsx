@@ -17,7 +17,6 @@ import Candidates from './pages/Candidates';
 import Automation from './pages/Automation';
 import Settings from './pages/Settings';
 import Monitor from './pages/Monitor';
-import History from './pages/History';
 import NotFound from './pages/NotFound';
 
 export default function App() {
@@ -43,7 +42,6 @@ export default function App() {
                     <Route path="/automation" element={<Automation />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/monitor/:taskId" element={<Monitor />} />
-                    <Route path="/history" element={<History />} />
                   </Route>
 
                   {/* 404 */}

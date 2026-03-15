@@ -8,22 +8,23 @@ export interface DashboardStats {
   automatedActions: number
 }
 
-const MOCK_STATS: DashboardStats = {
-  activeJobs: 12,
-  totalCandidates: 187,
-  interviewsScheduled: 8,
-  automatedActions: 34,
+const EMPTY_STATS: DashboardStats = {
+  activeJobs: 0,
+  totalCandidates: 0,
+  interviewsScheduled: 0,
+  automatedActions: 0,
 }
 
 export function useDashboardStats() {
-  const [stats, setStats] = useState<DashboardStats>(MOCK_STATS)
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     async function fetchStats() {
       setLoading(true)
+      setError(null)
       try {
-        // Fetch all counts in parallel
         const [jobsRes, candidatesRes, interviewsRes, tasksRes] = await Promise.all([
           supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'active'),
           supabase.from('candidates').select('id', { count: 'exact', head: true }),
@@ -37,9 +38,8 @@ export function useDashboardStats() {
             .in('status', ['completed', 'running']),
         ])
 
-        // Check if any query errored (likely means Supabase is not configured)
         if (jobsRes.error || candidatesRes.error || interviewsRes.error || tasksRes.error) {
-          throw new Error('Supabase query failed')
+          throw new Error('Failed to fetch dashboard stats')
         }
 
         setStats({
@@ -48,9 +48,9 @@ export function useDashboardStats() {
           interviewsScheduled: interviewsRes.count ?? 0,
           automatedActions: tasksRes.count ?? 0,
         })
-      } catch {
-        // Use mock data as fallback
-        setStats(MOCK_STATS)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch stats')
+        setStats(EMPTY_STATS)
       } finally {
         setLoading(false)
       }
@@ -59,5 +59,5 @@ export function useDashboardStats() {
     fetchStats()
   }, [])
 
-  return { stats, loading }
+  return { stats, loading, error }
 }
