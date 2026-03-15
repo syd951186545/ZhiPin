@@ -1,10 +1,10 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider } from './contexts/ThemeContext';
-import { AuthProvider } from './contexts/AuthContext';
-import { WebSocketProvider } from './contexts/WebSocketContext';
-import { I18nProvider } from './contexts/I18nContext';
-import { ToastProvider } from './components/ui/toast';
+import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
+import {ThemeProvider} from './contexts/ThemeContext';
+import {AuthProvider} from './contexts/AuthContext';
+import {WebSocketProvider} from './contexts/WebSocketContext';
+import {I18nProvider} from './contexts/I18nContext';
+import {ToastProvider} from './components/ui/toast';
 
 import AuthLayout from './layouts/AuthLayout';
 import MainLayout from './layouts/MainLayout';

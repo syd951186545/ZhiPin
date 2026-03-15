@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useRealtimeSubscription } from './useRealtimeSubscription'
-import type { TaskLog } from '@/types/database'
+import {useCallback, useEffect, useState} from 'react'
+import {supabase} from '@/lib/supabase'
+import {useRealtimeSubscription} from './useRealtimeSubscription'
+import type {TaskLog} from '@/types/database'
 
 export function useTaskLogs(taskId: string | undefined) {
   const [logs, setLogs] = useState<TaskLog[]>([])

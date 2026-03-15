@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { cn } from '@/lib/utils';
-import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import React, {createContext, useCallback, useContext, useRef, useState} from 'react';
+import {cn} from '@/lib/utils';
+import {AlertCircle, CheckCircle, Info, X} from 'lucide-react';
 
 type ToastVariant = 'success' | 'error' | 'info';
 

@@ -1,15 +1,15 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Eye, Loader2, CheckCircle2, XCircle, Clock, PauseCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Skeleton } from '@/components/ui/skeleton';
+import {useNavigate} from 'react-router-dom';
+import {CheckCircle2, Clock, Eye, Loader2, PauseCircle, XCircle} from 'lucide-react';
+import {Button} from '@/components/ui/button';
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Badge} from '@/components/ui/badge';
+import {Progress} from '@/components/ui/progress';
+import {Skeleton} from '@/components/ui/skeleton';
 import EmptyState from '@/components/shared/EmptyState';
-import { useI18n } from '@/contexts/I18nContext';
-import { useAutomationTasks } from '@/hooks/useAutomationTasks';
-import { TASK_TYPE, TASK_STATUS, PLATFORMS } from '@/lib/constants';
+import {useI18n} from '@/contexts/I18nContext';
+import {useAutomationTasks} from '@/hooks/useAutomationTasks';
+import {PLATFORMS, TASK_STATUS, TASK_TYPE} from '@/lib/constants';
 
 const statusIcons: Record<string, React.ReactNode> = {
   running: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,

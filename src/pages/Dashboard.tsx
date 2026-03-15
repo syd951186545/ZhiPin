@@ -1,10 +1,10 @@
 import React from 'react';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import PageHeader from '@/components/shared/PageHeader';
 import OverviewPanel from '@/components/dashboard/OverviewPanel';
 import TaskMonitorPanel from '@/components/dashboard/TaskMonitorPanel';
 import ExecutionRecords from '@/components/dashboard/ExecutionRecords';
-import { useI18n } from '@/contexts/I18nContext';
+import {useI18n} from '@/contexts/I18nContext';
 
 export default function Dashboard() {
   const { t } = useI18n();

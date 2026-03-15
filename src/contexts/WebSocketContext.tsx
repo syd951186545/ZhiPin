@@ -1,113 +1,130 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { useAuth } from './AuthContext';
+import React, {createContext, useCallback, useContext, useEffect, useState} from 'react'
+import {useAuth} from './AuthContext'
+import {openclawService} from '@/services/openclawService'
+import {useSettingsStore} from '@/stores/useSettingsStore'
+import type {ConnectionState, OpenClawResponse} from '@/types/openclaw'
+
+// ============================================================
+// WebSocket Context — wraps OpenClawService for React
+// ============================================================
 
 interface WebSocketContextType {
-  isConnected: boolean;
-  sendMessage: (action: string, payload: Record<string, unknown>) => void;
-  lastMessage: Record<string, unknown> | null;
-  reconnect: () => void;
+  /** 是否已连接 */
+  isConnected: boolean
+  /** 详细连接状态 */
+  connectionState: ConnectionState
+  /** 发送请求并等待响应 */
+  sendMessage: (action: string, payload: Record<string, unknown>) => Promise<OpenClawResponse>
+  /** 发送命令，不等待响应 */
+  sendCommand: (action: string, payload: Record<string, unknown>) => void
+  /** 最近收到的消息（用于 terminal 显示） */
+  lastMessage: Record<string, unknown> | null
+  /** 手动重连 */
+  reconnect: () => void
+  /** 测试连接 */
+  testConnection: () => Promise<{ latency: number; version: string; status: string }>
+  /** 订阅事件 */
+  onEvent: (action: string, callback: (payload: Record<string, unknown>) => void) => () => void
+  /** OpenClaw 服务实例 */
+  service: typeof openclawService
 }
 
-const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined);
+const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
-  const [isConnected, setIsConnected] = useState(false);
-  const [lastMessage, setLastMessage] = useState<Record<string, unknown> | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const { isAuthenticated } = useAuth()
+  const gatewayUrl = useSettingsStore((s) => s.gatewayUrl)
+  const authToken = useSettingsStore((s) => s.authToken)
 
-  const connect = useCallback(() => {
-    if (!isAuthenticated) return;
+  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
+  const [lastMessage, setLastMessage] = useState<Record<string, unknown> | null>(null)
 
-    const wsUrl = import.meta.env.VITE_OPENCLAW_WS_URL || 'ws://localhost:18789';
-
-    try {
-      const ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log('[OpenClaw] 连接已建立');
-        setIsConnected(true);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          setLastMessage(data);
-        } catch {
-          console.warn('[OpenClaw] 消息解析失败:', event.data);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('[OpenClaw] 连接已断开');
-        setIsConnected(false);
-        // Auto-reconnect after 5 seconds
-        reconnectTimerRef.current = setTimeout(connect, 5000);
-      };
-
-      ws.onerror = () => {
-        // Silently handle - will trigger onclose which handles reconnect
-        // Use mock mode in development
-        setIsConnected(true); // Mock connected for development
-      };
-
-      wsRef.current = ws;
-    } catch {
-      // WebSocket not available, use mock mode
-      console.log('[OpenClaw] 使用模拟连接模式');
-      setIsConnected(true);
-    }
-  }, [isAuthenticated]);
-
+  // Track connection state changes from service
   useEffect(() => {
-    if (isAuthenticated) {
-      // Use mock mode by default for development
-      setIsConnected(true);
+    const unsub = openclawService.onStateChange((state) => {
+      setConnectionState(state)
+    })
+    return unsub
+  }, [])
+
+  // Track all messages for terminal/debug
+  useEffect(() => {
+    const unsub = openclawService.on('*', (payload) => {
+      setLastMessage(payload)
+    })
+    return unsub
+  }, [])
+
+  // Connect when authenticated, disconnect when not
+  useEffect(() => {
+    if (isAuthenticated && gatewayUrl) {
+      openclawService.connect(gatewayUrl, authToken).catch((err) => {
+        console.warn('[OpenClaw] 初始连接失败:', err.message)
+      })
     } else {
-      wsRef.current?.close();
-      setIsConnected(false);
+      openclawService.disconnect()
     }
 
     return () => {
-      clearTimeout(reconnectTimerRef.current);
-      wsRef.current?.close();
-    };
-  }, [isAuthenticated]);
-
-  const sendMessage = useCallback((action: string, payload: Record<string, unknown>) => {
-    const message = JSON.stringify({ action, payload, timestamp: new Date().toISOString() });
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(message);
-    } else {
-      // Mock response for development
-      console.log('[OpenClaw] 发送命令:', { action, payload });
-      setTimeout(() => {
-        setLastMessage({
-          type: 'response',
-          action,
-          status: 'success',
-          timestamp: new Date().toISOString(),
-        });
-      }, 800);
+      openclawService.disconnect()
     }
-  }, []);
+  }, [isAuthenticated, gatewayUrl, authToken])
+
+  const sendMessage = useCallback(
+    async (action: string, payload: Record<string, unknown>): Promise<OpenClawResponse> => {
+      return openclawService.sendRequest(action as any, payload)
+    },
+    []
+  )
+
+  const sendCommand = useCallback(
+    (action: string, payload: Record<string, unknown>) => {
+      openclawService.sendCommand(action as any, payload)
+    },
+    []
+  )
 
   const reconnect = useCallback(() => {
-    wsRef.current?.close();
-    connect();
-  }, [connect]);
+    openclawService.disconnect()
+    if (gatewayUrl) {
+      openclawService.connect(gatewayUrl, authToken).catch((err) => {
+        console.warn('[OpenClaw] 重连失败:', err.message)
+      })
+    }
+  }, [gatewayUrl, authToken])
+
+  const testConnection = useCallback(async () => {
+    return openclawService.testConnection()
+  }, [])
+
+  const onEvent = useCallback(
+    (action: string, callback: (payload: Record<string, unknown>) => void) => {
+      return openclawService.on(action, callback)
+    },
+    []
+  )
 
   return (
-    <WebSocketContext.Provider value={{ isConnected, sendMessage, lastMessage, reconnect }}>
+    <WebSocketContext.Provider
+      value={{
+        isConnected: connectionState === 'connected',
+        connectionState,
+        sendMessage,
+        sendCommand,
+        lastMessage,
+        reconnect,
+        testConnection,
+        onEvent,
+        service: openclawService,
+      }}
+    >
       {children}
     </WebSocketContext.Provider>
-  );
-};
+  )
+}
 
 export const useWebSocket = () => {
-  const context = useContext(WebSocketContext);
-  if (context === undefined) throw new Error('useWebSocket must be used within a WebSocketProvider');
-  return context;
-};
+  const context = useContext(WebSocketContext)
+  if (context === undefined) throw new Error('useWebSocket must be used within a WebSocketProvider')
+  return context
+}

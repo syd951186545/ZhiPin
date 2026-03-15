@@ -1,5 +1,5 @@
-import { create } from 'zustand'
-import type { AutomationTask } from '@/types/database'
+import {create} from 'zustand'
+import type {AutomationTask} from '@/types/database'
 
 interface TaskProgress {
   taskId: string

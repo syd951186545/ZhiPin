@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import React, {createContext, useContext, useEffect, useState} from 'react';
+import {supabase} from '@/lib/supabase';
 
 interface User {
   id: string;

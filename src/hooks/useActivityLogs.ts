@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
-import type { ActivityLog } from '@/types/database'
+import {useEffect, useState} from 'react'
+import {supabase} from '@/lib/supabase'
+import type {ActivityLog} from '@/types/database'
 
 export function useActivityLogs(limit = 10) {
   const [activities, setActivities] = useState<ActivityLog[]>([])

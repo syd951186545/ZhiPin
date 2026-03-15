@@ -1,15 +1,15 @@
-import React, { useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Circle, Loader2, MonitorPlay, ScrollText, ImageIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Skeleton } from '@/components/ui/skeleton';
-import { useI18n } from '@/contexts/I18nContext';
-import { useTaskLogs } from '@/hooks/useTaskLogs';
-import { useAutomationTasks } from '@/hooks/useAutomationTasks';
-import { TASK_TYPE, PLATFORMS } from '@/lib/constants';
+import React, {useEffect, useRef} from 'react';
+import {useNavigate, useParams} from 'react-router-dom';
+import {ArrowLeft, CheckCircle2, Circle, ImageIcon, Loader2, MonitorPlay, ScrollText} from 'lucide-react';
+import {Button} from '@/components/ui/button';
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Badge} from '@/components/ui/badge';
+import {Progress} from '@/components/ui/progress';
+import {Skeleton} from '@/components/ui/skeleton';
+import {useI18n} from '@/contexts/I18nContext';
+import {useTaskLogs} from '@/hooks/useTaskLogs';
+import {useAutomationTasks} from '@/hooks/useAutomationTasks';
+import {PLATFORMS, TASK_TYPE} from '@/lib/constants';
 
 const STEPS = [
   { key: 'init', zh: '准备环境', en: 'Initialize' },

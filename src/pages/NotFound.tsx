@@ -1,9 +1,9 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { motion } from 'motion/react';
-import { FileQuestion, ArrowLeft } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useI18n } from '@/contexts/I18nContext';
+import {Link} from 'react-router-dom';
+import {motion} from 'motion/react';
+import {ArrowLeft, FileQuestion} from 'lucide-react';
+import {Button} from '@/components/ui/button';
+import {useI18n} from '@/contexts/I18nContext';
 
 export default function NotFound() {
   const { t } = useI18n();

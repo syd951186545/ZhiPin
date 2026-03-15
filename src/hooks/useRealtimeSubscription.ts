@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react'
-import { supabase } from '@/lib/supabase'
-import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+import {useEffect, useRef} from 'react'
+import {supabase} from '@/lib/supabase'
+import type {RealtimeChannel, RealtimePostgresChangesPayload} from '@supabase/supabase-js'
 
 type PostgresChangeEvent = 'INSERT' | 'UPDATE' | 'DELETE' | '*'
 

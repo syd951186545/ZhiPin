@@ -1,25 +1,28 @@
-import React, { useState, useMemo } from 'react';
-import { Plus, Search, Pencil, Trash2, Sparkles, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
+import React, {useState} from 'react';
+import {Loader2, Pencil, Plus, Search, Sparkles, Trash2} from 'lucide-react';
+import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
+import {Label} from '@/components/ui/label';
+import {Textarea} from '@/components/ui/textarea';
+import {Card, CardContent} from '@/components/ui/card';
+import {Skeleton} from '@/components/ui/skeleton';
+import {Badge} from '@/components/ui/badge';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from '@/components/ui/select';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
-import { useI18n } from '@/contexts/I18nContext';
-import { useJobs } from '@/hooks/useJobs';
-import { JOB_STATUS, EMPLOYMENT_TYPE } from '@/lib/constants';
-import type { Job } from '@/types/database';
+import {useI18n} from '@/contexts/I18nContext';
+import {useJobs} from '@/hooks/useJobs';
+import {EMPLOYMENT_TYPE, JOB_STATUS} from '@/lib/constants';
+import type {Job} from '@/types/database';
 
 interface JobFormData {
   title: string;
@@ -74,13 +77,46 @@ export default function Jobs() {
   };
 
   const handleAiGenerate = async (field: 'description' | 'requirements') => {
+    if (!form.title.trim()) return;
     setAiLoading(field);
-    await new Promise((r) => setTimeout(r, 1500));
-    if (field === 'description') {
-      setForm((prev) => ({ ...prev, description: prev.description || '负责公司核心产品的开发工作，参与技术方案设计与代码评审，与产品、设计团队紧密协作，推动项目高质量交付。' }));
-    } else {
-      setForm((prev) => ({ ...prev, requirements: prev.requirements || '3年以上相关开发经验，熟练掌握主流技术栈，有良好的编码习惯和团队协作能力，具备独立解决问题的能力。' }));
+
+    try {
+      // Try calling MiniMax API for real AI generation
+      const apiKey = import.meta.env.VITE_MINIMAX_API_KEY;
+      if (apiKey) {
+        const prompt = field === 'description'
+          ? `请为"${form.title}"这个职位生成一段专业的职位描述（100-200字），包含主要工作职责。只输出描述内容，不要标题。`
+          : `请为"${form.title}"这个职位生成任职要求（100-200字），包含技能、经验等要求。只输出要求内容，不要标题。`;
+
+        const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_v2', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'MiniMax-Text-01',
+            messages: [{role: 'user', content: prompt}],
+            max_tokens: 500,
+            temperature: 0.7,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.choices?.[0]?.message?.content?.trim();
+          if (text) {
+            setForm((prev) => ({...prev, [field]: text}));
+            setAiLoading(null);
+            return;
+          }
+        }
+      }
+    } catch {
+      // API call failed, will use empty field - user needs to fill manually
     }
+
+    // Fallback: just clear loading state, user fills manually
     setAiLoading(null);
   };
 

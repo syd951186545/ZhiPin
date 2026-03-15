@@ -1,25 +1,20 @@
-import React, { useState } from 'react';
-import { Plus, Search, LayoutGrid, List, User, Mail, Phone, Calendar as CalendarIcon } from 'lucide-react';
-import { motion } from 'motion/react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import React, {useState} from 'react';
+import {LayoutGrid, List, Mail, Phone, Plus, Search} from 'lucide-react';
+import {motion} from 'motion/react';
+import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
+import {Card, CardContent} from '@/components/ui/card';
+import {Badge} from '@/components/ui/badge';
+import {Skeleton} from '@/components/ui/skeleton';
+import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,} from '@/components/ui/dialog';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from '@/components/ui/select';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
-import { useI18n } from '@/contexts/I18nContext';
-import { useCandidates } from '@/hooks/useCandidates';
-import { CANDIDATE_STAGE, CANDIDATE_SOURCE } from '@/lib/constants';
-import type { Candidate } from '@/types/database';
+import {useI18n} from '@/contexts/I18nContext';
+import {useCandidates} from '@/hooks/useCandidates';
+import {CANDIDATE_SOURCE, CANDIDATE_STAGE} from '@/lib/constants';
+import type {Candidate} from '@/types/database';
 
 function getScoreColor(score: number | null): string {
   if (!score) return 'bg-gray-200';

@@ -1,13 +1,13 @@
 import React from 'react';
-import { motion } from 'motion/react';
-import { Briefcase, Users, Calendar, Zap, TrendingUp, Clock } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { useI18n } from '@/contexts/I18nContext';
-import { useDashboardStats } from '@/hooks/useDashboardStats';
-import { useActivityLogs } from '@/hooks/useActivityLogs';
-import { TASK_TYPE } from '@/lib/constants';
+import {motion} from 'motion/react';
+import {Briefcase, Calendar, Clock, TrendingUp, Users, Zap} from 'lucide-react';
+import {Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
+import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
+import {Skeleton} from '@/components/ui/skeleton';
+import {useI18n} from '@/contexts/I18nContext';
+import {useDashboardStats} from '@/hooks/useDashboardStats';
+import {useActivityLogs} from '@/hooks/useActivityLogs';
+import {TASK_TYPE} from '@/lib/constants';
 
 const funnelData = [
   { date: '03/08', views: 120, applicants: 8 },

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Outlet, Navigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { motion } from 'motion/react';
+import {Navigate, Outlet} from 'react-router-dom';
+import {useAuth} from '@/contexts/AuthContext';
+import {motion} from 'motion/react';
 
 export default function AuthLayout() {
   const { isAuthenticated } = useAuth();

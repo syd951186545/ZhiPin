@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { zh } from '@/i18n/zh';
-import { en } from '@/i18n/en';
+import React, {createContext, useContext, useEffect, useState} from 'react';
+import {zh} from '@/i18n/zh';
+import {en} from '@/i18n/en';
 
 type Language = 'zh' | 'en';
 

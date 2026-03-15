@@ -1,22 +1,12 @@
 import React from 'react';
-import { Outlet, Navigate, NavLink, useLocation } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
-import { useI18n } from '@/contexts/I18nContext';
-import {
-  LayoutDashboard,
-  Briefcase,
-  Users,
-  Settings,
-  LogOut,
-  Sun,
-  Moon,
-  Cpu,
-  Languages,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {Navigate, NavLink, Outlet, useLocation} from 'react-router-dom';
+import {useAuth} from '@/contexts/AuthContext';
+import {useTheme} from '@/contexts/ThemeContext';
+import {useI18n} from '@/contexts/I18nContext';
+import {Briefcase, Cpu, Languages, LayoutDashboard, LogOut, Moon, Settings, Sun, Users,} from 'lucide-react';
+import {Button} from '@/components/ui/button';
 import ConnectionIndicator from '@/components/shared/ConnectionIndicator';
-import { cn } from '@/lib/utils';
+import {cn} from '@/lib/utils';
 
 export default function MainLayout() {
   const { isAuthenticated, logout, user } = useAuth();

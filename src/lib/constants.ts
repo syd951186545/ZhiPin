@@ -58,3 +58,9 @@ export const EMPLOYMENT_TYPE = {
   contract: '外包/合同',
   internship: '实习',
 } as const
+
+// OpenClaw 默认配置
+export const OPENCLAW_DEFAULT_URL = 'ws://192.168.3.215:18789'
+export const OPENCLAW_HEARTBEAT_INTERVAL = 30000    // 30秒心跳
+export const OPENCLAW_REQUEST_TIMEOUT = 15000       // 15秒请求超时
+export const OPENCLAW_MAX_RECONNECT_ATTEMPTS = 10   // 最大重连次数

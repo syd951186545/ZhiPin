@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useAuth } from '@/contexts/AuthContext'
-import type { AutomationTask } from '@/types/database'
+import {useCallback, useEffect, useState} from 'react'
+import {supabase} from '@/lib/supabase'
+import {useAuth} from '@/contexts/AuthContext'
+import type {AutomationTask} from '@/types/database'
 
 interface UseAutomationTasksFilters {
   status?: string
