@@ -2,7 +2,6 @@ import React from 'react';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import PageHeader from '@/components/shared/PageHeader';
 import OverviewPanel from '@/components/dashboard/OverviewPanel';
-import TaskMonitorPanel from '@/components/dashboard/TaskMonitorPanel';
 import ExecutionRecords from '@/components/dashboard/ExecutionRecords';
 import {useI18n} from '@/contexts/I18nContext';
 
@@ -15,14 +14,10 @@ export default function Dashboard() {
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">{t('dashboard.tab.overview')}</TabsTrigger>
-          <TabsTrigger value="monitor">{t('dashboard.tab.monitor')}</TabsTrigger>
           <TabsTrigger value="history">{t('dashboard.tab.history')}</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           <OverviewPanel />
-        </TabsContent>
-        <TabsContent value="monitor">
-          <TaskMonitorPanel />
         </TabsContent>
         <TabsContent value="history">
           <ExecutionRecords />

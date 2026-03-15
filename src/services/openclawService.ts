@@ -3,6 +3,7 @@ import type {
   TaskCompletePayload,
   TaskErrorPayload,
   TaskProgressPayload,
+  TaskScreenshotPayload,
 } from '@/types/openclaw'
 import {OPENCLAW_REQUEST_TIMEOUT, OPENCLAW_SSE_TIMEOUT} from '@/lib/constants'
 
@@ -301,10 +302,40 @@ class OpenClawService {
         break
       }
 
-      default:
+      default: {
+        // 检测截图数据并发出截图事件
+        this.checkAndEmitScreenshot(event.data, taskId)
         // 其他事件通过通配符监听器广播
         this.emit(event.event, {...event.data, _taskId: taskId})
         break
+      }
+    }
+  }
+
+  /** 检测 SSE 事件数据中的截图并发出 task.screenshot 事件 */
+  private checkAndEmitScreenshot(data: Record<string, unknown>, taskId: string) {
+    // 处理 computer_call_output 类型（OpenAI computer use format）
+    if (data.type === 'computer_call_output') {
+      const output = data.output as Record<string, unknown> | undefined
+      if (output?.type === 'computer_screenshot' && output?.image_url) {
+        this.emit('task.screenshot', {
+          task_id: taskId,
+          screenshot: output.image_url as string,
+          action: (data.action as string) || '操作截图',
+          timestamp: new Date().toISOString(),
+        } as unknown as Record<string, unknown>)
+        return
+      }
+    }
+    // 处理直接含有 screenshot 字段的事件
+    const screenshotUrl = (data.screenshot || data.image_url) as string | undefined
+    if (screenshotUrl) {
+      this.emit('task.screenshot', {
+        task_id: taskId,
+        screenshot: screenshotUrl,
+        action: (data.action as string) || '截图',
+        timestamp: new Date().toISOString(),
+      } as unknown as Record<string, unknown>)
     }
   }
 
@@ -347,6 +378,10 @@ class OpenClawService {
 
   onTaskError(callback: (data: TaskErrorPayload) => void): () => void {
     return this.on('task.error', (payload) => callback(payload as unknown as TaskErrorPayload))
+  }
+
+  onTaskScreenshot(callback: (data: TaskScreenshotPayload) => void): () => void {
+    return this.on('task.screenshot', (payload) => callback(payload as unknown as TaskScreenshotPayload))
   }
 }
 

@@ -31,6 +31,14 @@ interface SettingsState {
   aiTemperature: number
   aiSystemPrompt: string
 
+  // Company profile
+  companyProfile: {
+    name: string
+    address: string
+    size: string
+    overview: string
+  }
+
   // Notifications
   wecomUrl: string
   notifEmail: string
@@ -47,6 +55,7 @@ interface SettingsState {
   updatePlatformConfig: (platform: string, config: Partial<PlatformConfigLocal>) => void
   updateProxy: (updates: { proxyList?: string; delayEnabled?: boolean; mouseSimulation?: boolean; headless?: boolean }) => void
   updateAI: (updates: { aiModel?: string; aiTemperature?: number; aiSystemPrompt?: string }) => void
+  updateCompanyProfile: (updates: Partial<SettingsState['companyProfile']>) => void
   updateNotifications: (updates: { wecomUrl?: string; notifEmail?: string; auditLogging?: boolean; retentionDays?: number }) => void
 }
 
@@ -71,6 +80,13 @@ export const useSettingsStore = create<SettingsState>()(
       aiModel: 'MiniMax-abab6.5-chat',
       aiTemperature: 0.7,
       aiSystemPrompt: '',
+
+      companyProfile: {
+        name: '',
+        address: '',
+        size: '',
+        overview: '',
+      },
 
       wecomUrl: '',
       notifEmail: '',
@@ -134,12 +150,27 @@ export const useSettingsStore = create<SettingsState>()(
       updateAI: (updates) =>
         set((state) => ({ ...state, ...updates })),
 
+      updateCompanyProfile: (updates) =>
+        set((state) => ({ ...state, companyProfile: { ...state.companyProfile, ...updates } })),
+
       updateNotifications: (updates) =>
         set((state) => ({ ...state, ...updates })),
     }),
     {
       name: 'zhipinyun_settings',
-      version: 1,
+      version: 2,
+      migrate: (persistedState) => {
+        const state = (persistedState || {}) as SettingsState
+        return {
+          ...state,
+          companyProfile: state.companyProfile || {
+            name: '',
+            address: '',
+            size: '',
+            overview: '',
+          },
+        }
+      },
     }
   )
 )

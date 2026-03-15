@@ -20,7 +20,7 @@ export default function MainLayout() {
 
   const navItems = [
     { name: t('nav.dashboard'), path: '/', icon: LayoutDashboard },
-    { name: t('nav.jobs'), path: '/jobs', icon: Briefcase },
+    { name: t('nav.jobs'), path: '/enterprise', icon: Briefcase },
     { name: t('nav.candidates'), path: '/candidates', icon: Users },
     { name: t('nav.automation'), path: '/automation', icon: Cpu },
     { name: t('nav.settings'), path: '/settings', icon: Settings },

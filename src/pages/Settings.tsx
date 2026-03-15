@@ -1,6 +1,6 @@
 import React, {useState} from 'react'
 import {
-  CheckCircle2, Download, LogIn, Loader2, ShieldCheck, Trash2,
+  CheckCircle2, Download, Loader2,
   Wifi, WifiOff, XCircle,
 } from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -8,18 +8,14 @@ import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Textarea} from '@/components/ui/textarea'
 import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
-import {Badge} from '@/components/ui/badge'
 import {Switch} from '@/components/ui/switch'
 import {Slider} from '@/components/ui/slider'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import PageHeader from '@/components/shared/PageHeader'
-import AddProfileDialog from '@/components/settings/AddProfileDialog'
-import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
 import {useI18n} from '@/contexts/I18nContext'
 import {useOpenClaw} from '@/contexts/OpenClawContext'
 import {useSettingsStore} from '@/stores/useSettingsStore'
-import {PLATFORMS} from '@/lib/constants'
 
 export default function Settings() {
   const {t} = useI18n()
@@ -28,12 +24,10 @@ export default function Settings() {
   // Settings store (persisted to localStorage)
   const {
     gatewayUrl, authToken, agentId,
-    platformProfiles, platformConfigs,
     proxyList, delayEnabled, mouseSimulation, headless,
     aiModel, aiTemperature, aiSystemPrompt,
     wecomUrl, notifEmail, auditLogging, retentionDays,
     updateConnection, updateProxy, updateAI, updateNotifications,
-    updatePlatformConfig, updateProfile, removeProfile,
   } = useSettingsStore()
 
   // Local form state for connection editing
@@ -48,12 +42,6 @@ export default function Settings() {
     message?: string
     latency?: number
   }>({status: 'idle'})
-
-  // Profile dialogs
-  const [addProfileOpen, setAddProfileOpen] = useState(false)
-  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
-  const [loginProfileId, setLoginProfileId] = useState<string | null>(null)
-  const [verifyingProfileId, setVerifyingProfileId] = useState<string | null>(null)
 
   // ---- Handlers ----
 
@@ -91,45 +79,6 @@ export default function Settings() {
     }
   }
 
-  const handleLoginProfile = (profileId: string) => {
-    setLoginProfileId(profileId)
-    setLoginDialogOpen(true)
-  }
-
-  const handleVerifyProfile = async (profileId: string) => {
-    const profile = platformProfiles.find((p) => p.id === profileId)
-    if (!profile) return
-
-    setVerifyingProfileId(profileId)
-    updateProfile(profileId, {status: 'verifying'})
-
-    // 由于平台验证现在由 agent 处理，这里直接标记状态
-    setTimeout(() => {
-      updateProfile(profileId, {
-        status: 'active',
-        lastVerified: new Date().toISOString(),
-      })
-      setVerifyingProfileId(null)
-    }, 1000)
-  }
-
-  const handleDeleteProfile = (profileId: string) => {
-    removeProfile(profileId)
-  }
-
-  const getProfileStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge variant="default">{t('settings.profiles.status.active')}</Badge>
-      case 'verifying':
-        return <Badge variant="secondary">{t('settings.profiles.status.verifying')}</Badge>
-      case 'expired':
-        return <Badge variant="destructive">{t('settings.profiles.status.expired')}</Badge>
-      default:
-        return <Badge variant="destructive">{t('settings.profiles.status.needsLogin')}</Badge>
-    }
-  }
-
   const getServiceStateLabel = () => {
     switch (serviceState) {
       case 'ready':
@@ -164,8 +113,6 @@ export default function Settings() {
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="connection">{t('settings.tab.connection')}</TabsTrigger>
           <TabsTrigger value="ai">{t('settings.tab.ai')}</TabsTrigger>
-          <TabsTrigger value="profiles">{t('settings.tab.profiles')}</TabsTrigger>
-          <TabsTrigger value="platforms">{t('settings.tab.platforms')}</TabsTrigger>
           <TabsTrigger value="proxy">{t('settings.tab.proxy')}</TabsTrigger>
           <TabsTrigger value="notifications">{t('settings.tab.notifications')}</TabsTrigger>
         </TabsList>
@@ -199,9 +146,9 @@ export default function Settings() {
 
               <div className="space-y-2">
                 <Label>Agent ID</Label>
-                <p className="text-xs text-muted-foreground">要连接的 OpenClaw Agent 名称（如 HR_Juzi）</p>
+                <p className="text-xs text-muted-foreground">要连接的 OpenClaw Agent 名称（如 hr_juzi）</p>
                 <Input value={formAgentId} onChange={(e) => setFormAgentId(e.target.value)}
-                       placeholder="HR_Juzi"/>
+                       placeholder="hr_juzi"/>
               </div>
 
               {/* Connection test result */}
@@ -302,182 +249,7 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Tab 3: Account Profiles */}
-        <TabsContent value="profiles">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{t('settings.profiles.title')}</CardTitle>
-                  <CardDescription>{t('settings.profiles.desc')}</CardDescription>
-                </div>
-                <Button size="sm" onClick={() => setAddProfileOpen(true)}>
-                  {t('settings.profiles.new')}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {platformProfiles.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">
-                  <p>暂无平台账号，请点击"添加账号"开始配置</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="text-left p-3 font-medium">{t('settings.profiles.table.name')}</th>
-                      <th className="text-left p-3 font-medium">{t('settings.profiles.table.platform')}</th>
-                      <th className="text-center p-3 font-medium">{t('settings.profiles.table.status')}</th>
-                      <th className="text-center p-3 font-medium">{t('settings.profiles.lastVerified')}</th>
-                      <th className="text-right p-3 font-medium">{t('settings.profiles.table.actions')}</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {platformProfiles.map((profile) => (
-                      <tr key={profile.id} className="border-b last:border-0">
-                        <td className="p-3 font-medium">
-                          {profile.name}
-                          {profile.accountName && (
-                            <span className="text-xs text-muted-foreground ml-2">({profile.accountName})</span>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          <Badge variant="outline">
-                            {PLATFORMS[profile.platform as keyof typeof PLATFORMS]?.name || profile.platform}
-                          </Badge>
-                        </td>
-                        <td className="p-3 text-center">
-                          {getProfileStatusBadge(profile.status)}
-                        </td>
-                        <td className="p-3 text-center text-xs text-muted-foreground">
-                          {profile.lastVerified
-                            ? new Date(profile.lastVerified).toLocaleString('zh-CN')
-                            : t('settings.profiles.neverVerified')}
-                        </td>
-                        <td className="p-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleLoginProfile(profile.id)}
-                              disabled={!isReady}
-                            >
-                              <LogIn className="h-4 w-4 mr-1"/>
-                              {t('settings.profiles.action.login')}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleVerifyProfile(profile.id)}
-                              disabled={verifyingProfileId === profile.id}
-                            >
-                              {verifyingProfileId === profile.id ? (
-                                <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
-                              ) : (
-                                <ShieldCheck className="h-4 w-4 mr-1"/>
-                              )}
-                              {t('settings.profiles.action.verify')}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteProfile(profile.id)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4"/>
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Dialogs */}
-          <AddProfileDialog open={addProfileOpen} onOpenChange={setAddProfileOpen}/>
-          <PlatformLoginDialog
-            open={loginDialogOpen}
-            onOpenChange={setLoginDialogOpen}
-            profileId={loginProfileId}
-          />
-        </TabsContent>
-
-        {/* Tab 4: Platform Configs */}
-        <TabsContent value="platforms">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {Object.entries(PLATFORMS).map(([key, {name: pName}]) => {
-              const defaultUrl = PLATFORMS[key as keyof typeof PLATFORMS]?.loginUrl || ''
-              const stored = platformConfigs[key] || {}
-              const config = {
-                nickname: stored.nickname || '',
-                boundProfileId: stored.boundProfileId || '',
-                customUrl: stored.customUrl || defaultUrl,
-              }
-              const profilesForPlatform = platformProfiles.filter((p) => p.platform === key)
-
-              return (
-                <Card key={key}>
-                  <CardHeader>
-                    <CardTitle>{pName}</CardTitle>
-                    <CardDescription>{t('settings.platforms.desc')}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>{t('settings.platforms.nickname')}</Label>
-                      <Input
-                        value={config.nickname}
-                        onChange={(e) => updatePlatformConfig(key, {nickname: e.target.value})}
-                        placeholder="我的企业名称"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('settings.platforms.boundProfile')}</Label>
-                      <Select
-                        value={config.boundProfileId}
-                        onValueChange={(v) => updatePlatformConfig(key, {boundProfileId: v})}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择账号"/>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {profilesForPlatform.length === 0 ? (
-                            <SelectItem value="_none" disabled>暂无账号，请先添加</SelectItem>
-                          ) : (
-                            profilesForPlatform.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.name} {p.status === 'active' ? '✓' : ''}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('settings.platforms.customUrl')}</Label>
-                      <Input
-                        value={config.customUrl}
-                        disabled
-                        placeholder={config.customUrl}
-                      />
-                    </div>
-                  </CardContent>
-                  <CardFooter>
-                    <Button onClick={() => updatePlatformConfig(key, config)}>
-                      {t('settings.platforms.save')}
-                    </Button>
-                  </CardFooter>
-                </Card>
-              )
-            })}
-          </div>
-        </TabsContent>
-
-        {/* Tab 5: Proxy & Security */}
+        {/* Tab 3: Proxy & Security */}
         <TabsContent value="proxy">
           <Card>
             <CardHeader>
@@ -522,7 +294,7 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Tab 6: Notifications */}
+        {/* Tab 4: Notifications */}
         <TabsContent value="notifications">
           <Card>
             <CardHeader>

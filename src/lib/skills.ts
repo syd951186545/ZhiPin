@@ -1,5 +1,7 @@
 import type {OpenClawSkill} from '@/types/openclaw'
 
+export type AutoPublishStage = 'init' | 'fill' | 'submit'
+
 // ============================================================
 // OpenClaw 标准化 Skill 定义 + Prompt 模板
 // ============================================================
@@ -29,10 +31,19 @@ export const SKILLS: OpenClawSkill[] = [
       job_id: { type: 'string', label: 'Job ID', labelZh: '职位ID', required: true },
       refresh_interval_hours: { type: 'number', label: 'Refresh Interval (hours)', labelZh: '刷新间隔(小时)', default: 24 },
     },
-    promptTemplate: `你是一个专业的招聘助手。请完成以下自动发布职位任务：
+    promptTemplate: `请根据你的专业招聘skill完成以下自动发布职位任务，并严格按指定格式返回结果。
 
 【任务目标】
-登录{{platform}}平台，发布以下职位信息。
+登录{{platform}}平台，用指定账号发布职位，并生成对外发布的招聘公告内容。
+
+【账号信息】
+- 账号：{{account_name}}
+
+【企业信息】
+- 企业名称：{{company_name}}
+- 企业地址：{{company_address}}
+- 企业规模：{{company_size}}
+- 企业概述：{{company_overview}}
 
 【职位信息】
 - 职位名称：{{job_title}}
@@ -50,12 +61,33 @@ export const SKILLS: OpenClawSkill[] = [
 【福利待遇】
 {{benefits}}
 
-【操作步骤】
-1. 使用已保存的登录凭据进入平台
-2. 导航到"发布职位"页面
-3. 按照以上信息逐项填写表单
-4. 检查填写内容无误后提交发布
-5. 确认发布成功并记录职位链接
+【执行流程（需输出阶段完成标记）】
+1. 准备环境与检查账号
+2. 登录{{platform}}并进入发布入口
+3. 生成招聘公告内容
+4. 填写职位表单并提交
+5. 确认发布结果与记录链接
+
+【阶段完成标记要求】
+每完成一个阶段，请在输出中追加一行：
+[STEP_DONE:init]
+[STEP_DONE:login]
+[STEP_DONE:announce]
+[STEP_DONE:fill]
+[STEP_DONE:submit]
+
+【输出格式（必须严格遵守）】
+【AI公告内容】
+（生成一份适合对外发布的招聘公告，含企业简介、岗位职责、任职要求、薪资福利、工作地点、投递方式。使用自然流畅中文，避免夸大承诺。）
+【/AI公告内容】
+
+【发布结果】
+- 发布平台：{{platform}}
+- 发布账号：{{account_name}}
+- 职位名称：{{job_title}}
+- 发布状态：成功/失败（如失败说明原因）
+- 职位链接：（如可获取）
+【/发布结果】
 
 【注意事项】
 - 如遇验证码，等待人工处理
@@ -334,6 +366,9 @@ export function buildTaskPayload(
       benefits?: string
     }
     companyName?: string
+    companyAddress?: string
+    companySize?: string
+    companyOverview?: string
     aiSystemPrompt?: string
   }
 ) {
@@ -343,6 +378,7 @@ export function buildTaskPayload(
   const variables: Record<string, string | number | string[] | undefined> = {
     ...config,
     platform: getPlatformDisplayName(config.platform as string),
+    account_name: (config.account_name as string) || '',
     job_title: context.job?.title,
     location: context.job?.location || '不限',
     salary_min: context.job?.salary_min,
@@ -353,6 +389,9 @@ export function buildTaskPayload(
     requirements: context.job?.requirements,
     benefits: context.job?.benefits || '面议',
     company_name: context.companyName || '我们公司',
+    company_address: context.companyAddress || '未填写',
+    company_size: context.companySize || '未填写',
+    company_overview: context.companyOverview || '未填写',
     ai_system_prompt: context.aiSystemPrompt,
     response_style_desc: getResponseStyleDesc(config.response_style as string),
   } as Record<string, string | number | string[] | undefined>
@@ -367,6 +406,141 @@ export function buildTaskPayload(
     platform: config.platform as string,
     job_id: config.job_id as string,
   }
+}
+
+export function buildAutoPublishStagePrompt(
+  stage: AutoPublishStage,
+  config: Record<string, unknown>,
+  context: {
+    job?: {
+      title: string
+      location?: string
+      salary_min?: number
+      salary_max?: number
+      employment_type?: string
+      department?: string
+      description?: string
+      requirements?: string
+      benefits?: string
+    }
+    companyName?: string
+    companyAddress?: string
+    companySize?: string
+    companyOverview?: string
+    aiSystemPrompt?: string
+  }
+): string {
+  const variables: Record<string, string | number | string[] | undefined> = {
+    ...config,
+    platform: getPlatformDisplayName(config.platform as string),
+    account_name: (config.account_name as string) || '',
+    job_title: context.job?.title,
+    location: context.job?.location || '不限',
+    salary_min: context.job?.salary_min,
+    salary_max: context.job?.salary_max,
+    employment_type: context.job?.employment_type,
+    department: context.job?.department || '未指定',
+    description: context.job?.description,
+    requirements: context.job?.requirements,
+    benefits: context.job?.benefits || '面议',
+    company_name: context.companyName || '我们公司',
+    company_address: context.companyAddress || '未填写',
+    company_size: context.companySize || '未填写',
+    company_overview: context.companyOverview || '未填写',
+    ai_system_prompt: context.aiSystemPrompt,
+  }
+
+  const stageTemplates: Record<AutoPublishStage, string> = {
+    init: `你是一个专业的招聘助手，请执行「自动发布招聘」任务的第1阶段：准备环境。
+
+【账号信息】
+- 平台：{{platform}}
+- 账号：{{account_name}}
+
+【本阶段要求】
+- 检查网络环境
+- 进入{{platform}}网站
+- 检查账号是否已登录，未登录则完成登录，若已登录尽量检查账号信息，但不要退出登录。
+- 做发布前必要准备（如进入后台/招聘模块）
+- 完成后截图（用于任务监控节点展示）
+
+完成后仅输出：
+[STEP_DONE:init]
+
+若无法完成，请输出：
+[STEP_FAILED:init]`,
+
+    fill: `你是一个专业的招聘助手，请执行第2阶段：发布准备。
+
+【目标平台】
+{{platform}}
+
+【企业信息】
+- 企业名称：{{company_name}}
+- 企业地址：{{company_address}}
+- 企业规模：{{company_size}}
+- 企业概述：{{company_overview}}
+
+【职位信息】
+- 职位名称：{{job_title}}
+- 工作地点：{{location}}
+- 薪资范围：{{salary_min}}K - {{salary_max}}K
+- 工作类型：{{employment_type}}
+- 所属部门：{{department}}
+
+【职位描述】
+{{description}}
+
+【任职要求】
+{{requirements}}
+
+【福利待遇】
+{{benefits}}
+
+【本阶段要求】
+- 进入职位发布页面
+- 根据页面内容进行表单填写
+- 生成招聘公告文案
+- 不要发布，只保存为可发布状态
+- 完成后截图（用于任务监控节点展示）
+
+【输出格式（必须严格遵守）】
+【AI公告内容】
+（生成一份适合对外发布的招聘公告，含企业简介、岗位职责、任职要求、薪资福利、工作地点、投递方式。使用自然流畅中文，避免夸大承诺。）
+【/AI公告内容】
+
+输出完成后追加：
+[STEP_DONE:fill]
+
+若无法完成，请输出：
+[STEP_FAILED:fill]`,
+
+    submit: `你是一个专业的招聘助手，请执行第3阶段：确认发布。
+
+【目标平台】
+{{platform}}
+
+【本阶段要求】
+- 执行最终发布操作
+- 发布成功后截图（用于任务监控节点展示）
+
+【输出格式（必须严格遵守）】
+【发布结果】
+- 发布平台：{{platform}}
+- 发布账号：{{account_name}}
+- 职位名称：{{job_title}}
+- 发布状态：成功/失败（如失败说明原因）
+- 职位链接：（如可获取）
+【/发布结果】
+
+输出完成后追加：
+[STEP_DONE:submit]
+
+若无法完成，请输出：
+[STEP_FAILED:submit]`,
+  }
+
+  return buildPrompt(stageTemplates[stage], variables)
 }
 
 function getPlatformDisplayName(key: string): string {

@@ -12,7 +12,7 @@ import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import Jobs from './pages/Jobs';
+import EnterpriseManagement from './pages/Jobs';
 import Candidates from './pages/Candidates';
 import Automation from './pages/Automation';
 import Settings from './pages/Settings';
@@ -37,7 +37,8 @@ export default function App() {
                   {/* Protected Routes */}
                   <Route element={<MainLayout />}>
                     <Route path="/" element={<Dashboard />} />
-                    <Route path="/jobs" element={<Jobs />} />
+                    <Route path="/enterprise" element={<EnterpriseManagement />} />
+                    <Route path="/jobs" element={<Navigate to="/enterprise" replace />} />
                     <Route path="/candidates" element={<Candidates />} />
                     <Route path="/automation" element={<Automation />} />
                     <Route path="/settings" element={<Settings />} />

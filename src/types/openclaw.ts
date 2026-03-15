@@ -49,6 +49,13 @@ export interface TaskErrorPayload {
   error_message: string
 }
 
+export interface TaskScreenshotPayload {
+  task_id: string
+  screenshot: string // base64 data URL or image URL
+  action?: string
+  timestamp: string
+}
+
 // ============================================================
 // Platform & Skill Types
 // ============================================================

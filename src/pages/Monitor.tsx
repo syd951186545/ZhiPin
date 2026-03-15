@@ -13,10 +13,10 @@ import {PLATFORMS, TASK_TYPE} from '@/lib/constants';
 
 const STEPS = [
   { key: 'init', zh: '准备环境', en: 'Initialize' },
-  { key: 'login', zh: '验证登录', en: 'Verify Login' },
-  { key: 'generate', zh: '生成内容', en: 'Generate Content' },
-  { key: 'fill', zh: '填写信息', en: 'Fill Form' },
-  { key: 'submit', zh: '提交确认', en: 'Submit & Verify' },
+  { key: 'login', zh: '登录平台', en: 'Login' },
+  { key: 'announce', zh: '生成公告', en: 'Generate Announcement' },
+  { key: 'fill', zh: '填写发布', en: 'Fill & Publish' },
+  { key: 'submit', zh: '确认发布', en: 'Verify Publish' },
 ];
 
 function getStepFromProgress(progress: number): number {
