@@ -21,36 +21,44 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+async function fetchProfile(userId: string) {
+  const { data } = await supabase
+    .from('profiles')
+    .select('full_name, tenant_id, role')
+    .eq('id', userId)
+    .single();
+  return data;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // onAuthStateChange fires INITIAL_SESSION on mount, so no need for getSession().
-    // Using both causes lock contention under React StrictMode (double-mount).
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        try {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, tenant_id, role')
-            .eq('id', session.user.id)
-            .single();
-
-          if (profile) {
-            setUser({
-              id: session.user.id,
-              name: profile.full_name,
-              email: session.user.email || '',
-              tenantId: profile.tenant_id,
-              role: profile.role,
-            });
-          }
-        } catch {
-          // Profile fetch failed
+    // Only handle INITIAL_SESSION (page reload with existing session) and SIGNED_OUT.
+    // login() and register() manage user state directly to avoid race conditions.
+    // Callback is NOT async to prevent holding the auth lock longer than needed.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        if (session?.user) {
+          fetchProfile(session.user.id)
+            .then((profile) => {
+              if (profile) {
+                setUser({
+                  id: session.user.id,
+                  name: profile.full_name,
+                  email: session.user.email || '',
+                  tenantId: profile.tenant_id,
+                  role: profile.role,
+                });
+              }
+              setLoading(false);
+            })
+            .catch(() => setLoading(false));
+        } else {
+          setLoading(false);
         }
-        setLoading(false);
-      } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_OUT') {
+      } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setLoading(false);
       }
@@ -67,35 +75,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
-      // Set user immediately from the sign-in response so navigation works
-      // (onAuthStateChange is async and may not fire before navigate('/') runs)
       if (data.user) {
-        let userName = data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || '';
-        let tenantId: string | undefined;
-        let role: string | undefined;
-
-        try {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, tenant_id, role')
-            .eq('id', data.user.id)
-            .single();
-
-          if (profile) {
-            userName = profile.full_name || userName;
-            tenantId = profile.tenant_id;
-            role = profile.role;
-          }
-        } catch {
-          // Profile fetch failed, use fallback name
-        }
-
+        const profile = await fetchProfile(data.user.id);
         setUser({
           id: data.user.id,
-          name: userName,
+          name: profile?.full_name || data.user.user_metadata?.full_name || email.split('@')[0],
           email: data.user.email || email,
-          tenantId,
-          role,
+          tenantId: profile?.tenant_id,
+          role: profile?.role,
         });
       }
     } finally {
@@ -113,34 +100,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (error) throw error;
 
-      // Set user immediately if sign-up auto-confirms (no email verification required)
+      // Only set user if email is auto-confirmed (no email verification step)
       if (data.user && data.session) {
-        let tenantId: string | undefined;
-        let role: string | undefined;
-
-        // The handle_new_user trigger creates profile + tenant in the DB,
-        // so fetch the profile to get tenantId and role
-        try {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, tenant_id, role')
-            .eq('id', data.user.id)
-            .single();
-
-          if (profile) {
-            tenantId = profile.tenant_id;
-            role = profile.role;
-          }
-        } catch {
-          // Profile fetch failed, will be populated by onAuthStateChange
-        }
-
+        // The handle_new_user DB trigger creates profile + tenant synchronously,
+        // so fetching the profile here should succeed immediately.
+        const profile = await fetchProfile(data.user.id);
         setUser({
           id: data.user.id,
           name: name,
           email: data.user.email || email,
-          tenantId,
-          role,
+          tenantId: profile?.tenant_id,
+          role: profile?.role,
         });
       }
     } finally {

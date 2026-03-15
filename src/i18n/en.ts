@@ -103,11 +103,6 @@ export const en = {
   'automation.platforms': 'Target Platforms',
   'automation.action.startBot': 'Start',
   'automation.action.stopBot': 'Stop',
-  'automation.terminal.title': 'Command Console',
-  'automation.terminal.desc': 'Send custom commands to the recruitment service',
-  'automation.terminal.connected': 'Connected at',
-  'automation.terminal.ready': 'Ready for commands...',
-  'automation.terminal.send': 'Send',
 
   'settings.title': 'Settings',
   'settings.desc': 'Manage service connections, platform accounts, and AI parameters.',

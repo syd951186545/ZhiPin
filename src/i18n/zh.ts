@@ -108,11 +108,6 @@ export const zh = {
   'automation.platforms': '目标平台',
   'automation.action.startBot': '启动',
   'automation.action.stopBot': '停止',
-  'automation.terminal.title': '命令控制台',
-  'automation.terminal.desc': '向招聘服务发送自定义指令',
-  'automation.terminal.connected': '连接时间',
-  'automation.terminal.ready': '准备接收命令...',
-  'automation.terminal.send': '发送',
 
   // 系统设置（面向企业主，易懂描述）
   'settings.title': '系统设置',

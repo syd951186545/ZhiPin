@@ -1,11 +1,10 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react'
+import React, {useCallback, useEffect, useState} from 'react'
 import {
   AlertTriangle, FileSearch, Loader2, MessageCircle, Pause, Play,
-  Search, Send, Settings, Terminal, Wifi, WifiOff,
+  Search, Settings,
 } from 'lucide-react'
 import {motion} from 'motion/react'
 import {Button} from '@/components/ui/button'
-import {Input} from '@/components/ui/input'
 import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
 import {Badge} from '@/components/ui/badge'
 import {Skeleton} from '@/components/ui/skeleton'
@@ -15,8 +14,7 @@ import {useI18n} from '@/contexts/I18nContext'
 import {useWebSocket} from '@/contexts/WebSocketContext'
 import {useAutomationTasks} from '@/hooks/useAutomationTasks'
 import {useSettingsStore} from '@/stores/useSettingsStore'
-import {useTaskStore} from '@/stores/useTaskStore'
-import {getSkillByTaskType, buildTaskPayload} from '@/lib/skills'
+import {buildTaskPayload} from '@/lib/skills'
 import {PLATFORMS} from '@/lib/constants'
 import type {TaskProgressPayload, TaskCompletePayload, TaskErrorPayload} from '@/types/openclaw'
 
@@ -43,14 +41,9 @@ const WORKFLOW_DEFS: WorkflowCard[] = [
 
 export default function Automation() {
   const {t} = useI18n()
-  const {isConnected, connectionState, sendMessage, sendCommand, lastMessage, service, onEvent} = useWebSocket()
-  const {tasks, loading} = useAutomationTasks()
+  const {isConnected, service} = useWebSocket()
+  const {loading} = useAutomationTasks()
   const {platformProfiles, aiSystemPrompt, platformConfigs} = useSettingsStore()
-  const taskStore = useTaskStore()
-
-  const [commandInput, setCommandInput] = useState('')
-  const [terminalLogs, setTerminalLogs] = useState<{ type: 'cmd' | 'res' | 'err'; text: string; time: string }[]>([])
-  const terminalRef = useRef<HTMLDivElement>(null)
 
   // Workflow states: maps workflow key to { status, taskId, progress }
   const [workflowStates, setWorkflowStates] = useState<Record<string, {
@@ -81,13 +74,6 @@ export default function Automation() {
         }
         return updated
       })
-
-      // Also log to terminal
-      setTerminalLogs(prev => [...prev, {
-        type: 'res',
-        text: `[进度 ${data.progress}%] ${data.message}`,
-        time: new Date().toLocaleTimeString('zh-CN'),
-      }])
     })
 
     const unsubComplete = service.onTaskComplete((data: TaskCompletePayload) => {
@@ -100,12 +86,6 @@ export default function Automation() {
         }
         return updated
       })
-
-      setTerminalLogs(prev => [...prev, {
-        type: 'res',
-        text: `✅ 任务完成: ${JSON.stringify(data.result_summary)}`,
-        time: new Date().toLocaleTimeString('zh-CN'),
-      }])
     })
 
     const unsubError = service.onTaskError((data: TaskErrorPayload) => {
@@ -118,12 +98,6 @@ export default function Automation() {
         }
         return updated
       })
-
-      setTerminalLogs(prev => [...prev, {
-        type: 'err',
-        text: `❌ 任务失败: ${data.error_message}`,
-        time: new Date().toLocaleTimeString('zh-CN'),
-      }])
     })
 
     return () => {
@@ -132,28 +106,6 @@ export default function Automation() {
       unsubError()
     }
   }, [service])
-
-  // Auto-scroll terminal
-  useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.scrollTop = terminalRef.current.scrollHeight
-    }
-  }, [terminalLogs])
-
-  // Log raw messages to terminal
-  useEffect(() => {
-    if (lastMessage && lastMessage._action) {
-      // Only log non-progress events (progress is handled above)
-      const action = lastMessage._action as string
-      if (!action.startsWith('task.')) {
-        setTerminalLogs(prev => [...prev, {
-          type: 'res',
-          text: JSON.stringify(lastMessage, null, 2),
-          time: new Date().toLocaleTimeString('zh-CN'),
-        }])
-      }
-    }
-  }, [lastMessage])
 
   const toggleWorkflow = useCallback(async (key: string) => {
     const current = workflowStates[key]
@@ -168,11 +120,10 @@ export default function Automation() {
           [key]: {...prev[key], status: 'paused'},
         }))
       } catch (err) {
-        setTerminalLogs(prev => [...prev, {
-          type: 'err',
-          text: `暂停失败: ${err instanceof Error ? err.message : '未知错误'}`,
-          time: new Date().toLocaleTimeString('zh-CN'),
-        }])
+        setWorkflowStates(prev => ({
+          ...prev,
+          [key]: {...prev[key], message: err instanceof Error ? err.message : '暂停失败'},
+        }))
       }
     } else if (current.status === 'paused' && current.taskId) {
       // Resume the task
@@ -183,20 +134,18 @@ export default function Automation() {
           [key]: {...prev[key], status: 'running'},
         }))
       } catch (err) {
-        setTerminalLogs(prev => [...prev, {
-          type: 'err',
-          text: `恢复失败: ${err instanceof Error ? err.message : '未知错误'}`,
-          time: new Date().toLocaleTimeString('zh-CN'),
-        }])
+        setWorkflowStates(prev => ({
+          ...prev,
+          [key]: {...prev[key], message: err instanceof Error ? err.message : '恢复失败'},
+        }))
       }
     } else {
       // Start new task
       if (activePlatforms.length === 0) {
-        setTerminalLogs(prev => [...prev, {
-          type: 'err',
-          text: '⚠️ 请先在"系统设置 > 账号管理"中配置并登录平台账号',
-          time: new Date().toLocaleTimeString('zh-CN'),
-        }])
+        setWorkflowStates(prev => ({
+          ...prev,
+          [key]: {status: 'stopped', message: '请先在"系统设置 > 账号管理"中配置并登录平台账号'},
+        }))
         return
       }
 
@@ -223,57 +172,14 @@ export default function Automation() {
           [key]: {status: 'running', taskId: result.taskId, progress: 0},
         }))
 
-        setTerminalLogs(prev => [...prev, {
-          type: 'res',
-          text: `🚀 ${getSkillByTaskType(skillId)?.nameZh || skillId} 已启动 (ID: ${result.taskId})`,
-          time: new Date().toLocaleTimeString('zh-CN'),
-        }])
       } catch (err) {
         setWorkflowStates(prev => ({
           ...prev,
           [key]: {status: 'stopped', message: err instanceof Error ? err.message : '启动失败'},
         }))
-
-        setTerminalLogs(prev => [...prev, {
-          type: 'err',
-          text: `启动失败: ${err instanceof Error ? err.message : '未知错误'}`,
-          time: new Date().toLocaleTimeString('zh-CN'),
-        }])
       }
     }
   }, [workflowStates, service, activePlatforms, platformConfigs, aiSystemPrompt])
-
-  const handleSendCommand = useCallback(async () => {
-    if (!commandInput.trim()) return
-    const time = new Date().toLocaleTimeString('zh-CN')
-    setTerminalLogs(prev => [...prev, {type: 'cmd', text: commandInput, time}])
-
-    try {
-      const parsed = JSON.parse(commandInput)
-      const action = parsed.action || 'raw'
-      delete parsed.action
-
-      const response = await sendMessage(action, parsed)
-      setTerminalLogs(prev => [...prev, {
-        type: 'res',
-        text: JSON.stringify(response, null, 2),
-        time: new Date().toLocaleTimeString('zh-CN'),
-      }])
-    } catch (err) {
-      if (err instanceof SyntaxError) {
-        // Not JSON, send as raw command
-        sendCommand('raw', {command: commandInput})
-      } else {
-        setTerminalLogs(prev => [...prev, {
-          type: 'err',
-          text: err instanceof Error ? err.message : '命令执行失败',
-          time: new Date().toLocaleTimeString('zh-CN'),
-        }])
-      }
-    }
-
-    setCommandInput('')
-  }, [commandInput, sendMessage, sendCommand])
 
   if (loading) {
     return (
@@ -376,63 +282,6 @@ export default function Automation() {
         })}
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Terminal className="h-5 w-5 text-muted-foreground"/>
-              <CardTitle className="text-lg">{t('automation.terminal.title')}</CardTitle>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              {isConnected ? (
-                <><Wifi className="h-4 w-4 text-green-500"/><span
-                  className="text-green-600">{t('status.connected')}</span></>
-              ) : (
-                <><WifiOff className="h-4 w-4 text-red-500"/><span
-                  className="text-red-600">{t('status.disconnected')}</span></>
-              )}
-            </div>
-          </div>
-          <CardDescription>{t('automation.terminal.desc')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div
-            ref={terminalRef}
-            className="h-64 rounded-lg bg-zinc-950 text-zinc-100 p-4 font-mono text-xs overflow-y-auto space-y-1"
-          >
-            {terminalLogs.length === 0 && (
-              <p className="text-zinc-500">{t('automation.terminal.ready')}</p>
-            )}
-            {terminalLogs.map((log, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-zinc-500 shrink-0">[{log.time}]</span>
-                {log.type === 'cmd' ? (
-                  <span className="text-cyan-400">&gt; {log.text}</span>
-                ) : log.type === 'err' ? (
-                  <span className="text-red-400">{log.text}</span>
-                ) : (
-                  <pre className="text-green-400 whitespace-pre-wrap">{log.text}</pre>
-                )}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-        <CardFooter>
-          <div className="flex w-full gap-2">
-            <Input
-              placeholder='{"action": "system.status"}'
-              value={commandInput}
-              onChange={(e) => setCommandInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendCommand()}
-              className="font-mono text-sm flex-1"
-            />
-            <Button onClick={handleSendCommand} disabled={!isConnected || !commandInput.trim()}>
-              <Send className="mr-2 h-4 w-4"/>
-              {t('automation.terminal.send')}
-            </Button>
-          </div>
-        </CardFooter>
-      </Card>
     </div>
   )
 }
