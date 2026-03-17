@@ -11,3 +11,10 @@ __pycache__/
 *.pyc
 .venv/
 server/.env
+server/*.log
+
+# Docker / Production
+.env.production
+
+# IDE
+.idea/

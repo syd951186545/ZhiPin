@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = True
 
+    # CORS: 逗号分隔的允许源列表，"*" 表示允许所有
+    # Docker 部署时前端通过 nginx 同源访问，设为 "*" 即可
+    cors_origins: str = "http://localhost:3000,http://0.0.0.0:3000"
+
     # Docker 共享卷：OpenClaw media 目录在后端容器中的挂载路径
     # 开发环境设为空字符串则回退到 HTTP fetch
     openclaw_media_mount: str = "/openclaw-media"

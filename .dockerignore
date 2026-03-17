@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.git/
+.gitignore
+
+# Env files (secrets injected at runtime via docker-compose)
+.env
+.env.local
+.env.production
+server/.env
+
+# Python artifacts
+server/__pycache__/
+server/**/__pycache__/
+*.pyc
+.venv/
+
+# IDE & tools
+.idea/
+.claude/
+.vscode/
+
+# Test artifacts
+test-results/
+playwright-report/
+
+# Logs
+server/*.log
+
+# OS files
+Thumbs.db
+.DS_Store

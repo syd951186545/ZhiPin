@@ -36,10 +36,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS - 允许前端 dev server 访问
+# CORS - 从配置读取允许源，支持 "*" 通配
+_settings = get_settings()
+_cors_origins = (
+    ["*"] if _settings.cors_origins.strip() == "*"
+    else [o.strip() for o in _settings.cors_origins.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://0.0.0.0:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
