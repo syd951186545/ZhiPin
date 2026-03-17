@@ -5,12 +5,13 @@
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 from uuid import uuid4
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -24,12 +25,8 @@ router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 _event_queues: dict[str, asyncio.Queue] = {}
 # execution_id -> 是否已取消
 _cancelled: dict[str, bool] = {}
-
-
-def get_event_queue(execution_id: str) -> asyncio.Queue:
-    if execution_id not in _event_queues:
-        _event_queues[execution_id] = asyncio.Queue()
-    return _event_queues[execution_id]
+# execution_id -> asyncio.Task（用于真实取消 httpx 流式请求）
+_running_tasks: dict[str, asyncio.Task] = {}
 
 
 def is_cancelled(execution_id: str) -> bool:
@@ -43,11 +40,20 @@ async def emit_event(execution_id: str, event_type: str, data: dict):
         await queue.put({"event": event_type, "data": data})
 
 
-async def emit_done(execution_id: str):
-    """标记 SSE 流结束"""
+def _emit_event_sync(execution_id: str, event_type: str, data: dict):
+    """同步方式推送事件（用于 CancelledError 处理，不能 await）"""
     queue = _event_queues.get(execution_id)
     if queue:
-        await queue.put(None)  # sentinel
+        with contextlib.suppress(Exception):
+            queue.put_nowait({"event": event_type, "data": data})
+
+
+def _emit_done_sync(execution_id: str):
+    """同步方式标记流结束"""
+    queue = _event_queues.get(execution_id)
+    if queue:
+        with contextlib.suppress(Exception):
+            queue.put_nowait(None)
 
 
 # ── 请求/响应模型 ─────────────────────────────────────────
@@ -108,7 +114,7 @@ class WorkflowStatusResponse(BaseModel):
 
 
 @router.post("/start", response_model=WorkflowStartResponse)
-async def start_workflow(req: WorkflowStartRequest, background_tasks: BackgroundTasks):
+async def start_workflow(req: WorkflowStartRequest):
     """启动工作流"""
     from workflows import publish_job, talent_explore, resume_screen
 
@@ -116,7 +122,6 @@ async def start_workflow(req: WorkflowStartRequest, background_tasks: Background
     _event_queues[execution_id] = asyncio.Queue()
     _cancelled[execution_id] = False
 
-    # 根据 workflow_id 选择工作流执行函数
     runner_map = {
         "publish_job": publish_job.run,
         "talent_explore": talent_explore.run,
@@ -127,13 +132,12 @@ async def start_workflow(req: WorkflowStartRequest, background_tasks: Background
     if not runner:
         raise HTTPException(status_code=400, detail=f"未知工作流: {req.workflow_id}")
 
-    # 在后台任务中运行工作流
-    background_tasks.add_task(
-        _run_workflow_safe,
-        runner,
-        execution_id,
-        req,
+    # 用 asyncio.create_task 代替 BackgroundTasks，可以通过 task.cancel() 真实中断
+    task = asyncio.create_task(
+        _run_workflow_safe(runner, execution_id, req),
+        name=f"workflow-{execution_id}",
     )
+    _running_tasks[execution_id] = task
 
     return WorkflowStartResponse(
         execution_id=execution_id,
@@ -143,12 +147,18 @@ async def start_workflow(req: WorkflowStartRequest, background_tasks: Background
 
 @router.post("/cancel/{execution_id}")
 async def cancel_workflow(execution_id: str):
-    """取消工作流"""
+    """取消工作流 - 立即中断 httpx 流式请求"""
     if execution_id not in _event_queues:
         raise HTTPException(status_code=404, detail="执行不存在")
+
     _cancelled[execution_id] = True
-    await emit_event(execution_id, "cancelled", {"message": "工作流已取消"})
-    await emit_done(execution_id)
+
+    # 取消实际运行的 asyncio Task，这会中断 httpx 的 async for 流式读取
+    task = _running_tasks.get(execution_id)
+    if task and not task.done():
+        task.cancel()
+        logger.info(f"已发送取消信号: {execution_id}")
+
     return {"message": "已发送取消请求"}
 
 
@@ -175,9 +185,9 @@ async def stream_progress(execution_id: str):
                 "data": json.dumps({"message": "SSE 超时"}, ensure_ascii=False),
             }
         finally:
-            # 清理
             _event_queues.pop(execution_id, None)
             _cancelled.pop(execution_id, None)
+            _running_tasks.pop(execution_id, None)
 
     return EventSourceResponse(event_generator())
 
@@ -195,14 +205,25 @@ async def get_status(execution_id: str):
 
 
 async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartRequest):
-    """安全运行工作流，捕获异常并推送错误事件"""
+    """
+    安全运行工作流，处理三种结束情形：
+    1. 正常完成：runner 自行发送 complete/error 事件
+    2. 用户取消：task.cancel() 抛出 CancelledError，发送 cancelled 事件
+    3. 未捕获异常：发送 error 事件
+    """
     try:
         await runner(execution_id, req)
+    except asyncio.CancelledError:
+        # 用同步 put_nowait，避免在 cancelled 状态下再次 await 失败
+        logger.info(f"工作流已被取消: {execution_id}")
+        _emit_event_sync(execution_id, "cancelled", {"message": "工作流已取消"})
+        # 不重新 raise，让 finally 正常运行
     except Exception as e:
         logger.exception(f"工作流执行异常: {execution_id}")
-        await emit_event(execution_id, "error", {
+        _emit_event_sync(execution_id, "error", {
             "step_id": "unknown",
             "message": f"工作流执行异常: {str(e)}",
         })
     finally:
-        await emit_done(execution_id)
+        _running_tasks.pop(execution_id, None)
+        _emit_done_sync(execution_id)

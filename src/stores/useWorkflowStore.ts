@@ -153,12 +153,18 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 ? {...s, status: data.status as StepStatus, error: data.error}
                 : s,
             )
+            // 步骤开始时插入分隔标记，保持所有步骤输出连续可读
+            const separator =
+              data.status === 'running'
+                ? `\n${'─'.repeat(36)}\n▶ ${data.step_name}\n`
+                : ''
             return {
               activeExecution: {
                 ...state.activeExecution,
                 steps,
                 currentStepIndex: data.step_index ?? state.activeExecution.currentStepIndex,
                 totalSteps: data.total_steps ?? state.activeExecution.totalSteps,
+                accumulatedText: state.activeExecution.accumulatedText + separator,
               },
             }
           })
@@ -167,10 +173,32 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         onProgress: (data) => {
           set((state) => {
             if (!state.activeExecution) return state
+
+            // 追加 delta：保留所有步骤完整历史，不替换
+            const newText = state.activeExecution.accumulatedText + (data.delta || '')
+
+            // 检测 progress 事件中新出现的截图，即时生成 ActionNode
+            const existingScreenshots = new Set(
+              state.activeExecution.actionNodes.map((n) => n.screenshot).filter(Boolean),
+            )
+            const newNodes: ActionNode[] = ((data.screenshots as string[]) || [])
+              .filter((s) => s && !existingScreenshots.has(s))
+              .map((s) => ({
+                id: `ss-${data.step_id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
+                action: data.step_id,
+                screenshot: s,
+                stepId: data.step_id,
+              }))
+
             return {
               activeExecution: {
                 ...state.activeExecution,
-                accumulatedText: data.accumulated_text || state.activeExecution.accumulatedText,
+                accumulatedText: newText,
+                actionNodes:
+                  newNodes.length > 0
+                    ? [...state.activeExecution.actionNodes, ...newNodes]
+                    : state.activeExecution.actionNodes,
               },
             }
           })
@@ -179,8 +207,13 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         onScreenshot: (data) => {
           set((state) => {
             if (!state.activeExecution) return state
+            // 避免与 onProgress 已添加的截图重复
+            const exists = state.activeExecution.actionNodes.some(
+              (n) => n.screenshot === data.screenshot,
+            )
+            if (exists) return state
             const node: ActionNode = {
-              id: `${data.step_id}-${Date.now()}`,
+              id: `screenshot-${data.step_id}-${Date.now()}`,
               time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
               action: data.action || '操作截图',
               screenshot: data.screenshot,

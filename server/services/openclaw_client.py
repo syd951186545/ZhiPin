@@ -238,12 +238,15 @@ class OpenClawClient:
     def _file_url_to_http(self, file_url: str) -> str:
         """
         将 file:///home/sunyd/.openclaw/media/... 转换为
-        http://<openclaw_host>/media/...
+        前端通过后端代理访问的相对路径 /api/openclaw/media/...
+
+        请求链：浏览器 → Vite proxy(/api/openclaw) → FastAPI → OpenClaw 服务器
+        避免浏览器直连 OpenClaw 的跨域问题。
         """
         prefix = "file:///home/sunyd/.openclaw/"
         if file_url.startswith(prefix):
             relative = file_url[len(prefix):]
-            return f"{self.base_url.rstrip('/')}/{relative}"
+            return f"/api/openclaw/{relative}"
         # 其他 file:// 路径原样返回
         return file_url
 

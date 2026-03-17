@@ -72,7 +72,7 @@ export default function Automation() {
   const {lang} = useI18n()
   const {user} = useAuth()
   const {jobs, loading: jobsLoading} = useJobs()
-  const {platformProfiles, platformConfigs, companyProfile, gatewayUrl, authToken} = useSettingsStore()
+  const {platformProfiles, platformConfigs, companyProfile, gatewayUrl} = useSettingsStore()
   const safeCompanyProfile = companyProfile || {name: '', address: '', size: '', overview: ''}
 
   const {
@@ -177,11 +177,10 @@ export default function Automation() {
       company_size: safeCompanyProfile.size,
       company_overview: safeCompanyProfile.overview,
       openclaw_base_url: gatewayUrl,
-      openclaw_auth_token: authToken,
       min_match_score: matchThreshold,
       max_results: maxResults,
     })
-  }, [selectedJob, selectedPlatform, selectedPlatforms, selectedProfile, user, platformConfigs, safeCompanyProfile, gatewayUrl, authToken, matchThreshold, maxResults, startWorkflow])
+  }, [selectedJob, selectedPlatform, selectedPlatforms, selectedProfile, user, platformConfigs, safeCompanyProfile, gatewayUrl, matchThreshold, maxResults, startWorkflow])
 
   // ── 多平台选择切换 ──────────────────────────────────────
   const togglePlatformSelection = (key: string) => {
@@ -490,9 +489,16 @@ export default function Automation() {
 
                   {/* 中列：操作截图时间线 */}
                   <div className="space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      操作记录节点
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        操作截图节点
+                      </p>
+                      {displayExec.actionNodes.length > 0 && (
+                        <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+                          {displayExec.actionNodes.length}
+                        </Badge>
+                      )}
+                    </div>
                     <div className="max-h-72 overflow-y-auto space-y-3 pr-1">
                       {displayExec.actionNodes.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-36 rounded-lg border border-dashed text-muted-foreground">
@@ -507,13 +513,15 @@ export default function Automation() {
                                 {idx + 1}
                               </div>
                               {idx < displayExec.actionNodes.length - 1 && (
-                                <div className="w-px flex-1 bg-border mt-1 mb-0"/>
+                                <div className="w-px flex-1 bg-border mt-1"/>
                               )}
                             </div>
                             <div className="flex-1 pb-3">
                               <div className="flex items-center gap-1.5 mb-1.5">
-                                <span className="text-xs font-medium leading-none">{node.action}</span>
-                                <span className="text-[10px] text-muted-foreground">{node.time}</span>
+                                <span className="text-xs font-medium leading-none truncate max-w-[110px]">
+                                  {node.action}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground shrink-0">{node.time}</span>
                               </div>
                               {node.screenshot ? (
                                 <div
@@ -524,6 +532,15 @@ export default function Automation() {
                                     src={node.screenshot}
                                     alt={node.action}
                                     className="w-full h-28 object-cover object-top"
+                                    onError={(e) => {
+                                      const img = e.target as HTMLImageElement
+                                      img.style.display = 'none'
+                                      const box = img.closest('.relative') as HTMLElement | null
+                                      if (box) {
+                                        box.className = 'h-12 rounded bg-muted/40 flex items-center justify-center'
+                                        box.innerHTML = '<span class="text-[10px] text-muted-foreground">截图加载失败</span>'
+                                      }
+                                    }}
                                   />
                                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     <ZoomIn className="h-5 w-5 text-white"/>
@@ -531,7 +548,7 @@ export default function Automation() {
                                 </div>
                               ) : (
                                 <div className="h-6 rounded bg-muted/50 flex items-center px-2">
-                                  <span className="text-[10px] text-muted-foreground">无截图</span>
+                                  <span className="text-[10px] text-muted-foreground">仅文本输出</span>
                                 </div>
                               )}
                             </div>
@@ -541,22 +558,35 @@ export default function Automation() {
                     </div>
                   </div>
 
-                  {/* 右列：AI 实时输出 */}
+                  {/* 右列：AI 完整输出（含全部步骤，完成后持续展示） */}
                   <div className="space-y-3">
-                    {displayExec.status === 'completed' && displayExec.result && (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20 p-3">
-                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mb-2">
-                          执行结果
+                    {/* 完成结果摘要 */}
+                    {(displayExec.status === 'completed' || displayExec.status === 'failed') &&
+                      displayExec.result && (
+                      <div className={`rounded-lg border p-3 ${
+                        displayExec.status === 'completed'
+                          ? 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
+                          : 'border-red-200 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20'
+                      }`}>
+                        <p className={`text-xs font-semibold uppercase tracking-wider mb-2 ${
+                          displayExec.status === 'completed'
+                            ? 'text-emerald-700 dark:text-emerald-300'
+                            : 'text-red-700 dark:text-red-300'
+                        }`}>
+                          {displayExec.status === 'completed' ? '✅ 执行完成' : '❌ 执行失败'}
                         </p>
                         {displayExec.result.announcement && (
-                          <div className="mb-2">
-                            <p className="text-xs font-medium mb-1">AI 公告内容：</p>
-                            <pre className="whitespace-pre-wrap break-words text-xs text-foreground leading-relaxed">
+                          <details className="mb-2" open>
+                            <summary className="text-xs font-medium cursor-pointer mb-1 select-none">
+                              📄 AI 生成公告内容
+                            </summary>
+                            <pre className="whitespace-pre-wrap break-words text-xs text-foreground leading-relaxed mt-1.5 max-h-40 overflow-y-auto">
                               {displayExec.result.announcement}
                             </pre>
-                          </div>
+                          </details>
                         )}
-                        {displayExec.result.result_summary && (
+                        {displayExec.result.result_summary &&
+                          Object.keys(displayExec.result.result_summary).length > 0 && (
                           <div className="space-y-1">
                             {Object.entries(displayExec.result.result_summary).map(([k, v]) => (
                               <div key={k} className="flex justify-between text-xs">
@@ -570,9 +600,9 @@ export default function Automation() {
                     )}
 
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      AI助理反馈
+                      AI 助理完整输出
                     </p>
-                    <div className="h-72 rounded-lg bg-zinc-950 dark:bg-zinc-900 text-zinc-100 p-3 font-mono text-xs overflow-y-auto">
+                    <div className="h-64 rounded-lg bg-zinc-950 dark:bg-zinc-900 text-zinc-100 p-3 font-mono text-xs overflow-y-auto">
                       {displayExec.accumulatedText ? (
                         <>
                           <pre className="whitespace-pre-wrap break-words leading-relaxed">
