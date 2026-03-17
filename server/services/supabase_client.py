@@ -1,0 +1,139 @@
+"""
+Supabase 客户端封装
+
+负责向 Supabase 写入候选人、任务日志、自动化任务等数据。
+"""
+
+from datetime import datetime, timezone
+from typing import Optional
+from supabase import create_client, Client
+
+from config import get_settings
+
+
+_client: Optional[Client] = None
+
+
+def get_supabase() -> Client:
+    """获取 Supabase 客户端单例"""
+    global _client
+    if _client is None:
+        settings = get_settings()
+        _client = create_client(settings.supabase_url, settings.supabase_anon_key)
+    return _client
+
+
+# ── Candidates ────────────────────────────────────────────
+
+
+def create_candidates_batch(
+    tenant_id: str,
+    candidates: list[dict],
+) -> list[dict]:
+    """
+    批量写入候选人记录（全部新建，不去重）。
+
+    每个 candidate dict 应包含:
+        name, source, stage, job_id,
+        ai_match_score?, ai_analysis?, email?, phone?, notes?, tags?, metadata?
+    """
+    sb = get_supabase()
+    rows = []
+    for c in candidates:
+        rows.append({
+            "tenant_id": tenant_id,
+            "job_id": c.get("job_id"),
+            "name": c.get("name", "未知"),
+            "email": c.get("email"),
+            "phone": c.get("phone"),
+            "source": c.get("source", "openclaw_auto"),
+            "stage": c.get("stage", "new"),
+            "ai_match_score": c.get("ai_match_score"),
+            "ai_analysis": c.get("ai_analysis"),
+            "notes": c.get("notes"),
+            "tags": c.get("tags", []),
+            "metadata": c.get("metadata", {}),
+        })
+
+    if not rows:
+        return []
+
+    result = sb.table("candidates").insert(rows).execute()
+    return result.data or []
+
+
+# ── Automation Tasks ──────────────────────────────────────
+
+
+def create_automation_task(
+    tenant_id: str,
+    created_by: str,
+    task_type: str,
+    name: str,
+    config: dict,
+    platform: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> dict:
+    """创建自动化任务记录"""
+    sb = get_supabase()
+    result = sb.table("automation_tasks").insert({
+        "tenant_id": tenant_id,
+        "created_by": created_by,
+        "type": task_type,
+        "name": name,
+        "status": "running",
+        "config": config,
+        "platform": platform,
+        "job_id": job_id,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }).execute()
+    return result.data[0] if result.data else {}
+
+
+def update_automation_task(
+    task_id: str,
+    updates: dict,
+) -> dict:
+    """更新自动化任务状态"""
+    sb = get_supabase()
+    result = sb.table("automation_tasks").update(updates).eq("id", task_id).execute()
+    return result.data[0] if result.data else {}
+
+
+def complete_automation_task(
+    task_id: str,
+    status: str = "completed",
+    result_summary: Optional[dict] = None,
+    error_message: Optional[str] = None,
+) -> dict:
+    """完成自动化任务"""
+    updates: dict = {
+        "status": status,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if result_summary is not None:
+        updates["result_summary"] = result_summary
+    if error_message is not None:
+        updates["error_message"] = error_message
+    return update_automation_task(task_id, updates)
+
+
+# ── Task Logs ─────────────────────────────────────────────
+
+
+def insert_task_log(
+    task_id: str,
+    tenant_id: str,
+    level: str,
+    message: str,
+    metadata: Optional[dict] = None,
+) -> None:
+    """写入任务日志"""
+    sb = get_supabase()
+    sb.table("task_logs").insert({
+        "task_id": task_id,
+        "tenant_id": tenant_id,
+        "level": level,
+        "message": message,
+        "metadata": metadata,
+    }).execute()

@@ -100,7 +100,7 @@ export interface Database {
           tenant_id: string
           created_by: string
           job_id: string | null
-          type: 'auto_publish' | 'resume_screen' | 'auto_source' | 'auto_reply'
+          type: 'publish_job' | 'talent_explore' | 'resume_screen' | 'auto_publish' | 'auto_source' | 'auto_reply'
           name: string
           status: 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
           config: Record<string, unknown>

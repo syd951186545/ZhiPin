@@ -1,562 +1,80 @@
-import type {OpenClawSkill} from '@/types/openclaw'
+/**
+ * 工作流定义（前端元数据）
+ *
+ * Prompt 模板已迁移到 Python 后端（server/prompts/），
+ * 前端只保留工作流和步骤的 UI 元数据。
+ */
 
-export type AutoPublishStage = 'init' | 'fill' | 'submit'
+import type {WorkflowId} from '@/services/workflowService'
 
-// ============================================================
-// OpenClaw 标准化 Skill 定义 + Prompt 模板
-// ============================================================
+// ── 工作流步骤元数据 ─────────────────────────────────────
 
-export const SKILLS: OpenClawSkill[] = [
-  // ---- Skill 1: 自动发布职位 ----
+export interface WorkflowStepMeta {
+  id: string
+  nameZh: string
+}
+
+export interface WorkflowDefinition {
+  id: WorkflowId
+  name: string
+  nameZh: string
+  description: string
+  descriptionZh: string
+  /** 前端预定义的步骤（后端启动时会发送实际步骤列表覆盖） */
+  defaultSteps: WorkflowStepMeta[]
+  /** 是否支持多平台 */
+  multiPlatform: boolean
+}
+
+// ── 3 个工作流定义 ───────────────────────────────────────
+
+export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
   {
-    id: 'auto_publish',
-    name: 'Auto-Publish Jobs',
-    nameZh: '自动发布职位',
-    description: 'Login to recruitment platform and publish job postings automatically',
-    descriptionZh: '登录招聘平台，自动填写并发布职位信息',
-    taskType: 'auto_publish',
-    requiredPlatformLogin: true,
-    configSchema: {
-      platform: {
-        type: 'select',
-        label: 'Platform',
-        labelZh: '目标平台',
-        required: true,
-        options: [
-          { value: 'boss_zhipin', label: 'BOSS直聘' },
-          { value: '58', label: '58同城' },
-          { value: 'linkedin', label: '领英' },
-        ],
-      },
-      job_id: { type: 'string', label: 'Job ID', labelZh: '职位ID', required: true },
-      refresh_interval_hours: { type: 'number', label: 'Refresh Interval (hours)', labelZh: '刷新间隔(小时)', default: 24 },
-    },
-    promptTemplate: `请根据你的专业招聘skill完成以下自动发布职位任务，并严格按指定格式返回结果。
-
-【任务目标】
-登录{{platform}}平台，用指定账号发布职位，并生成对外发布的招聘公告内容。
-
-【账号信息】
-- 账号：{{account_name}}
-
-【企业信息】
-- 企业名称：{{company_name}}
-- 企业地址：{{company_address}}
-- 企业规模：{{company_size}}
-- 企业概述：{{company_overview}}
-
-【职位信息】
-- 职位名称：{{job_title}}
-- 工作地点：{{location}}
-- 薪资范围：{{salary_min}}K - {{salary_max}}K
-- 工作类型：{{employment_type}}
-- 所属部门：{{department}}
-
-【职位描述】
-{{description}}
-
-【任职要求】
-{{requirements}}
-
-【福利待遇】
-{{benefits}}
-
-【执行流程（需输出阶段完成标记）】
-1. 准备环境与检查账号
-2. 登录{{platform}}并进入发布入口
-3. 生成招聘公告内容
-4. 填写职位表单并提交
-5. 确认发布结果与记录链接
-
-【阶段完成标记要求】
-每完成一个阶段，请在输出中追加一行：
-[STEP_DONE:init]
-[STEP_DONE:login]
-[STEP_DONE:announce]
-[STEP_DONE:fill]
-[STEP_DONE:submit]
-
-【输出格式（必须严格遵守）】
-【AI公告内容】
-（生成一份适合对外发布的招聘公告，含企业简介、岗位职责、任职要求、薪资福利、工作地点、投递方式。使用自然流畅中文，避免夸大承诺。）
-【/AI公告内容】
-
-【发布结果】
-- 发布平台：{{platform}}
-- 发布账号：{{account_name}}
-- 职位名称：{{job_title}}
-- 发布状态：成功/失败（如失败说明原因）
-- 职位链接：（如可获取）
-【/发布结果】
-
-【注意事项】
-- 如遇验证码，等待人工处理
-- 所有字段必须完整填写
-- 薪资单位按平台要求换算
-- 发布后截图保存确认信息`,
+    id: 'publish_job',
+    name: 'Publish Job Posting',
+    nameZh: '发布招聘公告',
+    description: 'Auto-generate job announcement and publish to recruitment platform',
+    descriptionZh: '选择平台和岗位要求，AI自动生成招聘公告并发布到指定平台',
+    multiPlatform: false,
+    defaultSteps: [
+      {id: 'login_check', nameZh: '登录检查'},
+      {id: 'generate_announcement', nameZh: '生成招聘公告'},
+      {id: 'fill_and_publish', nameZh: '填写并发布'},
+      {id: 'verify_result', nameZh: '验证发布结果'},
+    ],
   },
-
-  // ---- Skill 2: 简历智能筛选 ----
+  {
+    id: 'talent_explore',
+    name: 'Market Talent Exploration',
+    nameZh: '市场人才探索',
+    description: 'Search platform for matching candidates and proactively communicate',
+    descriptionZh: '在招聘平台搜索匹配候选人，主动沟通并记录到候选人页面',
+    multiPlatform: false,
+    defaultSteps: [
+      {id: 'login_check', nameZh: '登录平台'},
+      {id: 'search_candidates', nameZh: '搜索候选人'},
+      {id: 'collect_profiles', nameZh: '采集候选人资料'},
+      {id: 'initiate_contact', nameZh: '主动沟通'},
+      {id: 'save_results', nameZh: '保存结果'},
+    ],
+  },
   {
     id: 'resume_screen',
-    name: 'Resume Screening',
-    nameZh: '简历智能筛选',
-    description: 'AI-powered resume screening against job requirements',
-    descriptionZh: '基于AI对简历进行智能筛选和评分',
-    taskType: 'resume_screen',
-    requiredPlatformLogin: true,
-    configSchema: {
-      platform: {
-        type: 'select',
-        label: 'Platform',
-        labelZh: '来源平台',
-        required: true,
-        options: [
-          { value: 'boss_zhipin', label: 'BOSS直聘' },
-          { value: '58', label: '58同城' },
-        ],
-      },
-      job_id: { type: 'string', label: 'Job ID', labelZh: '职位ID', required: true },
-      min_match_score: { type: 'number', label: 'Min Match Score', labelZh: '最低匹配分', default: 60 },
-      auto_reject_below: { type: 'number', label: 'Auto-reject Below', labelZh: '自动淘汰分数线', default: 30 },
-      max_candidates: { type: 'number', label: 'Max Candidates', labelZh: '最大筛选数量', default: 50 },
-    },
-    promptTemplate: `你是一个专业的HR简历筛选助手。请根据以下职位要求评估候选人简历。
-
-【职位信息】
-- 职位：{{job_title}}
-- 部门：{{department}}
-- 地点：{{location}}
-
-【职位要求】
-{{requirements}}
-
-{{#if ai_system_prompt}}
-【额外筛选指令】
-{{ai_system_prompt}}
-{{/if}}
-
-【筛选标准】
-请对每份简历给出以下评估：
-1. 匹配度评分（0-100分）
-   - 技术能力匹配：占40%
-   - 工作经验匹配：占30%
-   - 教育背景匹配：占15%
-   - 综合素质匹配：占15%
-2. 优势分析（3-5条关键优势）
-3. 不足分析（1-3条主要不足）
-4. 推荐等级：强烈推荐 / 推荐 / 待定 / 不推荐
-5. 一句话推荐理由
-
-【自动处理规则】
-- 匹配度 ≥ {{min_match_score}} 分：标记为"推荐面试"
-- 匹配度 < {{auto_reject_below}} 分：自动标记为"不合适"
-- 中间分数段：标记为"待人工复核"
-
-【操作流程】
-1. 登录{{platform}}，进入收到的简历列表
-2. 逐份查看简历详情
-3. 按以上标准进行评估打分
-4. 记录评估结果
-5. 按规则标记简历状态`,
-  },
-
-  // ---- Skill 3: 自动搜索人才 ----
-  {
-    id: 'auto_source',
-    name: 'Talent Sourcing',
-    nameZh: '自动搜索人才',
-    description: 'Automatically search and collect candidate profiles from recruitment platforms',
-    descriptionZh: '自动在招聘平台搜索并采集候选人资料',
-    taskType: 'auto_source',
-    requiredPlatformLogin: true,
-    configSchema: {
-      platform: {
-        type: 'select',
-        label: 'Platform',
-        labelZh: '搜索平台',
-        required: true,
-        options: [
-          { value: 'boss_zhipin', label: 'BOSS直聘' },
-          { value: '58', label: '58同城' },
-          { value: 'linkedin', label: '领英' },
-        ],
-      },
-      keywords: { type: 'string[]', label: 'Keywords', labelZh: '搜索关键词', required: true },
-      location: { type: 'string', label: 'Location', labelZh: '工作地点', default: '' },
-      experience_years: { type: 'number', label: 'Min Experience (years)', labelZh: '最少经验年限', default: 0 },
-      max_results: { type: 'number', label: 'Max Results', labelZh: '最大结果数', default: 30 },
-    },
-    promptTemplate: `你是一个招聘搜索助手。请在{{platform}}上搜索符合要求的候选人。
-
-【搜索条件】
-- 关键词：{{keywords}}
-- 工作地点：{{location}}
-- 经验要求：{{experience_years}}年以上
-- 最多获取：{{max_results}}个结果
-
-【操作步骤】
-1. 登录{{platform}}平台
-2. 进入人才搜索/简历搜索页面
-3. 输入搜索关键词和筛选条件
-4. 浏览搜索结果页面
-
-【信息采集】
-对于每个候选人，请提取以下信息：
-- 姓名（或显示名）
-- 当前职位
-- 当前公司
-- 工作年限
-- 最高学历及院校
-- 核心技能标签
-- 期望薪资（如显示）
-- 简历更新时间
-- 个人简介/亮点
-
-【输出要求】
-- 按相关度从高到低排序
-- 标注每个候选人的推荐理由
-- 如遇到限制（如日搜索上限），记录已搜索数量并停止
-
-【注意事项】
-- 控制操作频率，避免触发平台风控
-- 每次翻页间隔3-5秒
-- 如遇验证码，暂停等待处理`,
-  },
-
-  // ---- Skill 4: 智能自动沟通 ----
-  {
-    id: 'auto_reply',
-    name: 'Auto Reply',
-    nameZh: '智能自动沟通',
-    description: 'Automatically reply to candidate messages on recruitment platforms',
-    descriptionZh: '自动回复招聘平台上候选人的消息',
-    taskType: 'auto_reply',
-    requiredPlatformLogin: true,
-    configSchema: {
-      platform: {
-        type: 'select',
-        label: 'Platform',
-        labelZh: '沟通平台',
-        required: true,
-        options: [
-          { value: 'boss_zhipin', label: 'BOSS直聘' },
-          { value: '58', label: '58同城' },
-        ],
-      },
-      job_id: { type: 'string', label: 'Job ID', labelZh: '关联职位ID' },
-      greeting_template: {
-        type: 'string',
-        label: 'Greeting Template',
-        labelZh: '问候模板',
-        default: '您好！感谢您对{{job_title}}职位的关注。我是{{company_name}}的招聘负责人，很高兴能与您沟通。',
-      },
-      response_style: {
-        type: 'select',
-        label: 'Response Style',
-        labelZh: '沟通风格',
-        default: 'professional',
-        options: [
-          { value: 'professional', label: '专业正式' },
-          { value: 'friendly', label: '亲切友好' },
-          { value: 'concise', label: '简洁高效' },
-        ],
-      },
-      max_messages_per_session: { type: 'number', label: 'Max Messages per Session', labelZh: '每次最多回复条数', default: 20 },
-    },
-    promptTemplate: `你是{{company_name}}的招聘顾问。请在{{platform}}上与候选人进行专业沟通。
-
-【职位信息】
-- 职位名称：{{job_title}}
-- 工作地点：{{location}}
-- 薪资范围：{{salary_min}}K - {{salary_max}}K
-
-【沟通风格】
-{{response_style_desc}}
-
-【首次问候模板】
-{{greeting_template}}
-
-【沟通规则】
-1. 首次接触的候选人：使用问候模板打招呼，并简要介绍职位亮点
-2. 回答候选人关于职位、薪资、工作内容、团队的问题
-3. 如果候选人表示感兴趣：
-   - 引导其发送简历
-   - 确认可面试的时间段
-   - 告知面试流程
-4. 如果候选人犹豫或有顾虑：
-   - 了解具体顾虑
-   - 给出针对性的解答
-   - 不要过度推销
-5. 如果候选人明确拒绝：
-   - 礼貌感谢
-   - 表示后续有合适机会再联系
-
-【禁止行为】
-- 不做出公司未授权的薪资承诺
-- 不透露其他候选人的信息
-- 不对公司内部事务发表评论
-- 不发送外部链接
-- 每次沟通最多处理{{max_messages_per_session}}条消息
-
-【操作步骤】
-1. 登录{{platform}}平台
-2. 进入消息/聊天列表
-3. 按时间顺序处理未读消息
-4. 按以上规则进行回复
-5. 记录每次沟通的结果和候选人意向`,
+    name: 'Resume Screening & AI Communication',
+    nameZh: '简历筛选及AI沟通',
+    description: 'Collect resumes from all platforms, analyze match scores, and contact qualified candidates',
+    descriptionZh: '采集全部平台简历，AI分析匹配度，对达标者主动沟通邀约',
+    multiPlatform: true,
+    defaultSteps: [
+      {id: 'login_check', nameZh: '登录平台'},
+      {id: 'collect_resumes', nameZh: '采集简历'},
+      {id: 'analyze_match', nameZh: '分析匹配度'},
+      {id: 'contact_qualified', nameZh: '沟通邀约'},
+      {id: 'save_results', nameZh: '汇总保存结果'},
+    ],
   },
 ]
 
-/** 根据 skill ID 获取 skill 定义 */
-export function getSkillById(id: string): OpenClawSkill | undefined {
-  return SKILLS.find((s) => s.id === id)
-}
-
-/** 根据 taskType 获取 skill 定义 */
-export function getSkillByTaskType(taskType: string): OpenClawSkill | undefined {
-  return SKILLS.find((s) => s.taskType === taskType)
-}
-
-/** 将 prompt 模板中的变量替换为实际值 */
-export function buildPrompt(
-  template: string,
-  variables: Record<string, string | number | string[] | undefined>
-): string {
-  let result = template
-
-  // 处理条件块 {{#if var}}...{{/if}}
-  result = result.replace(
-    /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
-    (_, varName, content) => {
-      const value = variables[varName]
-      if (value && value !== '' && value !== '0') {
-        return content
-      }
-      return ''
-    }
-  )
-
-  // 替换普通变量 {{var}}
-  result = result.replace(/\{\{(\w+)\}\}/g, (_, varName) => {
-    const value = variables[varName]
-    if (Array.isArray(value)) {
-      return value.join('、')
-    }
-    return value !== undefined ? String(value) : `{{${varName}}}`
-  })
-
-  return result.trim()
-}
-
-/** 构建发送给 OpenClaw 的完整任务 payload */
-export function buildTaskPayload(
-  skillId: string,
-  config: Record<string, unknown>,
-  context: {
-    job?: {
-      title: string
-      location?: string
-      salary_min?: number
-      salary_max?: number
-      employment_type?: string
-      department?: string
-      description?: string
-      requirements?: string
-      benefits?: string
-    }
-    companyName?: string
-    companyAddress?: string
-    companySize?: string
-    companyOverview?: string
-    aiSystemPrompt?: string
-  }
-) {
-  const skill = getSkillById(skillId)
-  if (!skill) throw new Error(`Skill not found: ${skillId}`)
-
-  const variables: Record<string, string | number | string[] | undefined> = {
-    ...config,
-    platform: getPlatformDisplayName(config.platform as string),
-    account_name: (config.account_name as string) || '',
-    job_title: context.job?.title,
-    location: context.job?.location || '不限',
-    salary_min: context.job?.salary_min,
-    salary_max: context.job?.salary_max,
-    employment_type: context.job?.employment_type,
-    department: context.job?.department || '未指定',
-    description: context.job?.description,
-    requirements: context.job?.requirements,
-    benefits: context.job?.benefits || '面议',
-    company_name: context.companyName || '我们公司',
-    company_address: context.companyAddress || '未填写',
-    company_size: context.companySize || '未填写',
-    company_overview: context.companyOverview || '未填写',
-    ai_system_prompt: context.aiSystemPrompt,
-    response_style_desc: getResponseStyleDesc(config.response_style as string),
-  } as Record<string, string | number | string[] | undefined>
-
-  const prompt = buildPrompt(skill.promptTemplate, variables)
-
-  return {
-    skill_id: skillId,
-    task_name: `${skill.nameZh} - ${context.job?.title || '任务'}`,
-    config,
-    prompt,
-    platform: config.platform as string,
-    job_id: config.job_id as string,
-  }
-}
-
-export function buildAutoPublishStagePrompt(
-  stage: AutoPublishStage,
-  config: Record<string, unknown>,
-  context: {
-    job?: {
-      title: string
-      location?: string
-      salary_min?: number
-      salary_max?: number
-      employment_type?: string
-      department?: string
-      description?: string
-      requirements?: string
-      benefits?: string
-    }
-    companyName?: string
-    companyAddress?: string
-    companySize?: string
-    companyOverview?: string
-    aiSystemPrompt?: string
-  }
-): string {
-  const variables: Record<string, string | number | string[] | undefined> = {
-    ...config,
-    platform: getPlatformDisplayName(config.platform as string),
-    account_name: (config.account_name as string) || '',
-    job_title: context.job?.title,
-    location: context.job?.location || '不限',
-    salary_min: context.job?.salary_min,
-    salary_max: context.job?.salary_max,
-    employment_type: context.job?.employment_type,
-    department: context.job?.department || '未指定',
-    description: context.job?.description,
-    requirements: context.job?.requirements,
-    benefits: context.job?.benefits || '面议',
-    company_name: context.companyName || '我们公司',
-    company_address: context.companyAddress || '未填写',
-    company_size: context.companySize || '未填写',
-    company_overview: context.companyOverview || '未填写',
-    ai_system_prompt: context.aiSystemPrompt,
-  }
-
-  const stageTemplates: Record<AutoPublishStage, string> = {
-    init: `你是一个专业的招聘助手，请执行「自动发布招聘」任务的第1阶段：准备环境。
-
-【账号信息】
-- 平台：{{platform}}
-- 账号：{{account_name}}
-
-【本阶段要求】
-- 检查网络环境
-- 进入{{platform}}网站
-- 检查账号是否已登录，未登录则完成登录，若已登录尽量检查账号信息，但不要退出登录。
-- 做发布前必要准备（如进入后台/招聘模块）
-- 完成后截图（用于任务监控节点展示）
-
-完成后仅输出：
-[STEP_DONE:init]
-
-若无法完成，请输出：
-[STEP_FAILED:init]`,
-
-    fill: `你是一个专业的招聘助手，请执行第2阶段：发布准备。
-
-【目标平台】
-{{platform}}
-
-【企业信息】
-- 企业名称：{{company_name}}
-- 企业地址：{{company_address}}
-- 企业规模：{{company_size}}
-- 企业概述：{{company_overview}}
-
-【职位信息】
-- 职位名称：{{job_title}}
-- 工作地点：{{location}}
-- 薪资范围：{{salary_min}}K - {{salary_max}}K
-- 工作类型：{{employment_type}}
-- 所属部门：{{department}}
-
-【职位描述】
-{{description}}
-
-【任职要求】
-{{requirements}}
-
-【福利待遇】
-{{benefits}}
-
-【本阶段要求】
-- 进入职位发布页面
-- 根据页面内容进行表单填写
-- 生成招聘公告文案
-- 不要发布，只保存为可发布状态
-- 完成后截图（用于任务监控节点展示）
-
-【输出格式（必须严格遵守）】
-【AI公告内容】
-（生成一份适合对外发布的招聘公告，含企业简介、岗位职责、任职要求、薪资福利、工作地点、投递方式。使用自然流畅中文，避免夸大承诺。）
-【/AI公告内容】
-
-输出完成后追加：
-[STEP_DONE:fill]
-
-若无法完成，请输出：
-[STEP_FAILED:fill]`,
-
-    submit: `你是一个专业的招聘助手，请执行第3阶段：确认发布。
-
-【目标平台】
-{{platform}}
-
-【本阶段要求】
-- 执行最终发布操作
-- 发布成功后截图（用于任务监控节点展示）
-
-【输出格式（必须严格遵守）】
-【发布结果】
-- 发布平台：{{platform}}
-- 发布账号：{{account_name}}
-- 职位名称：{{job_title}}
-- 发布状态：成功/失败（如失败说明原因）
-- 职位链接：（如可获取）
-【/发布结果】
-
-输出完成后追加：
-[STEP_DONE:submit]
-
-若无法完成，请输出：
-[STEP_FAILED:submit]`,
-  }
-
-  return buildPrompt(stageTemplates[stage], variables)
-}
-
-function getPlatformDisplayName(key: string): string {
-  const map: Record<string, string> = {
-    boss_zhipin: 'BOSS直聘',
-    '58': '58同城',
-    linkedin: '领英',
-  }
-  return map[key] || key
-}
-
-function getResponseStyleDesc(style: string): string {
-  const map: Record<string, string> = {
-    professional: '专业正式：使用规范用语，保持职业化沟通风格',
-    friendly: '亲切友好：语气温暖，适当使用表情，让候选人感到亲近',
-    concise: '简洁高效：言简意赅，直奔主题，节省双方时间',
-  }
-  return map[style] || '专业正式'
+export function getWorkflowById(id: WorkflowId): WorkflowDefinition | undefined {
+  return WORKFLOW_DEFINITIONS.find((w) => w.id === id)
 }

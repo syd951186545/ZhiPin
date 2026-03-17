@@ -1,0 +1,220 @@
+"""
+工作流基础设施
+
+定义通用的工作流状态、步骤执行逻辑，供三个工作流复用。
+"""
+
+import asyncio
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Optional, TypedDict
+
+from services.openclaw_client import OpenClawClient, StepResult
+
+logger = logging.getLogger(__name__)
+
+
+# ── 工作流状态 (LangGraph State) ──────────────────────────
+
+
+class WorkflowState(TypedDict, total=False):
+    """LangGraph 工作流状态"""
+    # 执行标识
+    execution_id: str
+    workflow_id: str
+    session_id: str
+
+    # 当前执行位置
+    current_step: str
+    step_index: int
+    total_steps: int
+
+    # 平台与账号
+    platform: str
+    platforms: list[str]  # 多平台工作流
+    current_platform_index: int
+    account_name: str
+
+    # 岗位信息
+    job_id: str
+    job_title: str
+    job_location: str
+    job_salary_min: int
+    job_salary_max: int
+    job_employment_type: str
+    job_department: str
+    job_description: str
+    job_requirements: str
+    job_benefits: str
+
+    # 企业信息
+    company_name: str
+    company_address: str
+    company_size: str
+    company_overview: str
+
+    # 执行参数
+    min_match_score: int
+    max_results: int
+
+    # 执行结果
+    step_results: dict[str, dict]  # step_id -> {text, screenshots, success}
+    accumulated_text: str
+    all_screenshots: list[str]
+    parsed_candidates: list[dict]
+    announcement_text: str
+    publish_result: dict
+
+    # 状态控制
+    error: Optional[str]
+    completed: bool
+
+
+# ── 步骤定义 ──────────────────────────────────────────────
+
+
+@dataclass
+class StepDefinition:
+    """工作流步骤定义"""
+    id: str
+    name_zh: str
+    prompt_builder: Any  # Callable[[WorkflowState], str]
+    requires_openclaw: bool = True
+
+
+# ── 步骤执行器 ────────────────────────────────────────────
+
+
+async def execute_step(
+    state: WorkflowState,
+    step: StepDefinition,
+    openclaw: OpenClawClient,
+    emit_event,
+) -> WorkflowState:
+    """
+    执行单个工作流步骤。
+
+    1. 发送 step_change 事件
+    2. 构建 prompt
+    3. 调用 OpenClaw
+    4. 处理结果
+    5. 更新状态
+    """
+    step_id = step.id
+    execution_id = state["execution_id"]
+
+    # 通知前端步骤开始
+    await emit_event(execution_id, "step_change", {
+        "step_id": step_id,
+        "step_name": step.name_zh,
+        "status": "running",
+        "step_index": state.get("step_index", 0),
+        "total_steps": state.get("total_steps", 1),
+        "platform": state.get("platform", ""),
+    })
+
+    logger.info(f"[{execution_id}] 执行步骤: {step_id} ({step.name_zh})")
+
+    if not step.requires_openclaw:
+        # 纯后端步骤（如 save_results），直接标记成功
+        await emit_event(execution_id, "step_change", {
+            "step_id": step_id,
+            "step_name": step.name_zh,
+            "status": "done",
+        })
+        return state
+
+    # 构建 prompt
+    prompt = step.prompt_builder(state)
+
+    # 定义进度回调 - 将 OpenClaw SSE 数据转发给前端
+    async def on_progress(delta: str, accumulated: str, screenshots: list[str]):
+        await emit_event(execution_id, "progress", {
+            "step_id": step_id,
+            "delta": delta,
+            "accumulated_text": accumulated,
+            "screenshots": screenshots,
+        })
+
+    # 调用 OpenClaw
+    result: StepResult = await openclaw.execute_step(
+        prompt=prompt,
+        session_id=state["session_id"],
+        step_id=step_id,
+        on_progress=on_progress,
+    )
+
+    # 更新状态
+    new_state = dict(state)
+    step_results = dict(state.get("step_results", {}))
+    step_results[step_id] = {
+        "text": result.accumulated_text,
+        "screenshots": result.screenshots,
+        "success": result.success,
+        "error": result.error,
+    }
+    new_state["step_results"] = step_results
+    new_state["accumulated_text"] = state.get("accumulated_text", "") + "\n" + result.accumulated_text
+    new_state["all_screenshots"] = state.get("all_screenshots", []) + result.screenshots
+
+    # 发送截图事件
+    for screenshot in result.screenshots:
+        await emit_event(execution_id, "screenshot", {
+            "step_id": step_id,
+            "screenshot": screenshot,
+            "action": step.name_zh,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    if not result.success:
+        new_state["error"] = result.error
+        await emit_event(execution_id, "step_change", {
+            "step_id": step_id,
+            "step_name": step.name_zh,
+            "status": "failed",
+            "error": result.error,
+        })
+        logger.error(f"[{execution_id}] 步骤失败: {step_id} - {result.error}")
+    else:
+        await emit_event(execution_id, "step_change", {
+            "step_id": step_id,
+            "step_name": step.name_zh,
+            "status": "done",
+        })
+        logger.info(f"[{execution_id}] 步骤完成: {step_id}")
+
+    return new_state
+
+
+async def run_steps(
+    state: WorkflowState,
+    steps: list[StepDefinition],
+    openclaw: OpenClawClient,
+    emit_event,
+    is_cancelled,
+) -> WorkflowState:
+    """
+    按顺序执行一组步骤。
+
+    任何步骤失败或被取消时停止执行。
+    """
+    state = dict(state)
+    state["total_steps"] = len(steps)
+
+    for i, step in enumerate(steps):
+        # 检查取消
+        if is_cancelled(state["execution_id"]):
+            state["error"] = "用户取消"
+            await emit_event(state["execution_id"], "cancelled", {"message": "工作流已取消"})
+            return state
+
+        state["step_index"] = i
+        state["current_step"] = step.id
+        state = await execute_step(state, step, openclaw, emit_event)
+
+        if state.get("error"):
+            return state
+
+    state["completed"] = True
+    return state

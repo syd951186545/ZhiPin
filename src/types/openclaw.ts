@@ -68,7 +68,7 @@ export interface OpenClawSkill {
   nameZh: string
   description: string
   descriptionZh: string
-  taskType: 'auto_publish' | 'resume_screen' | 'auto_source' | 'auto_reply'
+  taskType: 'publish_job' | 'talent_explore' | 'resume_screen' | 'auto_publish' | 'auto_source' | 'auto_reply'
   requiredPlatformLogin: boolean
   configSchema: Record<string, SkillConfigField>
   promptTemplate: string

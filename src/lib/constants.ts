@@ -28,8 +28,11 @@ export const CANDIDATE_SOURCE = {
 
 // 自动化任务类型
 export const TASK_TYPE = {
+  publish_job: '发布招聘公告',
+  talent_explore: '市场人才探索',
+  resume_screen: '简历筛选及AI沟通',
+  // 旧类型（向后兼容）
   auto_publish: '自动发布职位',
-  resume_screen: '简历智能筛选',
   auto_source: '自动搜索人才',
   auto_reply: '智能自动沟通',
 } as const
