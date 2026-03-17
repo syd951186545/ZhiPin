@@ -14,9 +14,8 @@ export default defineConfig({
     hmr: true,
     proxy: {
       '/api/openclaw': {
-        target: 'http://192.168.3.215:18789',
+        target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/openclaw/, ''),
       },
       '/api/workflow': {
         target: 'http://localhost:8000',

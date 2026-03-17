@@ -10,7 +10,6 @@ import {OPENCLAW_DEFAULT_AGENT_ID, PLATFORMS} from '@/lib/constants'
 interface SettingsState {
   // Connection
   gatewayUrl: string
-  authToken: string
   agentId: string
   proxyMode: boolean
 
@@ -46,7 +45,7 @@ interface SettingsState {
   retentionDays: number
 
   // ---- Actions ----
-  updateConnection: (updates: { gatewayUrl?: string; authToken?: string; agentId?: string; proxyMode?: boolean }) => void
+  updateConnection: (updates: { gatewayUrl?: string; agentId?: string; proxyMode?: boolean }) => void
   addProfile: (profile: PlatformProfile) => void
   updateProfile: (id: string, updates: Partial<PlatformProfile>) => void
   removeProfile: (id: string) => void
@@ -64,7 +63,6 @@ export const useSettingsStore = create<SettingsState>()(
     (set, get) => ({
       // ---- Default Values ----
       gatewayUrl: import.meta.env.VITE_OPENCLAW_URL || import.meta.env.VITE_OPENCLAW_WS_URL || 'http://192.168.3.215:18789',
-      authToken: '',
       agentId: OPENCLAW_DEFAULT_AGENT_ID,
       proxyMode: false,
 

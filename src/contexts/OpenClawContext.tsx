@@ -9,7 +9,7 @@ import type {ServiceState} from '@/types/openclaw'
 // ============================================================
 
 interface OpenClawContextType {
-  /** 服务是否就绪（已配置地址和 token） */
+  /** 服务是否就绪（已配置地址） */
   isReady: boolean
   /** 详细服务状态 */
   serviceState: ServiceState
@@ -32,7 +32,6 @@ const OpenClawContext = createContext<OpenClawContextType | undefined>(undefined
 export const OpenClawProvider: React.FC<{ children: React.ReactNode }> = ({children}) => {
   const {isAuthenticated} = useAuth()
   const gatewayUrl = useSettingsStore((s) => s.gatewayUrl)
-  const authToken = useSettingsStore((s) => s.authToken)
   const agentId = useSettingsStore((s) => s.agentId)
 
   const [serviceState, setServiceState] = useState<ServiceState>('idle')
@@ -55,9 +54,9 @@ export const OpenClawProvider: React.FC<{ children: React.ReactNode }> = ({child
   // 当配置变化时重新配置服务
   useEffect(() => {
     if (isAuthenticated && gatewayUrl) {
-      openclawService.configure(gatewayUrl, authToken, agentId)
+      openclawService.configure(gatewayUrl, agentId)
     }
-  }, [isAuthenticated, gatewayUrl, authToken, agentId])
+  }, [isAuthenticated, gatewayUrl, agentId])
 
   const startTask = useCallback(
     async (prompt: string, sessionId: string, taskId: string) => {

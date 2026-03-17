@@ -23,7 +23,7 @@ export default function Settings() {
 
   // Settings store (persisted to localStorage)
   const {
-    gatewayUrl, authToken, agentId,
+    gatewayUrl, agentId,
     proxyList, delayEnabled, mouseSimulation, headless,
     aiModel, aiTemperature, aiSystemPrompt,
     wecomUrl, notifEmail, auditLogging, retentionDays,
@@ -32,7 +32,6 @@ export default function Settings() {
 
   // Local form state for connection editing
   const [formGatewayUrl, setFormGatewayUrl] = useState(gatewayUrl)
-  const [formAuthToken, setFormAuthToken] = useState(authToken)
   const [formAgentId, setFormAgentId] = useState(agentId)
 
   // Connection test
@@ -48,7 +47,6 @@ export default function Settings() {
   const handleSaveConnection = () => {
     updateConnection({
       gatewayUrl: formGatewayUrl,
-      authToken: formAuthToken,
       agentId: formAgentId,
     })
   }
@@ -124,7 +122,7 @@ export default function Settings() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>OpenClaw 连接配置</CardTitle>
-                  <CardDescription>配置 OpenClaw 网关地址、认证令牌和目标 Agent</CardDescription>
+                  <CardDescription>配置 OpenClaw 网关地址与目标 Agent（Auth Token 已由后端预置）</CardDescription>
                 </div>
                 {getServiceStateLabel()}
               </div>
@@ -135,13 +133,6 @@ export default function Settings() {
                 <p className="text-xs text-muted-foreground">OpenClaw 服务的 HTTP 地址（如 http://192.168.3.215:18789）</p>
                 <Input value={formGatewayUrl} onChange={(e) => setFormGatewayUrl(e.target.value)}
                        placeholder="http://192.168.3.215:18789"/>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Auth Token</Label>
-                <p className="text-xs text-muted-foreground">OpenClaw 配置文件中设置的认证令牌（gateway.auth.token）</p>
-                <Input type="password" value={formAuthToken} onChange={(e) => setFormAuthToken(e.target.value)}
-                       placeholder="输入你的 Auth Token"/>
               </div>
 
               <div className="space-y-2">

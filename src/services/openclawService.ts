@@ -52,13 +52,13 @@ class OpenClawService {
 
   // ---- Configuration ----
 
-  configure(baseUrl: string, authToken: string, agentId?: string) {
+  configure(baseUrl: string, agentId?: string, authToken?: string) {
     // 将 ws:// 转换为 http://
     this._baseUrl = baseUrl.replace(/^ws(s?):\/\//, 'http$1://')
-    this._authToken = authToken
+    this._authToken = authToken || ''
     if (agentId) this._agentId = agentId
 
-    if (this._baseUrl && this._authToken) {
+    if (this._baseUrl) {
       this.setServiceState('ready')
     } else {
       this.setServiceState('idle')
@@ -68,19 +68,19 @@ class OpenClawService {
   // ---- API Helpers ----
 
   private getApiUrl(path: string): string {
-    // 开发环境使用 Vite proxy，生产环境直连
-    if (import.meta.env.DEV) {
-      return `/api/openclaw${path}`
-    }
-    return `${this._baseUrl}${path}`
+    // 统一走后端代理，由后端注入 Auth Token
+    return `/api/openclaw${path}`
   }
 
   private getHeaders(): Record<string, string> {
-    return {
-      'Authorization': `Bearer ${this._authToken}`,
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-openclaw-agent-id': this._agentId,
     }
+    if (this._authToken) {
+      headers.Authorization = `Bearer ${this._authToken}`
+    }
+    return headers
   }
 
   // ---- Test Connection ----
@@ -104,7 +104,7 @@ class OpenClawService {
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
       if (response.status === 401 || response.status === 403) {
-        throw new Error('认证失败，请检查 Auth Token')
+        throw new Error('认证失败，请检查后端 OpenClaw Token')
       }
       throw new Error(`连接失败 (${response.status}): ${errorText}`)
     }
@@ -125,8 +125,8 @@ class OpenClawService {
     sessionId: string
     taskId: string
   }): Promise<void> {
-    if (!this._baseUrl || !this._authToken) {
-      throw new Error('请先配置 OpenClaw 连接地址和 Auth Token')
+    if (!this._baseUrl) {
+      throw new Error('请先配置 OpenClaw 连接地址')
     }
 
     const controller = new AbortController()
@@ -153,7 +153,7 @@ class OpenClawService {
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
         if (response.status === 401 || response.status === 403) {
-          throw new Error('认证失败，请检查 Auth Token')
+          throw new Error('认证失败，请检查后端 OpenClaw Token')
         }
         throw new Error(`请求失败 (${response.status}): ${errorText}`)
       }
