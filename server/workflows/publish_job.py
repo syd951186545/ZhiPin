@@ -172,6 +172,7 @@ async def run(execution_id: str, req):
         "completed": False,
         "_openclaw_url": req.openclaw_base_url or "",
         "_openclaw_token": req.openclaw_auth_token or "",
+        "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
     }
 
     # 使用简单的步骤执行器（比 LangGraph compile 更直接，且支持取消检测）

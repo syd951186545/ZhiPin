@@ -172,6 +172,7 @@ async def run(execution_id: str, req):
             "publish_result": {},
             "error": None,
             "completed": False,
+            "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
         }
 
         # 为此平台创建带平台前缀的步骤

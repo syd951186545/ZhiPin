@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, TypedDict
 
 from services.openclaw_client import OpenClawClient, StepResult
+from services.supabase_client import make_screenshot_uploader
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,11 @@ class WorkflowState(TypedDict, total=False):
     # 状态控制
     error: Optional[str]
     completed: bool
+
+    # 内部私有字段（各工作流 run() 函数注入，不传递给前端）
+    _auth_token: str       # Supabase 用户 JWT，用于 Storage 截图上传
+    _openclaw_url: str     # OpenClaw base URL 覆盖
+    _openclaw_token: str   # OpenClaw auth token 覆盖
 
 
 # ── 步骤定义 ──────────────────────────────────────────────
@@ -137,12 +143,18 @@ async def execute_step(
             "screenshots": screenshots,
         })
 
+    # 截图上传器：优先上传到 Supabase Storage（持久化），无认证时回退 base64
+    # _auth_token 存于 state（由各工作流的 run() 函数注入）
+    auth_token = state.get("_auth_token") or None
+    uploader = make_screenshot_uploader(execution_id, auth_token)
+
     # 调用 OpenClaw
     result: StepResult = await openclaw.execute_step(
         prompt=prompt,
         session_id=state["session_id"],
         step_id=step_id,
         on_progress=on_progress,
+        screenshot_uploader=uploader,
     )
 
     # 更新状态
@@ -158,7 +170,9 @@ async def execute_step(
     new_state["accumulated_text"] = state.get("accumulated_text", "") + "\n" + result.accumulated_text
     new_state["all_screenshots"] = state.get("all_screenshots", []) + result.screenshots
 
-    # 发送截图事件
+    status_label = "完成" if result.success else "失败"
+
+    # 1. 先发步骤执行中产生的截图
     for screenshot in result.screenshots:
         await emit_event(execution_id, "screenshot", {
             "step_id": step_id,
@@ -167,6 +181,7 @@ async def execute_step(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
+    # 2. 立即通知前端步骤已完成/失败（不等截图补充，避免 UI 卡顿）
     if not result.success:
         new_state["error"] = result.error
         await emit_event(execution_id, "step_change", {
@@ -183,6 +198,31 @@ async def execute_step(
             "status": "done",
         })
         logger.info(f"[{execution_id}] 步骤完成: {step_id}")
+
+    # 3. 若步骤无截图，补充一张停留页面截图（最多等待 45 秒）
+    #    在 step_change 之后、error/complete 事件之前发送，前端 activeExecution 仍有效
+    if not result.screenshots:
+        try:
+            final_ss = await asyncio.wait_for(
+                openclaw.capture_screenshot(
+                    session_id=state["session_id"],
+                    screenshot_uploader=uploader,
+                ),
+                timeout=45.0,
+            )
+            if final_ss:
+                new_state["all_screenshots"] = new_state.get("all_screenshots", []) + [final_ss]
+                await emit_event(execution_id, "screenshot", {
+                    "step_id": step_id,
+                    "screenshot": final_ss,
+                    "action": f"{step.name_zh}（{status_label}）",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                logger.info(f"[{execution_id}] 步骤 {step_id} 补充截图成功")
+        except asyncio.TimeoutError:
+            logger.debug(f"[{execution_id}] 步骤 {step_id} 补充截图超时，跳过")
+        except Exception as e:
+            logger.debug(f"[{execution_id}] 步骤 {step_id} 补充截图失败: {e}")
 
     return new_state
 

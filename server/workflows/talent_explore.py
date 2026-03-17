@@ -128,6 +128,7 @@ async def run(execution_id: str, req):
         "publish_result": {},
         "error": None,
         "completed": False,
+        "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
     }
 
     # 执行 OpenClaw 步骤（前4步）

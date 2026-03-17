@@ -2,10 +2,13 @@
 工作流 2：市场人才探索 - Prompt 模板
 """
 
+from prompts import screenshot_instruction
+
 
 def build_login_check_prompt(state: dict) -> str:
     account_info = state.get("account_name", "").strip()
     account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供（请检查浏览器是否已有登录 session）"
+    shot = screenshot_instruction()
     return f"""你是一个专业的招聘助手，请执行「市场人才探索」任务的第1步：登录平台。
 
 【目标平台】{state.get("platform", "")}
@@ -13,11 +16,11 @@ def build_login_check_prompt(state: dict) -> str:
 
 【本步骤要求】
 1. 打开{state.get("platform", "")}网站
-2. 截图查看当前页面状态（用于任务监控节点展示）
+2. {shot}
 3. 判断是否已登录：
    - 若已登录 → 直接输出 [STEP_DONE:login_check]
-   - 若未登录且有账号信息 → 完成登录，再输出 [STEP_DONE:login_check]
-   - 若未登录且无账号信息 → 输出提示后输出 [STEP_FAILED:login_check]
+   - 若未登录且有账号信息 → 完成登录，再截图，再输出 [STEP_DONE:login_check]
+   - 若未登录且无账号信息 → 截图，输出提示后输出 [STEP_FAILED:login_check]
 
 【注意事项】
 - 优先判断当前浏览器 session 是否有效，不要主动退出已登录账号
@@ -28,6 +31,7 @@ def build_login_check_prompt(state: dict) -> str:
 
 
 def build_search_candidates_prompt(state: dict) -> str:
+    shot = screenshot_instruction()
     return f"""你是一个专业的招聘助手，请执行第2步：搜索候选人。
 
 【目标平台】{state.get("platform", "")}
@@ -47,7 +51,7 @@ def build_search_candidates_prompt(state: dict) -> str:
 1. 进入{state.get("platform", "")}的人才搜索/简历搜索页面
 2. 根据岗位要求设置搜索关键词和筛选条件
 3. 浏览搜索结果页面
-4. 截图搜索结果（用于任务监控节点展示）
+4. {shot}
 
 【注意事项】
 - 关键词从任职要求中提取核心技能和岗位名称
@@ -59,6 +63,7 @@ def build_search_candidates_prompt(state: dict) -> str:
 
 
 def build_collect_profiles_prompt(state: dict) -> str:
+    shot = screenshot_instruction()
     return f"""你是一个专业的招聘助手，请执行第3步：采集候选人资料。
 
 【目标平台】{state.get("platform", "")}
@@ -71,7 +76,7 @@ def build_collect_profiles_prompt(state: dict) -> str:
 1. 逐个查看搜索结果中的候选人简介
 2. 提取每个候选人的关键信息
 3. 基于岗位要求给出初步匹配度评分（0-100）
-4. 截图关键候选人资料页（用于任务监控节点展示）
+4. {shot}
 
 【信息采集要求】
 对于每个候选人，请提取：
@@ -116,6 +121,7 @@ def build_collect_profiles_prompt(state: dict) -> str:
 
 
 def build_initiate_contact_prompt(state: dict) -> str:
+    shot = screenshot_instruction()
     return f"""你是一个专业的招聘助手，请执行第4步：主动沟通。
 
 【目标平台】{state.get("platform", "")}
@@ -131,7 +137,7 @@ def build_initiate_contact_prompt(state: dict) -> str:
 2. 发送专业的招聘问候消息
 3. 简要介绍职位亮点和企业优势
 4. 邀请候选人进一步了解和沟通
-5. 截图沟通记录（用于任务监控节点展示）
+5. {shot}
 
 【沟通模板参考】
 您好！我是{state.get("company_name", "我们公司")}的招聘负责人。

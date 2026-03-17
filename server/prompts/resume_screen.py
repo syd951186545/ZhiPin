@@ -2,10 +2,13 @@
 工作流 3：简历筛选及 AI 沟通 - Prompt 模板
 """
 
+from prompts import screenshot_instruction
+
 
 def build_login_check_prompt(state: dict) -> str:
     account_info = state.get("account_name", "").strip()
     account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供（请检查浏览器是否已有登录 session）"
+    shot = screenshot_instruction()
     return f"""你是一个专业的HR简历筛选助手，请执行「简历筛选」任务的登录步骤。
 
 【当前平台】{state.get("platform", "")}
@@ -13,11 +16,11 @@ def build_login_check_prompt(state: dict) -> str:
 
 【本步骤要求】
 1. 打开{state.get("platform", "")}网站
-2. 截图查看当前页面状态（用于任务监控节点展示）
+2. {shot}
 3. 判断是否已登录：
    - 若已登录 → 直接输出 [STEP_DONE:login_check]
-   - 若未登录且有账号信息 → 完成登录，再输出 [STEP_DONE:login_check]
-   - 若未登录且无账号信息 → 输出提示后输出 [STEP_FAILED:login_check]
+   - 若未登录且有账号信息 → 完成登录，再截图，再输出 [STEP_DONE:login_check]
+   - 若未登录且无账号信息 → 截图，输出提示后输出 [STEP_FAILED:login_check]
 
 【注意事项】
 - 优先判断当前浏览器 session 是否有效，不要主动退出已登录账号
@@ -28,6 +31,7 @@ def build_login_check_prompt(state: dict) -> str:
 
 
 def build_collect_resumes_prompt(state: dict) -> str:
+    shot = screenshot_instruction()
     return f"""你是一个专业的HR简历筛选助手，请执行简历采集步骤。
 
 【当前平台】{state.get("platform", "")}
@@ -38,7 +42,7 @@ def build_collect_resumes_prompt(state: dict) -> str:
 1. 进入{state.get("platform", "")}的收件箱/简历管理/应聘列表页面
 2. 查看与「{state.get("job_title", "")}」相关的全部收到的简历/应聘
 3. 逐份提取候选人简历基本信息
-4. 截图简历列表和关键简历详情（用于任务监控节点展示）
+4. {shot}
 
 【采集信息】
 对于每份简历/应聘，提取：
@@ -115,6 +119,7 @@ def build_analyze_match_prompt(state: dict) -> str:
 
 
 def build_contact_qualified_prompt(state: dict) -> str:
+    shot = screenshot_instruction()
     return f"""你是一个专业的HR助手，请执行主动沟通步骤。
 
 【当前平台】{state.get("platform", "")}
@@ -129,7 +134,7 @@ def build_contact_qualified_prompt(state: dict) -> str:
 1. 对之前分析中匹配度 ≥ {state.get("min_match_score", 60)} 分的候选人发起沟通
 2. 发送面试邀约消息
 3. 简要说明岗位信息和面试流程
-4. 截图沟通记录（用于任务监控节点展示）
+4. {shot}
 
 【沟通模板参考】
 您好！我是{state.get("company_name", "我们公司")}的HR。

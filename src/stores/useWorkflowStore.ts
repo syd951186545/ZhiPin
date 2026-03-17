@@ -206,12 +206,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
         onScreenshot: (data) => {
           set((state) => {
-            if (!state.activeExecution) return state
+            // 目标执行：优先 activeExecution，若步骤刚完成已移入 lastExecution 也处理
+            const target = state.activeExecution || state.lastExecution
+            if (!target) return state
+
             // 避免与 onProgress 已添加的截图重复
-            const exists = state.activeExecution.actionNodes.some(
-              (n) => n.screenshot === data.screenshot,
-            )
+            const exists = target.actionNodes.some((n) => n.screenshot === data.screenshot)
             if (exists) return state
+
             const node: ActionNode = {
               id: `screenshot-${data.step_id}-${Date.now()}`,
               time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
@@ -219,12 +221,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               screenshot: data.screenshot,
               stepId: data.step_id,
             }
-            return {
-              activeExecution: {
-                ...state.activeExecution,
-                actionNodes: [...state.activeExecution.actionNodes, node],
-              },
-            }
+            const updated = {...target, actionNodes: [...target.actionNodes, node]}
+            return state.activeExecution
+              ? {activeExecution: updated}
+              : {lastExecution: updated}
           })
         },
 
