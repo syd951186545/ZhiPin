@@ -18,6 +18,9 @@ from config import get_settings
 REQUEST_TIMEOUT = 15.0
 SSE_TIMEOUT = 300.0  # 5 minutes per step
 
+# 匹配 Markdown 图片语法中的 file:// 截图路径
+_MARKDOWN_IMG_RE = re.compile(r'!\[.*?\]\((file://[^)]+\.(?:png|jpg|jpeg|webp))\)')
+
 
 @dataclass
 class StepResult:
@@ -121,6 +124,11 @@ class OpenClawClient:
                                 delta = data.get("delta", "")
                                 if delta:
                                     accumulated_text += delta
+                                    # 从新增文本中提取嵌入的截图
+                                    new_screenshots = self._extract_screenshots_from_text(delta)
+                                    for s in new_screenshots:
+                                        if s not in screenshots:
+                                            screenshots.append(s)
                                     if on_progress:
                                         await _maybe_await(on_progress, delta, accumulated_text, screenshots)
 
@@ -210,6 +218,34 @@ class OpenClawClient:
 
         # 直接包含 screenshot 字段
         return data.get("screenshot") or data.get("image_url")
+
+    def _extract_screenshots_from_text(self, text: str) -> list[str]:
+        """
+        从 Markdown 文本中提取截图 URL。
+
+        OpenClaw Agent 会将截图以 Markdown 图片格式嵌入文本：
+          ![页面](file:///home/sunyd/.openclaw/media/browser/xxx.png)
+
+        将 file:// 路径转换为可访问的 HTTP URL。
+        """
+        found = []
+        for m in _MARKDOWN_IMG_RE.finditer(text):
+            file_url = m.group(1)
+            http_url = self._file_url_to_http(file_url)
+            found.append(http_url)
+        return found
+
+    def _file_url_to_http(self, file_url: str) -> str:
+        """
+        将 file:///home/sunyd/.openclaw/media/... 转换为
+        http://<openclaw_host>/media/...
+        """
+        prefix = "file:///home/sunyd/.openclaw/"
+        if file_url.startswith(prefix):
+            relative = file_url[len(prefix):]
+            return f"{self.base_url.rstrip('/')}/{relative}"
+        # 其他 file:// 路径原样返回
+        return file_url
 
 
 async def _maybe_await(fn, *args):

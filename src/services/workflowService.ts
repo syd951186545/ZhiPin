@@ -41,6 +41,9 @@ export interface WorkflowStartRequest {
   openclaw_base_url?: string
   openclaw_auth_token?: string
 
+  // Supabase 用户认证令牌（后端用于绕过 RLS 写入数据）
+  supabase_auth_token?: string
+
   // 工作流参数
   min_match_score?: number
   max_results?: number

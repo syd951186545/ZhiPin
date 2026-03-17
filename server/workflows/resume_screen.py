@@ -93,6 +93,7 @@ async def run(execution_id: str, req):
         "multi_platform": True,
     })
 
+    auth_token = req.supabase_auth_token or None
     # 创建数据库任务记录
     task_record = {}
     if req.tenant_id:
@@ -105,6 +106,7 @@ async def run(execution_id: str, req):
                 config=req.model_dump(),
                 platform=",".join(platforms),
                 job_id=req.job_id,
+                auth_token=auth_token,
             )
         except Exception as e:
             logger.warning(f"创建任务记录失败: {e}")
@@ -224,7 +226,7 @@ async def run(execution_id: str, req):
     if global_error:
         await emit_event(execution_id, "cancelled", {"message": global_error})
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "cancelled", error_message=global_error)
+            complete_automation_task(task_record["id"], "cancelled", error_message=global_error, auth_token=auth_token)
         return
 
     # 最后步骤：汇总保存结果
@@ -239,7 +241,7 @@ async def run(execution_id: str, req):
     saved_count = 0
     if all_candidates and req.tenant_id:
         try:
-            saved = create_candidates_batch(req.tenant_id, all_candidates)
+            saved = create_candidates_batch(req.tenant_id, all_candidates, auth_token=auth_token)
             saved_count = len(saved)
             logger.info(f"[{execution_id}] 汇总保存 {saved_count} 个候选人")
         except Exception as e:
@@ -269,7 +271,7 @@ async def run(execution_id: str, req):
     })
 
     if task_record.get("id"):
-        complete_automation_task(task_record["id"], "completed", result_summary=result_summary)
+        complete_automation_task(task_record["id"], "completed", result_summary=result_summary, auth_token=auth_token)
 
     if task_record.get("id") and req.tenant_id:
         insert_task_log(
@@ -278,6 +280,7 @@ async def run(execution_id: str, req):
             level="success",
             message=f"简历筛选完成，共处理 {len(platforms)} 个平台，发现 {len(all_candidates)} 个候选人",
             metadata=result_summary,
+            auth_token=auth_token,
         )
 
 

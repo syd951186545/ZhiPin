@@ -4,16 +4,24 @@
 
 
 def build_login_check_prompt(state: dict) -> str:
+    account_info = state.get("account_name", "").strip()
+    account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供（请检查浏览器是否已有登录 session）"
     return f"""你是一个专业的HR简历筛选助手，请执行「简历筛选」任务的登录步骤。
 
 【当前平台】{state.get("platform", "")}
-【账号信息】{state.get("account_name", "")}
+{account_section}
 
 【本步骤要求】
 1. 打开{state.get("platform", "")}网站
-2. 检查账号是否已登录，未登录则完成登录
-3. 已登录则确认账号状态正常
-4. 完成后截图确认
+2. 截图查看当前页面状态（用于任务监控节点展示）
+3. 判断是否已登录：
+   - 若已登录 → 直接输出 [STEP_DONE:login_check]
+   - 若未登录且有账号信息 → 完成登录，再输出 [STEP_DONE:login_check]
+   - 若未登录且无账号信息 → 输出提示后输出 [STEP_FAILED:login_check]
+
+【注意事项】
+- 优先判断当前浏览器 session 是否有效，不要主动退出已登录账号
+- 如遇验证码，等待人工处理
 
 完成后输出：[STEP_DONE:login_check]
 无法完成输出：[STEP_FAILED:login_check]"""

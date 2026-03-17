@@ -85,6 +85,9 @@ class WorkflowStartRequest(BaseModel):
     openclaw_base_url: str = ""
     openclaw_auth_token: str = ""
 
+    # Supabase 用户认证令牌（用于后端以用户身份写入数据库，绕过 RLS）
+    supabase_auth_token: str = ""
+
     # 工作流特有参数
     min_match_score: int = 60
     max_results: int = 30

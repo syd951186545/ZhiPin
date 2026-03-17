@@ -11,16 +11,28 @@ from supabase import create_client, Client
 from config import get_settings
 
 
-_client: Optional[Client] = None
+_anon_client: Optional[Client] = None
 
 
-def get_supabase() -> Client:
-    """获取 Supabase 客户端单例"""
-    global _client
-    if _client is None:
-        settings = get_settings()
-        _client = create_client(settings.supabase_url, settings.supabase_anon_key)
-    return _client
+def get_supabase(auth_token: Optional[str] = None) -> Client:
+    """
+    获取 Supabase 客户端。
+
+    如果提供了 auth_token（用户 JWT），则以用户身份操作（满足 RLS 策略）。
+    否则返回匿名客户端单例（受 RLS 限制）。
+    """
+    global _anon_client
+    settings = get_settings()
+
+    if auth_token:
+        # 创建带用户 JWT 的客户端，postgrest 会携带 Authorization: Bearer <token>
+        client = create_client(settings.supabase_url, settings.supabase_anon_key)
+        client.postgrest.auth(auth_token)
+        return client
+
+    if _anon_client is None:
+        _anon_client = create_client(settings.supabase_url, settings.supabase_anon_key)
+    return _anon_client
 
 
 # ── Candidates ────────────────────────────────────────────
@@ -29,6 +41,7 @@ def get_supabase() -> Client:
 def create_candidates_batch(
     tenant_id: str,
     candidates: list[dict],
+    auth_token: Optional[str] = None,
 ) -> list[dict]:
     """
     批量写入候选人记录（全部新建，不去重）。
@@ -37,7 +50,7 @@ def create_candidates_batch(
         name, source, stage, job_id,
         ai_match_score?, ai_analysis?, email?, phone?, notes?, tags?, metadata?
     """
-    sb = get_supabase()
+    sb = get_supabase(auth_token)
     rows = []
     for c in candidates:
         rows.append({
@@ -73,9 +86,10 @@ def create_automation_task(
     config: dict,
     platform: Optional[str] = None,
     job_id: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> dict:
     """创建自动化任务记录"""
-    sb = get_supabase()
+    sb = get_supabase(auth_token)
     result = sb.table("automation_tasks").insert({
         "tenant_id": tenant_id,
         "created_by": created_by,
@@ -93,9 +107,10 @@ def create_automation_task(
 def update_automation_task(
     task_id: str,
     updates: dict,
+    auth_token: Optional[str] = None,
 ) -> dict:
     """更新自动化任务状态"""
-    sb = get_supabase()
+    sb = get_supabase(auth_token)
     result = sb.table("automation_tasks").update(updates).eq("id", task_id).execute()
     return result.data[0] if result.data else {}
 
@@ -105,6 +120,7 @@ def complete_automation_task(
     status: str = "completed",
     result_summary: Optional[dict] = None,
     error_message: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> dict:
     """完成自动化任务"""
     updates: dict = {
@@ -115,7 +131,7 @@ def complete_automation_task(
         updates["result_summary"] = result_summary
     if error_message is not None:
         updates["error_message"] = error_message
-    return update_automation_task(task_id, updates)
+    return update_automation_task(task_id, updates, auth_token=auth_token)
 
 
 # ── Task Logs ─────────────────────────────────────────────
@@ -127,9 +143,10 @@ def insert_task_log(
     level: str,
     message: str,
     metadata: Optional[dict] = None,
+    auth_token: Optional[str] = None,
 ) -> None:
     """写入任务日志"""
-    sb = get_supabase()
+    sb = get_supabase(auth_token)
     sb.table("task_logs").insert({
         "task_id": task_id,
         "tenant_id": tenant_id,

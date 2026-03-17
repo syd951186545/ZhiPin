@@ -77,6 +77,7 @@ async def run(execution_id: str, req):
         "platform": req.platform,
     })
 
+    auth_token = req.supabase_auth_token or None
     # 创建数据库任务记录
     task_record = {}
     if req.tenant_id:
@@ -89,6 +90,7 @@ async def run(execution_id: str, req):
                 config=req.model_dump(),
                 platform=req.platform,
                 job_id=req.job_id,
+                auth_token=auth_token,
             )
         except Exception as e:
             logger.warning(f"创建任务记录失败: {e}")
@@ -161,7 +163,7 @@ async def run(execution_id: str, req):
     saved_count = 0
     if candidates and req.tenant_id:
         try:
-            saved = create_candidates_batch(req.tenant_id, candidates)
+            saved = create_candidates_batch(req.tenant_id, candidates, auth_token=auth_token)
             saved_count = len(saved)
             logger.info(f"[{execution_id}] 保存 {saved_count} 个候选人")
         except Exception as e:
@@ -185,14 +187,14 @@ async def run(execution_id: str, req):
             "message": final_state["error"],
         })
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "failed", error_message=final_state["error"])
+            complete_automation_task(task_record["id"], "failed", error_message=final_state["error"], auth_token=auth_token)
     else:
         await emit_event(execution_id, "complete", {
             "result_summary": result_summary,
             "screenshots": final_state.get("all_screenshots", []),
         })
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "completed", result_summary=result_summary)
+            complete_automation_task(task_record["id"], "completed", result_summary=result_summary, auth_token=auth_token)
 
     if task_record.get("id") and req.tenant_id:
         insert_task_log(
@@ -201,6 +203,7 @@ async def run(execution_id: str, req):
             level="success" if not final_state.get("error") else "error",
             message=f"市场人才探索{'完成' if not final_state.get('error') else '失败'}，发现 {len(candidates)} 个候选人",
             metadata=result_summary,
+            auth_token=auth_token,
         )
 
 

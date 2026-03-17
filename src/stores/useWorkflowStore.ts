@@ -6,6 +6,7 @@
  */
 
 import {create} from 'zustand'
+import {supabase} from '@/lib/supabase'
 import {
   startWorkflow as apiStartWorkflow,
   cancelWorkflow as apiCancelWorkflow,
@@ -106,8 +107,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     })
 
     try {
+      // 获取当前用户 JWT，供后端进行认证 Supabase 操作（绕过 RLS）
+      const { data: sessionData } = await supabase.auth.getSession()
+      const authToken = sessionData?.session?.access_token
+      const reqWithAuth: WorkflowStartRequest = authToken
+        ? { ...req, supabase_auth_token: authToken }
+        : req
+
       // 调用后端 API
-      const executionId = await apiStartWorkflow(req)
+      const executionId = await apiStartWorkflow(reqWithAuth)
 
       set((state) => ({
         activeExecution: state.activeExecution

@@ -121,6 +121,7 @@ async def run(execution_id: str, req):
     })
 
     # 创建数据库任务记录
+    auth_token = req.supabase_auth_token or None
     task_record = {}
     if req.tenant_id:
         try:
@@ -132,6 +133,7 @@ async def run(execution_id: str, req):
                 config=req.model_dump(),
                 platform=req.platform,
                 job_id=req.job_id,
+                auth_token=auth_token,
             )
         except Exception as e:
             logger.warning(f"创建任务记录失败: {e}")
@@ -195,7 +197,7 @@ async def run(execution_id: str, req):
             "message": final_state["error"],
         })
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "failed", error_message=final_state["error"])
+            complete_automation_task(task_record["id"], "failed", error_message=final_state["error"], auth_token=auth_token)
     else:
         await emit_event(execution_id, "complete", {
             "announcement": announcement,
@@ -207,6 +209,7 @@ async def run(execution_id: str, req):
                 task_record["id"],
                 "completed",
                 result_summary={"jobs_posted": 1, **publish_result},
+                auth_token=auth_token,
             )
 
     # 写入日志
@@ -218,6 +221,7 @@ async def run(execution_id: str, req):
             level=level,
             message=f"发布招聘公告{'完成' if final_state.get('completed') else '失败'}",
             metadata={"publish_result": publish_result},
+            auth_token=auth_token,
         )
 
 
