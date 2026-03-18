@@ -60,8 +60,8 @@ services:
   openclaw:
     image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
     ports:
-      - "18789:18789"   # HTTP API
-      - "18791:18791"   # Browser control
+      - "${OPENCLAW_HOST_PORT:-28789}:18789"   # HTTP API（宿主机端口可通过 env 覆盖）
+      - "${OPENCLAW_HOST_PORT_BROWSER:-28791}:18791"   # Browser control
     environment:
       # OPENCLAW_GATEWAY_TOKEN 与 backend 的 OPENCLAW_AUTH_TOKEN 保持一致，避免认证不匹配
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_AUTH_TOKEN}
