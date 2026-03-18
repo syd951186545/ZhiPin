@@ -52,7 +52,20 @@ check_env() {
     info ".env.production ✓"
 }
 
-# ── 3. 构建并启动 ───────────────────────────────────────────
+# ── 3. 拉取 OpenClaw 镜像 ────────────────────────────────────
+pull_openclaw_image() {
+    local img
+    img=$(grep -E '^OPENCLAW_IMAGE=' .env.production 2>/dev/null | cut -d'=' -f2)
+    img=${img:-ghcr.io/openclaw/openclaw:latest}
+
+    info "正在拉取 OpenClaw 镜像: $img ..."
+    if ! docker pull "$img"; then
+        error "拉取 OpenClaw 镜像失败: $img\n  请检查:\n  1. 网络是否可访问 ghcr.io\n  2. .env.production 中 OPENCLAW_IMAGE 是否正确"
+    fi
+    info "OpenClaw 镜像拉取成功 ✓"
+}
+
+# ── 4. 构建并启动 ───────────────────────────────────────────
 deploy() {
     info "正在构建并启动所有服务..."
     docker compose --env-file .env.production up -d --build
@@ -77,7 +90,7 @@ deploy() {
     fi
 }
 
-# ── 4. 显示状态 ─────────────────────────────────────────────
+# ── 5. 显示状态 ─────────────────────────────────────────────
 show_status() {
     echo ""
     info "═══════════════════════════════════════════"
@@ -113,6 +126,7 @@ main() {
     echo ""
     check_docker
     check_env
+    pull_openclaw_image
     deploy
     show_status
 }

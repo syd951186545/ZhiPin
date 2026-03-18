@@ -49,7 +49,7 @@ services:
       - openclaw-media:/openclaw-media:ro
     depends_on:
       openclaw:
-        condition: service_started
+        condition: service_healthy
     networks:
       - zhipin-net
     restart: unless-stopped
@@ -58,12 +58,35 @@ services:
   # 如果 OpenClaw 已在宿主机运行（非 Docker），注释掉此 service，
   # 并修改 backend 的 OPENCLAW_BASE_URL 和 volumes，详见 deploy.sh
   openclaw:
-    image: ${OPENCLAW_IMAGE:-openclaw/openclaw:latest}
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
     ports:
       - "18789:18789"   # HTTP API
       - "18791:18791"   # Browser control
+    environment:
+      # OPENCLAW_GATEWAY_TOKEN 与 backend 的 OPENCLAW_AUTH_TOKEN 保持一致，避免认证不匹配
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_AUTH_TOKEN}
+      - TZ=${OPENCLAW_TZ:-Asia/Shanghai}
+    # ── 容器安全约束 ──────────────────────────────────────────────────────
+    # 不启用 openclaw 原生沙箱（默认阻止 browser 工具），改用 Docker 层安全加固
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW      # Chromium 网络功能需要
+      - SYS_ADMIN    # Chrome 内核 namespace 沙箱需要（比 --no-sandbox 更安全）
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    memswap_limit: 2g   # 等于 mem_limit = 禁用 swap
+    cpus: 1.5
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:18789/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     volumes:
-      - openclaw-media:/home/sunyd/.openclaw/media
+      - openclaw-media:/home/node/.openclaw/media   # 官方镜像用户为 node，非 sunyd
     networks:
       - zhipin-net
     restart: unless-stopped
