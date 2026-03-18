@@ -1,0 +1,60 @@
+{
+  "gateway": {
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_AUTH_TOKEN}"
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "minimax-cn": {
+        "baseUrl": "https://api.minimaxi.com/anthropic",
+        "api": "anthropic-messages",
+        "authHeader": true,
+        "apiKey": "${MINIMAX_API_KEY}",
+        "models": [
+          {
+            "id": "MiniMax-M2.5",
+            "name": "MiniMax M2.5",
+            "reasoning": true,
+            "input": ["text"],
+            "cost": {
+              "input": 0.3,
+              "output": 1.2,
+              "cacheRead": 0.03,
+              "cacheWrite": 0.12
+            },
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "minimax-cn/MiniMax-M2.5"
+      },
+      "models": {
+        "minimax-cn/MiniMax-M2.5": {
+          "alias": "Minimax"
+        }
+      }
+    },
+    "list": [
+      {
+        "id": "HR_Juzi",
+        "default": true,
+        "name": "HR 橘子",
+        "identity": {
+          "emoji": "🍊",
+          "theme": "你是一名专业的 HR 招聘助手，擅长在 BOSS 直聘平台上高效完成候选人筛选和沟通工作。"
+        },
+        "workspace": "/home/node/.openclaw/workspace"
+      }
+    ]
+  }
+}

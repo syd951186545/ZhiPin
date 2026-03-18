@@ -52,7 +52,31 @@ check_env() {
     info ".env.production ✓"
 }
 
-# ── 3. 自动生成 OpenClaw Auth Token ─────────────────────────
+# ── 3. 渲染 OpenClaw 配置文件 ────────────────────────────────
+# 从 docker/openclaw.json.tmpl 通过 envsubst 渲染成 docker/openclaw.json
+# 渲染后的文件包含实际 token 和 API Key，由 backend/settings API 后续读写
+setup_openclaw_config() {
+    if [ ! -f docker/openclaw.json.tmpl ]; then
+        error "docker/openclaw.json.tmpl 不存在，请确认项目文件完整。"
+    fi
+
+    # 确保 gettext-base（提供 envsubst）已安装
+    if ! command -v envsubst &>/dev/null; then
+        info "安装 envsubst..."
+        sudo apt-get install -y gettext-base -qq
+    fi
+
+    # 将 .env.production 中的变量导出，供 envsubst 使用
+    set -a
+    # shellcheck source=/dev/null
+    source .env.production
+    set +a
+
+    envsubst < docker/openclaw.json.tmpl > docker/openclaw.json
+    info "OpenClaw 配置已渲染到 docker/openclaw.json ✓"
+}
+
+# ── 4. 自动生成 OpenClaw Auth Token ─────────────────────────
 setup_openclaw_token() {
     local token
     token=$(grep -E '^OPENCLAW_AUTH_TOKEN=' .env.production 2>/dev/null | cut -d'=' -f2)
@@ -69,7 +93,7 @@ setup_openclaw_token() {
     fi
 }
 
-# ── 4. 拉取 OpenClaw 镜像 ────────────────────────────────────
+# ── 5. 拉取 OpenClaw 镜像 ────────────────────────────────────
 pull_openclaw_image() {
     local img
     img=$(grep -E '^OPENCLAW_IMAGE=' .env.production 2>/dev/null | cut -d'=' -f2)
@@ -82,7 +106,7 @@ pull_openclaw_image() {
     info "OpenClaw 镜像拉取成功 ✓"
 }
 
-# ── 5. 构建并启动 ───────────────────────────────────────────
+# ── 6. 构建并启动 ───────────────────────────────────────────
 deploy() {
     info "正在构建并启动所有服务..."
     docker compose --env-file .env.production up -d --build
@@ -107,7 +131,7 @@ deploy() {
     fi
 }
 
-# ── 6. 显示状态 ─────────────────────────────────────────────
+# ── 7. 显示状态 ─────────────────────────────────────────────
 show_status() {
     echo ""
     info "═══════════════════════════════════════════"
@@ -143,7 +167,8 @@ main() {
     echo ""
     check_docker
     check_env
-    setup_openclaw_token
+    setup_openclaw_token   # 先生成 token（setup_openclaw_config 需要读取它）
+    setup_openclaw_config  # 用 envsubst 渲染配置文件（需要 token 已写入 .env.production）
     pull_openclaw_image
     deploy
     show_status

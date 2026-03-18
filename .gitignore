@@ -15,6 +15,8 @@ server/*.log
 
 # Docker / Production
 .env.production
+# openclaw.json 由 deploy.sh 从 .tmpl 渲染生成，含实际 token/key，不入库
+docker/openclaw.json
 
 # IDE
 .idea/

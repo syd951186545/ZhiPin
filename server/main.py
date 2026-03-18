@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
 from routers.workflow import router as workflow_router
 from routers.openclaw_proxy import router as openclaw_proxy_router
+from routers.settings import router as settings_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,6 +54,7 @@ app.add_middleware(
 # 路由
 app.include_router(workflow_router)
 app.include_router(openclaw_proxy_router)
+app.include_router(settings_router)
 
 
 @app.get("/api/health")
