@@ -52,7 +52,24 @@ check_env() {
     info ".env.production ✓"
 }
 
-# ── 3. 拉取 OpenClaw 镜像 ────────────────────────────────────
+# ── 3. 自动生成 OpenClaw Auth Token ─────────────────────────
+setup_openclaw_token() {
+    local token
+    token=$(grep -E '^OPENCLAW_AUTH_TOKEN=' .env.production 2>/dev/null | cut -d'=' -f2)
+
+    if [ -z "$token" ]; then
+        info "OPENCLAW_AUTH_TOKEN 未设置，自动生成..."
+        token=$(openssl rand -hex 24)
+        # 将生成的 token 写回 .env.production
+        sed -i "s|^OPENCLAW_AUTH_TOKEN=.*|OPENCLAW_AUTH_TOKEN=$token|" .env.production
+        info "Token 已写入 .env.production ✓"
+        info "OpenClaw Auth Token: ${YELLOW}$token${NC}"
+    else
+        info "OpenClaw Auth Token 已配置 ✓"
+    fi
+}
+
+# ── 4. 拉取 OpenClaw 镜像 ────────────────────────────────────
 pull_openclaw_image() {
     local img
     img=$(grep -E '^OPENCLAW_IMAGE=' .env.production 2>/dev/null | cut -d'=' -f2)
@@ -65,7 +82,7 @@ pull_openclaw_image() {
     info "OpenClaw 镜像拉取成功 ✓"
 }
 
-# ── 4. 构建并启动 ───────────────────────────────────────────
+# ── 5. 构建并启动 ───────────────────────────────────────────
 deploy() {
     info "正在构建并启动所有服务..."
     docker compose --env-file .env.production up -d --build
@@ -90,7 +107,7 @@ deploy() {
     fi
 }
 
-# ── 5. 显示状态 ─────────────────────────────────────────────
+# ── 6. 显示状态 ─────────────────────────────────────────────
 show_status() {
     echo ""
     info "═══════════════════════════════════════════"
@@ -126,6 +143,7 @@ main() {
     echo ""
     check_docker
     check_env
+    setup_openclaw_token
     pull_openclaw_image
     deploy
     show_status

@@ -74,6 +74,7 @@ interface WorkflowStore {
 
 // ── SSE 取消函数引用 ─────────────────────────────────────
 let _unsubscribeSSE: (() => void) | null = null
+const _cancelledStepError = '已停止'
 
 // ── Store ────────────────────────────────────────────────
 
@@ -280,6 +281,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             const cancelled: WorkflowExecution = {
               ...state.activeExecution,
               status: 'cancelled',
+              steps: state.activeExecution.steps.map((s) =>
+                s.status === 'running' ? {...s, status: 'failed', error: _cancelledStepError} : s,
+              ),
             }
             return {
               activeExecution: null,
@@ -305,9 +309,35 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   cancelWorkflow: () => {
     const exec = get().activeExecution
-    if (exec?.executionId) {
-      apiCancelWorkflow(exec.executionId).catch(console.error)
-    }
+    if (!exec?.executionId) return
+
+    // 先本地更新状态，避免 UI 卡在“执行中”
+    set(() => {
+      const cancelled: WorkflowExecution = {
+        ...exec,
+        status: 'cancelled',
+        steps: exec.steps.map((s) =>
+          s.status === 'running' ? {...s, status: 'failed', error: _cancelledStepError} : s,
+        ),
+      }
+      return {activeExecution: null, lastExecution: cancelled}
+    })
+    _cleanupSSE()
+
+    apiCancelWorkflow(exec.executionId).catch((err) => {
+      console.error(err)
+      set((state) => {
+        if (!state.lastExecution || state.lastExecution.executionId !== exec.executionId) {
+          return state
+        }
+        return {
+          lastExecution: {
+            ...state.lastExecution,
+            error: '取消请求失败，请稍后刷新确认状态。',
+          },
+        }
+      })
+    })
   },
 
   clearExecution: () => {

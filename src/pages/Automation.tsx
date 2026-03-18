@@ -72,7 +72,7 @@ export default function Automation() {
   const {lang} = useI18n()
   const {user} = useAuth()
   const {jobs, loading: jobsLoading} = useJobs()
-  const {platformProfiles, platformConfigs, companyProfile, gatewayUrl} = useSettingsStore()
+  const {platformProfiles, platformConfigs, companyProfile} = useSettingsStore()
   const safeCompanyProfile = companyProfile || {name: '', address: '', size: '', overview: ''}
 
   const {
@@ -176,11 +176,10 @@ export default function Automation() {
       company_address: safeCompanyProfile.address,
       company_size: safeCompanyProfile.size,
       company_overview: safeCompanyProfile.overview,
-      openclaw_base_url: gatewayUrl,
       min_match_score: matchThreshold,
       max_results: maxResults,
     })
-  }, [selectedJob, selectedPlatform, selectedPlatforms, selectedProfile, user, platformConfigs, safeCompanyProfile, gatewayUrl, matchThreshold, maxResults, startWorkflow])
+  }, [selectedJob, selectedPlatform, selectedPlatforms, selectedProfile, user, platformConfigs, safeCompanyProfile, matchThreshold, maxResults, startWorkflow])
 
   // ── 多平台选择切换 ──────────────────────────────────────
   const togglePlatformSelection = (key: string) => {

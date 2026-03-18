@@ -1,10 +1,8 @@
-import React, {useState} from 'react'
+import React from 'react'
 import {
-  CheckCircle2, Download, Loader2,
-  Wifi, WifiOff, XCircle,
+  Download,
 } from 'lucide-react'
 import {Button} from '@/components/ui/button'
-import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Textarea} from '@/components/ui/textarea'
 import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
@@ -14,177 +12,31 @@ import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/c
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import PageHeader from '@/components/shared/PageHeader'
 import {useI18n} from '@/contexts/I18nContext'
-import {useOpenClaw} from '@/contexts/OpenClawContext'
 import {useSettingsStore} from '@/stores/useSettingsStore'
+import {Input} from '@/components/ui/input'
 
 export default function Settings() {
   const {t} = useI18n()
-  const {isReady, serviceState, testConnection} = useOpenClaw()
 
   // Settings store (persisted to localStorage)
   const {
-    gatewayUrl, agentId,
+    agentId,
     proxyList, delayEnabled, mouseSimulation, headless,
     aiModel, aiTemperature, aiSystemPrompt,
     wecomUrl, notifEmail, auditLogging, retentionDays,
-    updateConnection, updateProxy, updateAI, updateNotifications,
+    updateProxy, updateAI, updateNotifications,
   } = useSettingsStore()
-
-  // Local form state for connection editing
-  const [formGatewayUrl, setFormGatewayUrl] = useState(gatewayUrl)
-  const [formAgentId, setFormAgentId] = useState(agentId)
-
-  // Connection test
-  const [connectionTesting, setConnectionTesting] = useState(false)
-  const [connectionResult, setConnectionResult] = useState<{
-    status: 'idle' | 'success' | 'error'
-    message?: string
-    latency?: number
-  }>({status: 'idle'})
-
-  // ---- Handlers ----
-
-  const handleSaveConnection = () => {
-    updateConnection({
-      gatewayUrl: formGatewayUrl,
-      agentId: formAgentId,
-    })
-  }
-
-  const handleTestConnection = async () => {
-    // 先保存再测试
-    handleSaveConnection()
-    setConnectionTesting(true)
-    setConnectionResult({status: 'idle'})
-
-    try {
-      // 等待 configure 生效
-      await new Promise((r) => setTimeout(r, 300))
-
-      const result = await testConnection()
-      setConnectionResult({
-        status: 'success',
-        message: result.status,
-        latency: result.latency,
-      })
-    } catch (err) {
-      setConnectionResult({
-        status: 'error',
-        message: err instanceof Error ? err.message : t('settings.connection.failed'),
-      })
-    } finally {
-      setConnectionTesting(false)
-    }
-  }
-
-  const getServiceStateLabel = () => {
-    switch (serviceState) {
-      case 'ready':
-        return (
-          <div className="flex items-center gap-2 text-green-600 text-sm">
-            <Wifi className="h-4 w-4"/>
-            <span>{t('status.connected')}</span>
-          </div>
-        )
-      case 'error':
-        return (
-          <div className="flex items-center gap-2 text-red-600 text-sm">
-            <WifiOff className="h-4 w-4"/>
-            <span>连接异常</span>
-          </div>
-        )
-      default:
-        return (
-          <div className="flex items-center gap-2 text-yellow-600 text-sm">
-            <WifiOff className="h-4 w-4"/>
-            <span>未配置</span>
-          </div>
-        )
-    }
-  }
 
   return (
     <div className="space-y-6">
       <PageHeader title={t('settings.title')} description={t('settings.desc')}/>
 
-      <Tabs defaultValue="connection" className="space-y-6">
+      <Tabs defaultValue="ai" className="space-y-6">
         <TabsList className="flex flex-wrap h-auto gap-1">
-          <TabsTrigger value="connection">{t('settings.tab.connection')}</TabsTrigger>
           <TabsTrigger value="ai">{t('settings.tab.ai')}</TabsTrigger>
           <TabsTrigger value="proxy">{t('settings.tab.proxy')}</TabsTrigger>
           <TabsTrigger value="notifications">{t('settings.tab.notifications')}</TabsTrigger>
         </TabsList>
-
-        {/* Tab 1: Connection (moved to first) */}
-        <TabsContent value="connection">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>OpenClaw 连接配置</CardTitle>
-                  <CardDescription>配置 OpenClaw 网关地址与目标 Agent（Auth Token 已由后端预置）</CardDescription>
-                </div>
-                {getServiceStateLabel()}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label>网关地址</Label>
-                <p className="text-xs text-muted-foreground">OpenClaw 服务的 HTTP 地址（如 http://192.168.3.215:18789）</p>
-                <Input value={formGatewayUrl} onChange={(e) => setFormGatewayUrl(e.target.value)}
-                       placeholder="http://192.168.3.215:18789"/>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Agent ID</Label>
-                <p className="text-xs text-muted-foreground">要连接的 OpenClaw Agent 名称（如 hr_juzi）</p>
-                <Input value={formAgentId} onChange={(e) => setFormAgentId(e.target.value)}
-                       placeholder="hr_juzi"/>
-              </div>
-
-              {/* Connection test result */}
-              {connectionResult.status === 'success' && (
-                <div
-                  className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-4 space-y-2">
-                  <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
-                    <CheckCircle2 className="h-4 w-4"/>
-                    连接成功
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
-                    <div>
-                      <span className="font-medium">延迟：</span>
-                      {connectionResult.latency}ms
-                    </div>
-                    <div>
-                      <span className="font-medium">状态：</span>
-                      {connectionResult.message}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {connectionResult.status === 'error' && (
-                <div
-                  className="flex items-center gap-2 text-red-600 text-sm rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800 p-4">
-                  <XCircle className="h-4 w-4"/>
-                  连接失败: {connectionResult.message}
-                </div>
-              )}
-            </CardContent>
-            <CardFooter className="gap-2">
-              <Button variant="outline" onClick={handleTestConnection} disabled={connectionTesting}>
-                {connectionTesting ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin"/>测试中...</>
-                ) : (
-                  '测试连接'
-                )}
-              </Button>
-              <Button onClick={handleSaveConnection}>
-                保存配置
-              </Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
 
         {/* Tab 2: AI Settings */}
         <TabsContent value="ai">
@@ -194,6 +46,11 @@ export default function Settings() {
               <CardDescription>{t('settings.ai.desc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label>{t('settings.ai.agentId')}</Label>
+                <p className="text-xs text-muted-foreground">{t('settings.ai.agentIdDesc')}</p>
+                <Input value={agentId || '-'} disabled />
+              </div>
               <div className="space-y-2">
                 <Label>{t('settings.ai.model')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.ai.modelDesc')}</p>

@@ -17,7 +17,7 @@ export default function ConnectionIndicator() {
     idle: {
       className: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20 dark:text-yellow-400',
       icon: <WifiOff className="w-4 h-4"/>,
-      label: '未配置',
+      label: '连接中',
     },
     error: {
       className: 'bg-destructive/10 text-destructive border-destructive/20',
@@ -34,7 +34,7 @@ export default function ConnectionIndicator() {
         'flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-full border transition-colors',
         config.className,
       )}
-      title={isReady ? 'OpenClaw 已就绪' : '请在设置中配置 OpenClaw 连接'}
+      title={isReady ? 'OpenClaw 已就绪' : '正在获取 OpenClaw 配置'}
     >
       {config.icon}
       {config.label}

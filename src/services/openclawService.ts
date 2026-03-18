@@ -5,7 +5,7 @@ import type {
   TaskProgressPayload,
   TaskScreenshotPayload,
 } from '@/types/openclaw'
-import {OPENCLAW_REQUEST_TIMEOUT, OPENCLAW_SSE_TIMEOUT} from '@/lib/constants'
+import {OPENCLAW_SSE_TIMEOUT} from '@/lib/constants'
 
 // ============================================================
 // OpenClaw HTTP + SSE Service (OpenResponses API)
@@ -16,7 +16,7 @@ type EventCallback = (payload: Record<string, unknown>) => void
 class OpenClawService {
   private _baseUrl = ''
   private _authToken = ''
-  private _agentId = 'HR_Juzi'
+  private _agentId = ''
   private _serviceState: ServiceState = 'idle'
   private activeRequests = new Map<string, AbortController>()
   private eventListeners = new Map<string, Set<EventCallback>>()
@@ -65,6 +65,10 @@ class OpenClawService {
     }
   }
 
+  markError() {
+    this.setServiceState('error')
+  }
+
   // ---- API Helpers ----
 
   private getApiUrl(path: string): string {
@@ -75,7 +79,9 @@ class OpenClawService {
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'x-openclaw-agent-id': this._agentId,
+    }
+    if (this._agentId) {
+      headers['x-openclaw-agent-id'] = this._agentId
     }
     if (this._authToken) {
       headers.Authorization = `Bearer ${this._authToken}`
@@ -83,38 +89,16 @@ class OpenClawService {
     return headers
   }
 
-  // ---- Test Connection ----
-
-  async testConnection(): Promise<{ latency: number; status: string }> {
-    const start = Date.now()
-
-    const response = await fetch(this.getApiUrl('/v1/responses'), {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({
-        model: 'openclaw',
-        input: '你好，请简短回复确认连接正常。',
-        stream: false,
-      }),
-      signal: AbortSignal.timeout(OPENCLAW_REQUEST_TIMEOUT),
-    })
-
-    const latency = Date.now() - start
-
+  async fetchInfo(): Promise<{ agentId: string; baseUrl: string }> {
+    const response = await fetch('/api/openclaw/info')
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
-      if (response.status === 401 || response.status === 403) {
-        throw new Error('认证失败，请检查后端 OpenClaw Token')
-      }
-      throw new Error(`连接失败 (${response.status}): ${errorText}`)
+      throw new Error(`获取 OpenClaw 配置失败 (${response.status}): ${errorText}`)
     }
-
     const data = await response.json()
-    this.setServiceState('ready')
-
     return {
-      latency,
-      status: `Agent: ${this._agentId} | 响应正常`,
+      agentId: data.agent_id || '',
+      baseUrl: data.base_url || '',
     }
   }
 
@@ -125,10 +109,6 @@ class OpenClawService {
     sessionId: string
     taskId: string
   }): Promise<void> {
-    if (!this._baseUrl) {
-      throw new Error('请先配置 OpenClaw 连接地址')
-    }
-
     const controller = new AbortController()
     this.activeRequests.set(params.taskId, controller)
 

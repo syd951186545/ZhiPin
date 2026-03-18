@@ -66,6 +66,11 @@ services:
       # OPENCLAW_GATEWAY_TOKEN 与 backend 的 OPENCLAW_AUTH_TOKEN 保持一致，避免认证不匹配
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_AUTH_TOKEN}
       - TZ=${OPENCLAW_TZ:-Asia/Shanghai}
+      # LLM 模型（在 docker/openclaw.json 中被 ${OPENCLAW_MODEL} 引用）
+      - OPENCLAW_MODEL=${OPENCLAW_MODEL:-anthropic/claude-3-5-sonnet-20241022}
+      # LLM API Key（openclaw 会自动检测对应 provider 的标准环境变量）
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     # ── 容器安全约束 ──────────────────────────────────────────────────────
     # 不启用 openclaw 原生沙箱（默认阻止 browser 工具），改用 Docker 层安全加固
     cap_drop:
@@ -86,7 +91,10 @@ services:
       retries: 5
       start_period: 60s
     volumes:
-      - openclaw-media:/home/node/.openclaw/media   # 官方镜像用户为 node，非 sunyd
+      # 配置文件：包含 gateway 设置和 HR_Juzi agent 定义（只读挂载）
+      - ./docker/openclaw.json:/home/node/.openclaw/openclaw.json:ro
+      # 截图媒体文件：与 backend 容器共享（官方镜像用户为 node，非 sunyd）
+      - openclaw-media:/home/node/.openclaw/media
     networks:
       - zhipin-net
     restart: unless-stopped

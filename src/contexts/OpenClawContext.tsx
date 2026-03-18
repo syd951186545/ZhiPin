@@ -17,8 +17,6 @@ interface OpenClawContextType {
   startTask: (prompt: string, sessionId: string, taskId: string) => Promise<void>
   /** 取消任务 */
   cancelTask: (taskId: string) => void
-  /** 测试连接 */
-  testConnection: () => Promise<{ latency: number; status: string }>
   /** 订阅事件 */
   onEvent: (action: string, callback: (payload: Record<string, unknown>) => void) => () => void
   /** 最近收到的消息（用于调试） */
@@ -31,8 +29,8 @@ const OpenClawContext = createContext<OpenClawContextType | undefined>(undefined
 
 export const OpenClawProvider: React.FC<{ children: React.ReactNode }> = ({children}) => {
   const {isAuthenticated} = useAuth()
-  const gatewayUrl = useSettingsStore((s) => s.gatewayUrl)
   const agentId = useSettingsStore((s) => s.agentId)
+  const setAgentId = useSettingsStore((s) => s.setAgentId)
 
   const [serviceState, setServiceState] = useState<ServiceState>('idle')
   const [lastMessage, setLastMessage] = useState<Record<string, unknown> | null>(null)
@@ -53,10 +51,27 @@ export const OpenClawProvider: React.FC<{ children: React.ReactNode }> = ({child
 
   // 当配置变化时重新配置服务
   useEffect(() => {
-    if (isAuthenticated && gatewayUrl) {
-      openclawService.configure(gatewayUrl, agentId)
+    if (!isAuthenticated) return
+
+    let cancelled = false
+    const loadInfo = async () => {
+      try {
+        const info = await openclawService.fetchInfo()
+        if (cancelled) return
+        if (info.agentId && info.agentId !== agentId) {
+          setAgentId(info.agentId)
+        }
+        openclawService.configure('/api/openclaw', info.agentId || agentId || '')
+      } catch {
+        if (!cancelled) openclawService.markError()
+      }
     }
-  }, [isAuthenticated, gatewayUrl, agentId])
+
+    loadInfo()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, agentId, setAgentId])
 
   const startTask = useCallback(
     async (prompt: string, sessionId: string, taskId: string) => {
@@ -67,10 +82,6 @@ export const OpenClawProvider: React.FC<{ children: React.ReactNode }> = ({child
 
   const cancelTask = useCallback((taskId: string) => {
     openclawService.cancelTask(taskId)
-  }, [])
-
-  const testConnection = useCallback(async () => {
-    return openclawService.testConnection()
   }, [])
 
   const onEvent = useCallback(
@@ -87,7 +98,6 @@ export const OpenClawProvider: React.FC<{ children: React.ReactNode }> = ({child
         serviceState,
         startTask,
         cancelTask,
-        testConnection,
         onEvent,
         lastMessage,
         service: openclawService,

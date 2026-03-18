@@ -74,6 +74,22 @@ class OpenClawClient:
             "x-openclaw-agent-id": self.agent_id,
         }
 
+    async def cancel_response(self, response_id: str) -> None:
+        """
+        取消正在执行的 OpenClaw response，避免继续消耗 token。
+        失败时静默处理（仅日志输出）。
+        """
+        if not response_id:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{self.base_url}/v1/responses/{response_id}/cancel",
+                    headers=self._headers(),
+                )
+        except Exception as e:
+            print(f"[OpenClawClient] 取消 response 失败: {response_id} - {e}", flush=True)
+
     async def test_connection(self) -> dict:
         """测试连接"""
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
@@ -184,6 +200,7 @@ class OpenClawClient:
         accumulated_text = ""
         screenshots: list[str] = []          # 最终 URL 列表（Supabase 公开 URL 或 base64）
         _seen_file_urls: set[str] = set()    # 已处理的 file:// URL（去重）
+        response_id: Optional[str] = None
 
         async def _process_new_screenshots_in_text() -> bool:
             """
@@ -252,6 +269,8 @@ class OpenClawClient:
                                 continue
 
                             event_type, data = event
+                            if event_type.startswith("response."):
+                                response_id = response_id or _extract_response_id(data)
 
                             if event_type == "response.output_text.delta":
                                 delta = data.get("delta", "")
@@ -310,6 +329,8 @@ class OpenClawClient:
         except asyncio.CancelledError:
             # 工作流被取消：收集已有截图后重新抛出
             await _process_new_screenshots_in_text()
+            if response_id:
+                await asyncio.shield(self.cancel_response(response_id))
             raise
         except Exception as e:
             await _process_new_screenshots_in_text()
@@ -360,6 +381,19 @@ class OpenClawClient:
             data = {"raw": data_str}
 
         return event_type, data
+
+
+def _extract_response_id(data: dict) -> Optional[str]:
+    """从 OpenClaw SSE 事件中提取 response_id"""
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get("response"), dict) and data["response"].get("id"):
+        return data["response"]["id"]
+    if data.get("response_id"):
+        return data.get("response_id")
+    if data.get("id") and str(data.get("id")).startswith("resp_"):
+        return data.get("id")
+    return None
 
     def _extract_screenshot(self, data: dict) -> Optional[str]:
         """

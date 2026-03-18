@@ -62,8 +62,4 @@ export const EMPLOYMENT_TYPE = {
   internship: '实习',
 } as const
 
-// OpenClaw 默认配置
-export const OPENCLAW_DEFAULT_URL = 'http://192.168.3.215:18789'
-export const OPENCLAW_DEFAULT_AGENT_ID = 'HR_Juzi'
-export const OPENCLAW_REQUEST_TIMEOUT = 15000       // 15秒请求超时
 export const OPENCLAW_SSE_TIMEOUT = 300000           // 5分钟 SSE 流式超时

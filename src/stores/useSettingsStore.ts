@@ -1,17 +1,15 @@
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
 import type {PlatformConfigLocal, PlatformKey, PlatformProfile} from '@/types/openclaw'
-import {OPENCLAW_DEFAULT_AGENT_ID, PLATFORMS} from '@/lib/constants'
+import {PLATFORMS} from '@/lib/constants'
 
 // ============================================================
 // Settings Store — persisted to localStorage
 // ============================================================
 
 interface SettingsState {
-  // Connection
-  gatewayUrl: string
+  // OpenClaw
   agentId: string
-  proxyMode: boolean
 
   // Platform accounts
   platformProfiles: PlatformProfile[]
@@ -45,7 +43,7 @@ interface SettingsState {
   retentionDays: number
 
   // ---- Actions ----
-  updateConnection: (updates: { gatewayUrl?: string; agentId?: string; proxyMode?: boolean }) => void
+  setAgentId: (agentId: string) => void
   addProfile: (profile: PlatformProfile) => void
   updateProfile: (id: string, updates: Partial<PlatformProfile>) => void
   removeProfile: (id: string) => void
@@ -62,9 +60,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       // ---- Default Values ----
-      gatewayUrl: import.meta.env.VITE_OPENCLAW_URL || import.meta.env.VITE_OPENCLAW_WS_URL || 'http://192.168.3.215:18789',
-      agentId: OPENCLAW_DEFAULT_AGENT_ID,
-      proxyMode: false,
+      agentId: '',
 
       platformProfiles: [],
 
@@ -92,8 +88,8 @@ export const useSettingsStore = create<SettingsState>()(
       retentionDays: 90,
 
       // ---- Actions ----
-      updateConnection: (updates) =>
-        set((state) => ({ ...state, ...updates })),
+      setAgentId: (agentId) =>
+        set((state) => ({...state, agentId})),
 
       addProfile: (profile) =>
         set((state) => ({

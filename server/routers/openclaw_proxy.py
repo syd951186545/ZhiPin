@@ -34,6 +34,14 @@ _HOP_BY_HOP_HEADERS = {
 def _filter_headers(headers: Dict[str, str]) -> Dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() not in _HOP_BY_HOP_HEADERS}
 
+@router.get("/info")
+async def openclaw_info():
+    settings = get_settings()
+    return {
+        "agent_id": settings.openclaw_agent_id,
+        "base_url": settings.openclaw_base_url,
+    }
+
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_openclaw(path: str, request: Request):
