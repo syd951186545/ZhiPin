@@ -9,7 +9,7 @@
 import logging
 from uuid import uuid4
 
-from workflows.base import WorkflowState, StepDefinition, execute_step, run_steps
+from workflows.base import WorkflowState, StepDefinition, execute_step, run_workflow_graph
 from services.openclaw_client import OpenClawClient
 from services.supabase_client import (
     create_automation_task,
@@ -111,160 +111,234 @@ async def run(execution_id: str, req):
         except Exception as e:
             logger.warning(f"创建任务记录失败: {e}")
 
-    # 汇总所有平台的候选人
-    all_candidates: list[dict] = []
-    all_screenshots: list[str] = []
-    global_error = None
-    global_step_index = 0
     total_steps = len(all_step_meta)
 
-    openclaw = OpenClawClient(
-        base_url=req.openclaw_base_url or None,
-        auth_token=req.openclaw_auth_token or None,
-    )
+    initial_state: WorkflowState = {
+        "execution_id": execution_id,
+        "workflow_id": "resume_screen",
+        "session_id": str(uuid4()),
+        "current_step": "",
+        "step_index": 0,
+        "total_steps": total_steps,
+        "platform": "",
+        "platforms": platforms,
+        "current_platform_index": 0,
+        "account_name": req.account_name,
+        "job_id": req.job_id or "",
+        "job_title": req.job_title,
+        "job_location": req.job_location,
+        "job_salary_min": req.job_salary_min or 0,
+        "job_salary_max": req.job_salary_max or 0,
+        "job_employment_type": req.job_employment_type,
+        "job_department": req.job_department,
+        "job_description": req.job_description,
+        "job_requirements": req.job_requirements,
+        "job_benefits": req.job_benefits,
+        "company_name": req.company_name,
+        "company_address": req.company_address,
+        "company_size": req.company_size,
+        "company_overview": req.company_overview,
+        "min_match_score": req.min_match_score,
+        "max_results": req.max_results,
+        "step_results": {},
+        "accumulated_text": "",
+        "all_screenshots": [],
+        "parsed_candidates": [],
+        "announcement_text": "",
+        "publish_result": {},
+        "result_summary": {},
+        "error": None,
+        "cancelled": False,
+        "completed": False,
+        "_openclaw_url": req.openclaw_base_url or "",
+        "_openclaw_token": req.openclaw_auth_token or "",
+        "_auth_token": req.supabase_auth_token or "",
+    }
 
-    # 逐平台执行
+    runtime_steps: list[StepDefinition] = []
+
     for platform_index, platform in enumerate(platforms):
         pname = _get_platform_name(platform)
+        platform_finish_node_id = f"platform_finish_{platform}"
 
-        if is_cancelled(execution_id):
-            global_error = "用户取消"
-            break
+        def make_platform_start_executor(current_platform=platform, current_pname=pname, current_index=platform_index):
+            async def executor(state: WorkflowState) -> WorkflowState:
+                await emit_event(execution_id, "platform_change", {
+                    "platform": current_platform,
+                    "platform_name": current_pname,
+                    "platform_index": current_index,
+                    "total_platforms": len(platforms),
+                })
 
-        await emit_event(execution_id, "platform_change", {
-            "platform": platform,
-            "platform_name": pname,
-            "platform_index": platform_index,
-            "total_platforms": len(platforms),
-        })
+                new_state = dict(state)
+                new_state["platform"] = current_pname
+                new_state["current_platform_index"] = current_index
+                new_state["session_id"] = str(uuid4())
+                new_state["accumulated_text"] = ""
+                return new_state
 
-        # 初始化此平台的状态
-        platform_state: WorkflowState = {
-            "execution_id": execution_id,
-            "workflow_id": "resume_screen",
-            "session_id": str(uuid4()),
-            "current_step": "",
-            "step_index": global_step_index,
-            "total_steps": total_steps,
-            "platform": pname,
-            "account_name": req.account_name,
-            "job_id": req.job_id or "",
-            "job_title": req.job_title,
-            "job_location": req.job_location,
-            "job_salary_min": req.job_salary_min or 0,
-            "job_salary_max": req.job_salary_max or 0,
-            "job_employment_type": req.job_employment_type,
-            "job_department": req.job_department,
-            "job_description": req.job_description,
-            "job_requirements": req.job_requirements,
-            "job_benefits": req.job_benefits,
-            "company_name": req.company_name,
-            "company_address": req.company_address,
-            "company_size": req.company_size,
-            "company_overview": req.company_overview,
-            "min_match_score": req.min_match_score,
-            "max_results": req.max_results,
-            "step_results": {},
-            "accumulated_text": "",
-            "all_screenshots": [],
-            "parsed_candidates": [],
-            "announcement_text": "",
-            "publish_result": {},
-            "error": None,
-            "completed": False,
-            "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
-        }
+            return executor
 
-        # 为此平台创建带平台前缀的步骤
-        platform_steps = []
-        for step in PER_PLATFORM_STEPS:
-            platform_steps.append(StepDefinition(
-                id=f"{step.id}_{platform}",
-                name_zh=f"[{pname}] {step.name_zh}",
-                prompt_builder=step.prompt_builder,
-                requires_openclaw=step.requires_openclaw,
-            ))
+        runtime_steps.append(
+            StepDefinition(
+                id=f"platform_start_{platform}",
+                name_zh=f"[{pname}] 平台开始",
+                requires_openclaw=False,
+                executor=make_platform_start_executor(),
+                visible=False,
+            )
+        )
 
-        # 逐步执行（手动，因为需要跟踪全局 step_index）
-        for step in platform_steps:
-            if is_cancelled(execution_id):
-                global_error = "用户取消"
-                break
+        for base_step in PER_PLATFORM_STEPS:
+            step_id = f"{base_step.id}_{platform}"
+            step_name = f"[{pname}] {base_step.name_zh}"
 
-            platform_state["step_index"] = global_step_index
-            platform_state["total_steps"] = total_steps
-            platform_state["current_step"] = step.id
+            def make_platform_step_executor(
+                current_step_id=step_id,
+                current_step_name=step_name,
+                prompt_builder=base_step.prompt_builder,
+                jump_target=platform_finish_node_id,
+                current_platform=platform,
+                current_pname=pname,
+            ):
+                async def executor(state: WorkflowState) -> WorkflowState:
+                    step = StepDefinition(
+                        id=current_step_id,
+                        name_zh=current_step_name,
+                        prompt_builder=prompt_builder,
+                        requires_openclaw=True,
+                    )
 
-            platform_state = await execute_step(
-                platform_state, step, openclaw, emit_event,
+                    openclaw = OpenClawClient(
+                        base_url=state.get("_openclaw_url") or None,
+                        auth_token=state.get("_openclaw_token") or None,
+                    )
+                    result_state = await execute_step(state, step, openclaw, emit_event)
+                    if result_state.get("error"):
+                        logger.error(
+                            f"[{execution_id}] 平台 {current_pname} 步骤 {current_step_id} 失败: {result_state['error']}"
+                        )
+                        await emit_event(execution_id, "platform_error", {
+                            "platform": current_platform,
+                            "platform_name": current_pname,
+                            "error": result_state["error"],
+                        })
+                        result_state["error"] = None
+                        result_state["_jump_to"] = jump_target
+                    return result_state
+
+                return executor
+
+            runtime_steps.append(
+                StepDefinition(
+                    id=step_id,
+                    name_zh=step_name,
+                    requires_openclaw=False,
+                    executor=make_platform_step_executor(),
+                )
             )
 
-            global_step_index += 1
+        def make_platform_finish_executor(current_platform=platform, current_pname=pname):
+            async def executor(state: WorkflowState) -> WorkflowState:
+                source_key = _get_source_key(current_platform)
+                platform_candidates = parse_resume_analysis(
+                    state.get("accumulated_text", ""),
+                    source=source_key,
+                    job_id=req.job_id,
+                    min_match_score=req.min_match_score,
+                )
 
-            if platform_state.get("error"):
-                logger.error(f"[{execution_id}] 平台 {pname} 步骤 {step.id} 失败: {platform_state['error']}")
-                # 平台级失败不中断整个工作流，继续下一个平台
-                await emit_event(execution_id, "platform_error", {
-                    "platform": platform,
-                    "platform_name": pname,
-                    "error": platform_state["error"],
-                })
-                break
+                new_state = dict(state)
+                new_state["parsed_candidates"] = state.get("parsed_candidates", []) + platform_candidates
 
-        # 提取此平台的候选人
-        source_key = _get_source_key(platform)
-        platform_candidates = parse_resume_analysis(
-            platform_state.get("accumulated_text", ""),
-            source=source_key,
-            job_id=req.job_id,
-            min_match_score=req.min_match_score,
+                logger.info(
+                    f"[{execution_id}] 平台 {current_pname} 完成，发现 {len(platform_candidates)} 个候选人"
+                )
+                return new_state
+
+            return executor
+
+        runtime_steps.append(
+            StepDefinition(
+                id=platform_finish_node_id,
+                name_zh=f"[{pname}] 平台收尾",
+                requires_openclaw=False,
+                executor=make_platform_finish_executor(),
+                visible=False,
+            )
         )
-        all_candidates.extend(platform_candidates)
-        all_screenshots.extend(platform_state.get("all_screenshots", []))
 
-        logger.info(f"[{execution_id}] 平台 {pname} 完成，发现 {len(platform_candidates)} 个候选人")
+    async def save_results_step(state: WorkflowState) -> WorkflowState:
+        step_id = state["current_step"]
+        step_name = "汇总保存结果"
 
-    if global_error:
-        await emit_event(execution_id, "cancelled", {"message": global_error})
+        await emit_event(execution_id, "step_change", {
+            "step_id": step_id,
+            "step_name": step_name,
+            "status": "running",
+            "step_index": state["step_index"],
+            "total_steps": state["total_steps"],
+        })
+
+        all_candidates = state.get("parsed_candidates", [])
+        saved_count = 0
+        if all_candidates and req.tenant_id:
+            try:
+                saved = create_candidates_batch(req.tenant_id, all_candidates, auth_token=auth_token)
+                saved_count = len(saved)
+                logger.info(f"[{execution_id}] 汇总保存 {saved_count} 个候选人")
+            except Exception as e:
+                logger.error(f"[{execution_id}] 保存候选人失败: {e}")
+
+        result_summary = {
+            "resumes_screened": len(all_candidates),
+            "candidates_found": len(all_candidates),
+            "candidates_saved": saved_count,
+            "platforms_processed": len(platforms),
+            "match_rate": (
+                round(sum(1 for c in all_candidates if (c.get("ai_match_score") or 0) >= req.min_match_score) / len(all_candidates) * 100)
+                if all_candidates else 0
+            ),
+        }
+
+        new_state = dict(state)
+        new_state["result_summary"] = result_summary
+
+        await emit_event(execution_id, "step_change", {
+            "step_id": step_id,
+            "step_name": step_name,
+            "status": "done",
+        })
+        return new_state
+
+    runtime_steps.append(
+        StepDefinition(
+            id="save_results",
+            name_zh="汇总保存结果",
+            requires_openclaw=False,
+            executor=save_results_step,
+        )
+    )
+
+    final_state = await run_workflow_graph(
+        state=initial_state,
+        steps=runtime_steps,
+        openclaw=OpenClawClient(
+            base_url=req.openclaw_base_url or None,
+            auth_token=req.openclaw_auth_token or None,
+        ),
+        emit_event=emit_event,
+        is_cancelled=is_cancelled,
+    )
+
+    if final_state.get("cancelled"):
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "cancelled", error_message=global_error, auth_token=auth_token)
+            complete_automation_task(task_record["id"], "cancelled", error_message="用户取消", auth_token=auth_token)
         return
 
-    # 最后步骤：汇总保存结果
-    await emit_event(execution_id, "step_change", {
-        "step_id": "save_results",
-        "step_name": "汇总保存结果",
-        "status": "running",
-        "step_index": global_step_index,
-        "total_steps": total_steps,
-    })
-
-    saved_count = 0
-    if all_candidates and req.tenant_id:
-        try:
-            saved = create_candidates_batch(req.tenant_id, all_candidates, auth_token=auth_token)
-            saved_count = len(saved)
-            logger.info(f"[{execution_id}] 汇总保存 {saved_count} 个候选人")
-        except Exception as e:
-            logger.error(f"[{execution_id}] 保存候选人失败: {e}")
-
-    await emit_event(execution_id, "step_change", {
-        "step_id": "save_results",
-        "step_name": "汇总保存结果",
-        "status": "done",
-    })
-
-    # 完成
-    result_summary = {
-        "resumes_screened": len(all_candidates),
-        "candidates_found": len(all_candidates),
-        "candidates_saved": saved_count,
-        "platforms_processed": len(platforms),
-        "match_rate": (
-            round(sum(1 for c in all_candidates if (c.get("ai_match_score") or 0) >= req.min_match_score) / len(all_candidates) * 100)
-            if all_candidates else 0
-        ),
-    }
+    all_candidates = final_state.get("parsed_candidates", [])
+    all_screenshots = final_state.get("all_screenshots", [])
+    result_summary = final_state.get("result_summary", {})
 
     await emit_event(execution_id, "complete", {
         "result_summary": result_summary,

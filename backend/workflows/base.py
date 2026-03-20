@@ -1,14 +1,16 @@
 """
 工作流基础设施
 
-定义通用的工作流状态、步骤执行逻辑，供三个工作流复用。
+定义通用的工作流状态、步骤执行逻辑与 LangGraph 运行时，供三个工作流复用。
 """
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional, TypedDict
+from typing import Any, Awaitable, Callable, Optional, TypedDict
+
+from langgraph.graph import END, StateGraph
 
 from services.openclaw_client import OpenClawClient, StepResult
 from services.supabase_client import make_screenshot_uploader
@@ -66,18 +68,24 @@ class WorkflowState(TypedDict, total=False):
     parsed_candidates: list[dict]
     announcement_text: str
     publish_result: dict
+    result_summary: dict
 
     # 状态控制
     error: Optional[str]
+    cancelled: bool
     completed: bool
 
     # 内部私有字段（各工作流 run() 函数注入，不传递给前端）
     _auth_token: str       # Supabase 用户 JWT，用于 Storage 截图上传
     _openclaw_url: str     # OpenClaw base URL 覆盖
     _openclaw_token: str   # OpenClaw auth token 覆盖
+    _jump_to: str          # LangGraph 条件跳转目标（内部路由使用）
 
 
 # ── 步骤定义 ──────────────────────────────────────────────
+
+
+StepExecutor = Callable[[WorkflowState], Awaitable[WorkflowState]]
 
 
 @dataclass
@@ -85,8 +93,14 @@ class StepDefinition:
     """工作流步骤定义"""
     id: str
     name_zh: str
-    prompt_builder: Any  # Callable[[WorkflowState], str]
+    prompt_builder: Optional[Any] = None  # Callable[[WorkflowState], str]
     requires_openclaw: bool = True
+    executor: Optional[StepExecutor] = None
+    visible: bool = True
+    graph_id: Optional[str] = None
+
+    def node_id(self) -> str:
+        return self.graph_id or self.id
 
 
 # ── 步骤执行器 ────────────────────────────────────────────
@@ -227,7 +241,89 @@ async def execute_step(
     return new_state
 
 
-async def run_steps(
+def build_workflow_graph(
+    steps: list[StepDefinition],
+    openclaw: OpenClawClient,
+    emit_event,
+    is_cancelled,
+):
+    """
+    基于步骤定义构建 LangGraph 线性执行图。
+
+    - 每个节点执行前统一检查取消状态
+    - 可见步骤自动维护 current_step / step_index / total_steps
+    - 节点可通过 state["_jump_to"] 指定动态跳转目标
+    """
+    graph = StateGraph(WorkflowState)
+    visible_steps = [step for step in steps if step.visible]
+    total_visible_steps = len(visible_steps)
+    visible_step_index = {
+        step.node_id(): index
+        for index, step in enumerate(visible_steps)
+    }
+    node_ids = [step.node_id() for step in steps]
+
+    for step in steps:
+        node_id = step.node_id()
+
+        def make_node(current_step: StepDefinition, current_node_id: str):
+            async def node(state: WorkflowState) -> WorkflowState:
+                new_state = dict(state)
+                new_state.pop("_jump_to", None)
+
+                execution_id = new_state["execution_id"]
+                if is_cancelled(execution_id):
+                    if not new_state.get("cancelled"):
+                        await emit_event(execution_id, "cancelled", {"message": "工作流已取消"})
+                    new_state["error"] = "用户取消"
+                    new_state["cancelled"] = True
+                    return new_state
+
+                if current_step.visible:
+                    new_state["current_step"] = current_step.id
+                    new_state["step_index"] = visible_step_index[current_node_id]
+                    new_state["total_steps"] = total_visible_steps
+
+                if current_step.executor is not None:
+                    return await current_step.executor(new_state)
+
+                return await execute_step(new_state, current_step, openclaw, emit_event)
+
+            return node
+
+        graph.add_node(node_id, make_node(step, node_id))
+
+    graph.set_entry_point(node_ids[0])
+
+    for index, step in enumerate(steps):
+        current_node_id = step.node_id()
+        next_node_id = node_ids[index + 1] if index + 1 < len(node_ids) else END
+
+        def make_router(default_next: str):
+            def router(state: WorkflowState):
+                if state.get("cancelled") or state.get("error"):
+                    return END
+
+                jump_to = state.get("_jump_to")
+                if jump_to:
+                    return jump_to
+
+                return default_next
+
+            return router
+
+        path_map = {node_id: node_id for node_id in node_ids}
+        path_map[END] = END
+        graph.add_conditional_edges(
+            current_node_id,
+            make_router(next_node_id),
+            path_map,
+        )
+
+    return graph.compile()
+
+
+async def run_workflow_graph(
     state: WorkflowState,
     steps: list[StepDefinition],
     openclaw: OpenClawClient,
@@ -235,26 +331,15 @@ async def run_steps(
     is_cancelled,
 ) -> WorkflowState:
     """
-    按顺序执行一组步骤。
-
-    任何步骤失败或被取消时停止执行。
+    使用 LangGraph 运行一组步骤。
     """
-    state = dict(state)
-    state["total_steps"] = len(steps)
-
-    for i, step in enumerate(steps):
-        # 检查取消
-        if is_cancelled(state["execution_id"]):
-            state["error"] = "用户取消"
-            await emit_event(state["execution_id"], "cancelled", {"message": "工作流已取消"})
-            return state
-
-        state["step_index"] = i
-        state["current_step"] = step.id
-        state = await execute_step(state, step, openclaw, emit_event)
-
-        if state.get("error"):
-            return state
-
-    state["completed"] = True
-    return state
+    runtime = build_workflow_graph(
+        steps=steps,
+        openclaw=openclaw,
+        emit_event=emit_event,
+        is_cancelled=is_cancelled,
+    )
+    final_state = dict(await runtime.ainvoke(dict(state)))
+    if not final_state.get("error") and not final_state.get("cancelled"):
+        final_state["completed"] = True
+    return final_state

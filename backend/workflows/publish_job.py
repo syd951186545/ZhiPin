@@ -8,9 +8,7 @@ login_check → generate_announcement → fill_and_publish → verify_result
 import logging
 from uuid import uuid4
 
-from langgraph.graph import StateGraph, END
-
-from workflows.base import WorkflowState, StepDefinition, execute_step, run_steps
+from workflows.base import WorkflowState, StepDefinition, run_workflow_graph
 from services.openclaw_client import OpenClawClient
 from services.supabase_client import (
     create_automation_task,
@@ -58,52 +56,6 @@ STEP_META = [
     {"id": s.id, "name_zh": s.name_zh, "requires_openclaw": s.requires_openclaw}
     for s in STEPS
 ]
-
-
-# ── LangGraph 节点函数 ────────────────────────────────────
-
-
-def build_graph():
-    """构建 LangGraph StateGraph"""
-    graph = StateGraph(WorkflowState)
-
-    # 添加节点 - 每个节点对应一个步骤
-    for step in STEPS:
-        # 创建闭包捕获 step
-        def make_node(s):
-            async def node(state: WorkflowState) -> WorkflowState:
-                openclaw = OpenClawClient(
-                    base_url=state.get("_openclaw_url", ""),
-                    auth_token=state.get("_openclaw_token", ""),
-                )
-                return await execute_step(state, s, openclaw, emit_event)
-            return node
-
-        graph.add_node(step.id, make_node(step))
-
-    # 添加边 - 线性流转，失败时跳到 END
-    graph.set_entry_point("login_check")
-
-    for i in range(len(STEPS) - 1):
-        current = STEPS[i]
-        next_step = STEPS[i + 1]
-
-        def make_router(curr_id, next_id):
-            def router(state: WorkflowState):
-                if state.get("error"):
-                    return END
-                return next_id
-            return router
-
-        graph.add_conditional_edges(
-            current.id,
-            make_router(current.id, next_step.id),
-            {next_step.id: next_step.id, END: END},
-        )
-
-    graph.add_edge(STEPS[-1].id, END)
-
-    return graph.compile()
 
 
 # ── 工作流入口 ────────────────────────────────────────────
@@ -168,15 +120,16 @@ async def run(execution_id: str, req):
         "parsed_candidates": [],
         "announcement_text": "",
         "publish_result": {},
+        "result_summary": {},
         "error": None,
+        "cancelled": False,
         "completed": False,
         "_openclaw_url": req.openclaw_base_url or "",
         "_openclaw_token": req.openclaw_auth_token or "",
         "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
     }
 
-    # 使用简单的步骤执行器（比 LangGraph compile 更直接，且支持取消检测）
-    final_state = await run_steps(
+    final_state = await run_workflow_graph(
         state=initial_state,
         steps=STEPS,
         openclaw=OpenClawClient(
