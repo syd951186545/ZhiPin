@@ -42,14 +42,12 @@ services:
     environment:
       # 在 Docker 网络中通过服务名访问 OpenClaw
       - OPENCLAW_BASE_URL=http://openclaw:18789
-      - OPENCLAW_MEDIA_MOUNT=/openclaw-media
+      - OPENCLAW_MEDIA_MOUNT=/openclaw-home/.openclaw/media
       - CORS_ORIGINS=*
       - DEBUG=false
     volumes:
-      - openclaw-media:/openclaw-media:ro
-      # 挂载渲染后的 openclaw 配置文件，供 settings API 读写（deploy.sh 生成此文件）
-      - ./docker/openclaw.json:/app/openclaw-config.json
-      # 挂载 Docker socket，用于 settings API 重启 openclaw 容器
+      - openclaw-home:/openclaw-home:ro
+      # 挂载 Docker socket，用于 settings API 通过 openclaw 容器执行 Gateway 控制面 RPC
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       openclaw:
@@ -70,7 +68,7 @@ services:
       # OPENCLAW_GATEWAY_TOKEN 与 backend 的 OPENCLAW_AUTH_TOKEN 保持一致，避免认证不匹配
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_AUTH_TOKEN}
       - TZ=${OPENCLAW_TZ:-Asia/Shanghai}
-      # MiniMax API Key（直接写入 openclaw.json，此处保留作为备用传递方式）
+      # MiniMax API Key（初始配置渲染使用；运行中更新由 Gateway config.apply 持久化到容器状态卷）
       - MINIMAX_API_KEY=${MINIMAX_API_KEY}
     cap_drop:
       - ALL
@@ -90,14 +88,13 @@ services:
       retries: 5
       start_period: 60s
     volumes:
-      - ./docker/openclaw.json:/home/node/.openclaw/openclaw.json:ro
-      - openclaw-media:/home/node/.openclaw/media
+      - openclaw-home:/home/node
     networks:
       - zhipin-net
     restart: unless-stopped
 
 volumes:
-  openclaw-media:
+  openclaw-home:
     driver: local
 
 networks:

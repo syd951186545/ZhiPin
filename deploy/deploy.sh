@@ -53,28 +53,26 @@ check_env() {
     info ".env.production ✓"
 }
 
-# ── 3. 渲染 OpenClaw 配置文件 ────────────────────────────────
-# 从 docker/openclaw.json.tmpl 通过 envsubst 渲染成 docker/openclaw.json
-# 渲染后的文件包含实际 token 和 API Key，由 backend/settings API 后续读写
+# ── 3. 渲染 OpenClaw 初始配置文件 ───────────────────────────
+# 从 docker/openclaw.json.tmpl 通过 envsubst 渲染成 docker/openclaw.json。
+# 该文件仅用于首次部署或手动同步到容器状态卷，运行期配置由 Gateway 控制面管理。
 setup_openclaw_config() {
     if [ ! -f docker/openclaw.json.tmpl ]; then
         error "docker/openclaw.json.tmpl 不存在，请确认项目文件完整。"
     fi
 
-    # 确保 gettext-base（提供 envsubst）已安装
     if ! command -v envsubst &>/dev/null; then
         info "安装 envsubst..."
         sudo apt-get install -y gettext-base -qq
     fi
 
-    # 将 .env.production 中的变量导出，供 envsubst 使用
     set -a
     # shellcheck source=/dev/null
     source .env.production
     set +a
 
     envsubst < docker/openclaw.json.tmpl > docker/openclaw.json
-    info "OpenClaw 配置已渲染到 deploy/docker/openclaw.json ✓"
+    info "OpenClaw 初始配置已渲染到 deploy/docker/openclaw.json ✓"
 }
 
 # ── 4. 自动生成 OpenClaw Auth Token ─────────────────────────
@@ -85,7 +83,6 @@ setup_openclaw_token() {
     if [ -z "$token" ]; then
         info "OPENCLAW_AUTH_TOKEN 未设置，自动生成..."
         token=$(openssl rand -hex 24)
-        # 将生成的 token 写回 .env.production
         sed -i "s|^OPENCLAW_AUTH_TOKEN=.*|OPENCLAW_AUTH_TOKEN=$token|" .env.production
         info "Token 已写入 .env.production ✓"
         info "OpenClaw Auth Token: ${YELLOW}$token${NC}"
@@ -107,15 +104,41 @@ pull_openclaw_image() {
     info "OpenClaw 镜像拉取成功 ✓"
 }
 
-# ── 6. 构建并启动 ───────────────────────────────────────────
+# ── 6. 同步配置到 OpenClaw 状态卷（仅首次）──────────────────
+sync_openclaw_config_if_missing() {
+    local container_id
+    container_id=$(docker compose --env-file .env.production ps -q openclaw)
+
+    if [ -z "$container_id" ]; then
+        error "未找到 openclaw 容器，无法同步初始配置。"
+    fi
+
+    if docker exec "$container_id" sh -lc '[ -f /home/node/.openclaw/openclaw.json ]'; then
+        warn "检测到 OpenClaw 状态卷中已有 openclaw.json，保留现有运行时配置。"
+        return 0
+    fi
+
+    info "首次部署：写入 OpenClaw 初始配置到状态卷..."
+    docker exec -i "$container_id" sh -lc 'mkdir -p /home/node/.openclaw && cat > /home/node/.openclaw/openclaw.json' < docker/openclaw.json
+    info "OpenClaw 状态卷已写入配置 ✓"
+}
+
+# ── 7. 构建并启动 ───────────────────────────────────────────
 deploy() {
-    info "正在构建并启动所有服务..."
-    docker compose --env-file .env.production up -d --build
+    info "启动 OpenClaw 容器..."
+    docker compose --env-file .env.production up -d openclaw
+
+    sync_openclaw_config_if_missing
+
+    info "重启 OpenClaw 以加载状态卷配置..."
+    docker compose --env-file .env.production restart openclaw
+
+    info "构建并启动前后端服务..."
+    docker compose --env-file .env.production up -d --build backend frontend
 
     info "等待服务启动..."
     sleep 3
 
-    # 健康检查
     local max_retries=10
     local retry=0
     while [ $retry -lt $max_retries ]; do
@@ -132,7 +155,7 @@ deploy() {
     fi
 }
 
-# ── 7. 显示状态 ─────────────────────────────────────────────
+# ── 8. 显示状态 ─────────────────────────────────────────────
 show_status() {
     echo ""
     info "═══════════════════════════════════════════"
@@ -142,12 +165,10 @@ show_status() {
     docker compose ps
     echo ""
 
-    # 获取暴露端口
     local port
     port=$(grep -E '^EXPOSE_PORT=' .env.production 2>/dev/null | cut -d'=' -f2)
     port=${port:-80}
 
-    # 获取服务器 IP
     local ip
     ip=$(hostname -I | awk '{print $1}')
 
@@ -168,8 +189,8 @@ main() {
     echo ""
     check_docker
     check_env
-    setup_openclaw_token   # 先生成 token（setup_openclaw_config 需要读取它）
-    setup_openclaw_config  # 用 envsubst 渲染配置文件（需要 token 已写入 .env.production）
+    setup_openclaw_token
+    setup_openclaw_config
     pull_openclaw_image
     deploy
     show_status
