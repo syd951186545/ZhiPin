@@ -1,12 +1,56 @@
 #!/usr/bin/env bash
 # ============================================================
 # 智聘云 一键部署脚本 (Ubuntu 22.04)
+# 作用：执行完整重部署。
+# - 删除旧的自构建 frontend / backend 镜像
+# - 重新构建新的自构建镜像
+# - 可按需更新 OpenClaw 远程镜像 / Dockerfile 基础镜像
+#
+# 用法:
+#   ./deploy.sh                    # 完整重部署；默认不主动拉取外部镜像
+#   ./deploy.sh --pull-openclaw    # 重部署前拉取最新 OpenClaw 镜像
+#   ./deploy.sh --pull-base        # 构建 frontend/backend 前拉取最新基础镜像(node/python/nginx)
+#   ./deploy.sh --pull-all         # 同时更新 OpenClaw + 基础镜像
 # ============================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$SCRIPT_DIR"
 cd "$DEPLOY_DIR"
+
+PULL_OPENCLAW=false
+PULL_BASE=false
+OLD_FRONTEND_IMAGE=""
+OLD_BACKEND_IMAGE=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --pull-openclaw)
+            PULL_OPENCLAW=true
+            ;;
+        --pull-base)
+            PULL_BASE=true
+            ;;
+        --pull-all)
+            PULL_OPENCLAW=true
+            PULL_BASE=true
+            ;;
+        -h|--help)
+            cat <<USAGE
+用法: $0 [--pull-openclaw] [--pull-base] [--pull-all]
+  --pull-openclaw  重部署前拉取最新 OpenClaw 镜像
+  --pull-base      重建 frontend/backend 时拉取最新基础镜像(node/python/nginx)
+  --pull-all       同时启用以上两个选项
+USAGE
+            exit 0
+            ;;
+        *)
+            echo "未知参数: $1" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 # 颜色输出
 RED='\033[0;31m'
@@ -91,11 +135,16 @@ setup_openclaw_token() {
     fi
 }
 
-# ── 5. 拉取 OpenClaw 镜像 ────────────────────────────────────
-pull_openclaw_image() {
+# ── 5. 拉取 OpenClaw 镜像（可选）─────────────────────────────
+pull_openclaw_image_if_needed() {
     local img
     img=$(grep -E '^OPENCLAW_IMAGE=' .env.production 2>/dev/null | cut -d'=' -f2)
     img=${img:-ghcr.io/openclaw/openclaw:latest}
+
+    if ! $PULL_OPENCLAW; then
+        warn "本次未主动拉取 OpenClaw 镜像（使用 --pull-openclaw / --pull-all 可更新远程镜像）。"
+        return 0
+    fi
 
     info "正在拉取 OpenClaw 镜像: $img ..."
     if ! docker pull "$img"; then
@@ -104,7 +153,49 @@ pull_openclaw_image() {
     info "OpenClaw 镜像拉取成功 ✓"
 }
 
-# ── 6. 同步配置到 OpenClaw 状态卷（仅首次）──────────────────
+# ── 6. 停止现有服务并清理自构建镜像 ─────────────────────────
+remember_built_images() {
+    OLD_FRONTEND_IMAGE=$(docker compose --env-file .env.production images -q frontend 2>/dev/null || true)
+    OLD_BACKEND_IMAGE=$(docker compose --env-file .env.production images -q backend 2>/dev/null || true)
+}
+
+stop_existing_stack() {
+    info "停止当前服务栈（保留数据卷）..."
+    docker compose --env-file .env.production down --remove-orphans || true
+}
+
+remove_built_images() {
+    if [ -n "$OLD_FRONTEND_IMAGE" ]; then
+        info "删除旧 frontend 镜像: $OLD_FRONTEND_IMAGE"
+        docker image rm -f "$OLD_FRONTEND_IMAGE" || warn "frontend 镜像删除失败，Docker 将在重建时自行处理。"
+    else
+        info "未发现可删除的旧 frontend 镜像。"
+    fi
+
+    if [ -n "$OLD_BACKEND_IMAGE" ]; then
+        info "删除旧 backend 镜像: $OLD_BACKEND_IMAGE"
+        docker image rm -f "$OLD_BACKEND_IMAGE" || warn "backend 镜像删除失败，Docker 将在重建时自行处理。"
+    else
+        info "未发现可删除的旧 backend 镜像。"
+    fi
+}
+
+# ── 7. 构建自定义镜像 ───────────────────────────────────────
+build_app_images() {
+    local build_args=(--env-file .env.production build --no-cache frontend backend)
+
+    if $PULL_BASE; then
+        info "构建前拉取最新基础镜像（node/python/nginx）..."
+        build_args=(--env-file .env.production build --pull --no-cache frontend backend)
+    else
+        warn "本次未主动拉取 Dockerfile 基础镜像（使用 --pull-base / --pull-all 可更新 node/python/nginx 基础镜像）。"
+    fi
+
+    info "重新构建 frontend / backend 镜像..."
+    docker compose "${build_args[@]}"
+}
+
+# ── 8. 同步配置到 OpenClaw 状态卷（仅首次）──────────────────
 sync_openclaw_config_if_missing() {
     local container_id
     container_id=$(docker compose --env-file .env.production ps -q openclaw)
@@ -123,7 +214,7 @@ sync_openclaw_config_if_missing() {
     info "OpenClaw 状态卷已写入配置 ✓"
 }
 
-# ── 7. 构建并启动 ───────────────────────────────────────────
+# ── 9. 启动服务 ─────────────────────────────────────────────
 deploy() {
     info "启动 OpenClaw 容器..."
     docker compose --env-file .env.production up -d openclaw
@@ -133,8 +224,8 @@ deploy() {
     info "重启 OpenClaw 以加载状态卷配置..."
     docker compose --env-file .env.production restart openclaw
 
-    info "构建并启动前后端服务..."
-    docker compose --env-file .env.production up -d --build backend frontend
+    info "启动前后端服务..."
+    docker compose --env-file .env.production up -d backend frontend
 
     info "等待服务启动..."
     sleep 3
@@ -155,14 +246,14 @@ deploy() {
     fi
 }
 
-# ── 8. 显示状态 ─────────────────────────────────────────────
+# ── 10. 显示状态 ────────────────────────────────────────────
 show_status() {
     echo ""
     info "═══════════════════════════════════════════"
     info "  智聘云部署完成!"
     info "═══════════════════════════════════════════"
     echo ""
-    docker compose ps
+    docker compose --env-file .env.production ps
     echo ""
 
     local port
@@ -180,18 +271,23 @@ show_status() {
     info "  查看状态:   docker compose ps"
     info "  重启服务:   docker compose restart"
     info "  停止服务:   docker compose down"
-    info "  重新构建:   docker compose --env-file .env.production up -d --build"
+    info "  快速更新:   ./deploy_update.sh"
+    info "  完整重建:   ./deploy.sh --pull-all"
 }
 
 # ── Main ────────────────────────────────────────────────────
 main() {
-    info "智聘云 Docker 部署 (Ubuntu 22.04)"
+    info "智聘云 Docker 完整重部署 (Ubuntu 22.04)"
     echo ""
     check_docker
     check_env
     setup_openclaw_token
     setup_openclaw_config
-    pull_openclaw_image
+    pull_openclaw_image_if_needed
+    remember_built_images
+    stop_existing_stack
+    remove_built_images
+    build_app_images
     deploy
     show_status
 }
