@@ -8,7 +8,7 @@ login_check → search_candidates → collect_profiles → initiate_contact → 
 import logging
 from uuid import uuid4
 
-from workflows.base import WorkflowState, StepDefinition, execute_step, run_steps
+from workflows.base import WorkflowState, StepDefinition, run_workflow_graph
 from services.openclaw_client import OpenClawClient
 from services.supabase_client import (
     create_automation_task,
@@ -126,16 +126,70 @@ async def run(execution_id: str, req):
         "parsed_candidates": [],
         "announcement_text": "",
         "publish_result": {},
+        "result_summary": {},
         "error": None,
+        "cancelled": False,
         "completed": False,
+        "_openclaw_url": req.openclaw_base_url or "",
+        "_openclaw_token": req.openclaw_auth_token or "",
         "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
     }
 
-    # 执行 OpenClaw 步骤（前4步）
-    openclaw_steps = [s for s in STEPS if s.requires_openclaw]
-    final_state = await run_steps(
+    async def save_results_step(state: WorkflowState) -> WorkflowState:
+        step_id = state["current_step"]
+        step_name = next(step.name_zh for step in STEPS if step.id == step_id)
+
+        await emit_event(execution_id, "step_change", {
+            "step_id": step_id,
+            "step_name": step_name,
+            "status": "running",
+            "step_index": state["step_index"],
+            "total_steps": state["total_steps"],
+        })
+
+        source_key = _get_source_key(req.platform)
+        candidates = parse_candidate_list(
+            state.get("accumulated_text", ""),
+            source=source_key,
+            job_id=req.job_id,
+        )
+
+        saved_count = 0
+        if candidates and req.tenant_id:
+            try:
+                saved = create_candidates_batch(req.tenant_id, candidates, auth_token=auth_token)
+                saved_count = len(saved)
+                logger.info(f"[{execution_id}] 保存 {saved_count} 个候选人")
+            except Exception as e:
+                logger.error(f"[{execution_id}] 保存候选人失败: {e}")
+
+        new_state = dict(state)
+        new_state["parsed_candidates"] = candidates
+        new_state["result_summary"] = {
+            "candidates_found": len(candidates),
+            "candidates_saved": saved_count,
+        }
+
+        await emit_event(execution_id, "step_change", {
+            "step_id": step_id,
+            "step_name": step_name,
+            "status": "done",
+        })
+        return new_state
+
+    runtime_steps = [
+        *STEPS[:-1],
+        StepDefinition(
+            id="save_results",
+            name_zh="保存结果",
+            requires_openclaw=False,
+            executor=save_results_step,
+        ),
+    ]
+
+    final_state = await run_workflow_graph(
         state=initial_state,
-        steps=openclaw_steps,
+        steps=runtime_steps,
         openclaw=OpenClawClient(
             base_url=req.openclaw_base_url or None,
             auth_token=req.openclaw_auth_token or None,
@@ -144,43 +198,11 @@ async def run(execution_id: str, req):
         is_cancelled=is_cancelled,
     )
 
-    # 第5步：保存结果到 Supabase
-    await emit_event(execution_id, "step_change", {
-        "step_id": "save_results",
-        "step_name": "保存结果",
-        "status": "running",
-        "step_index": len(openclaw_steps),
-        "total_steps": len(STEPS),
-    })
-
-    # 提取候选人数据
-    source_key = _get_source_key(req.platform)
-    candidates = parse_candidate_list(
-        final_state.get("accumulated_text", ""),
-        source=source_key,
-        job_id=req.job_id,
-    )
-
-    saved_count = 0
-    if candidates and req.tenant_id:
-        try:
-            saved = create_candidates_batch(req.tenant_id, candidates, auth_token=auth_token)
-            saved_count = len(saved)
-            logger.info(f"[{execution_id}] 保存 {saved_count} 个候选人")
-        except Exception as e:
-            logger.error(f"[{execution_id}] 保存候选人失败: {e}")
-
-    await emit_event(execution_id, "step_change", {
-        "step_id": "save_results",
-        "step_name": "保存结果",
-        "status": "done",
-    })
-
-    # 发送完成事件
-    result_summary = {
+    candidates = final_state.get("parsed_candidates", [])
+    result_summary = final_state.get("result_summary", {
         "candidates_found": len(candidates),
-        "candidates_saved": saved_count,
-    }
+        "candidates_saved": 0,
+    })
 
     if final_state.get("error"):
         await emit_event(execution_id, "error", {
