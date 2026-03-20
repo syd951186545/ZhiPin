@@ -4,16 +4,16 @@
 # 仅重建有改动的服务，避免全量重启。
 #
 # 用法:
-#   ./deploy_update.sh              # 自动检测 git 改动并更新
-#   ./deploy_update.sh -f           # 仅更新前端
-#   ./deploy_update.sh -b           # 仅更新后端
-#   ./deploy_update.sh -o           # 仅重载 OpenClaw 配置
-#   ./deploy_update.sh -f -b        # 同时更新前端 + 后端
-#   ./deploy_update.sh -a           # 更新所有服务
+#   ./deploy/deploy_update.sh              # 自动检测 git 改动并更新
+#   ./deploy/deploy_update.sh -f           # 仅更新前端
+#   ./deploy/deploy_update.sh -b           # 仅更新后端
+#   ./deploy/deploy_update.sh -o           # 仅重载 OpenClaw 配置
+#   ./deploy/deploy_update.sh -f -b        # 同时更新前端 + 后端
+#   ./deploy/deploy_update.sh -a           # 更新所有服务
 #
 # 各服务更新策略:
-#   frontend  → docker build + 容器替换（src/、public/、nginx 配置变动）
-#   backend   → docker build + 容器替换（server/ 代码变动）
+#   frontend  → docker build + 容器替换（frontend/src/、frontend 配置、nginx 配置变动）
+#   backend   → docker build + 容器替换（backend/ 代码变动）
 #   openclaw  → 仅 restart（docker/openclaw.json 为 bind mount，无需重建）
 # ============================================================
 set -euo pipefail
@@ -62,11 +62,11 @@ done
 
 # ── 前置检查 ────────────────────────────────────────────────
 check_prerequisites() {
-    [ -f .env.production ] || error ".env.production 不存在，请先运行 ./deploy.sh 完成初始部署。"
+    [ -f .env.production ] || error ".env.production 不存在，请先运行 ./deploy/deploy.sh 完成初始部署。"
 
     # 确认服务已在运行
     if ! docker compose --env-file .env.production ps --quiet openclaw 2>/dev/null | grep -q .; then
-        error "OpenClaw 容器未运行，请先执行 ./deploy.sh 完成初始部署。"
+        error "OpenClaw 容器未运行，请先执行 ./deploy/deploy.sh 完成初始部署。"
     fi
 }
 
@@ -93,18 +93,18 @@ auto_detect() {
     info "检测到以下变更文件:"
     echo "$changed_files" | sed 's/^/  /'
 
-    # 前端：src/ public/ index.html vite配置 nginx配置 前端Dockerfile
-    if echo "$changed_files" | grep -qE '^(src/|public/|index\.html|vite\.config\.|tsconfig|package\.json|docker/frontend\.Dockerfile|docker/nginx/)'; then
+    # 前端：frontend/src/、frontend 配置、nginx 配置、前端 Dockerfile
+    if echo "$changed_files" | grep -qE '^(frontend/|deploy/docker/frontend\.Dockerfile|deploy/docker/nginx/)'; then
         DO_FRONTEND=true
     fi
 
-    # 后端：server/ 后端Dockerfile
-    if echo "$changed_files" | grep -qE '^(server/|docker/backend\.Dockerfile)'; then
+    # 后端：backend/、后端 Dockerfile
+    if echo "$changed_files" | grep -qE '^(backend/|deploy/docker/backend\.Dockerfile)'; then
         DO_BACKEND=true
     fi
 
     # OpenClaw 配置：仅重启即可（bind mount 已更新）
-    if echo "$changed_files" | grep -qE '^docker/openclaw\.json'; then
+    if echo "$changed_files" | grep -qE '^deploy/docker/openclaw\.json'; then
         DO_OPENCLAW=true
     fi
 
@@ -117,7 +117,7 @@ auto_detect() {
 
 # ── 更新前端 ─────────────────────────────────────────────────
 update_frontend() {
-    section "更新前端 (frontend)"
+    section "更新前端 (frontend/)"
     info "重新构建并替换前端容器..."
     docker compose --env-file .env.production up -d --build --no-deps frontend
     info "前端更新完成 ✓"
@@ -125,7 +125,7 @@ update_frontend() {
 
 # ── 更新后端 ─────────────────────────────────────────────────
 update_backend() {
-    section "更新后端 (backend)"
+    section "更新后端 (backend/)"
     info "重新构建并替换后端容器..."
     docker compose --env-file .env.production up -d --build --no-deps backend
 

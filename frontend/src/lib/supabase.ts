@@ -12,6 +12,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     // Bypass Web Locks API to prevent 5s lock contention in React StrictMode.
     // StrictMode double-mounts effects; the second onAuthStateChange subscription
     // would block waiting for the first's lock before forceful recovery.
-    lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<unknown>) => fn(),
+    lock: async <T>(_name: string, _acquireTimeout: number, fn: () => Promise<T>) => fn(),
   },
 })

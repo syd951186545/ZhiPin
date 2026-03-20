@@ -10,12 +10,12 @@ ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
 
 # Install dependencies first (layer cache — only re-runs when lockfile changes)
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 # Copy source files and build
-COPY index.html tsconfig.json vite.config.ts ./
-COPY src/ src/
+COPY frontend/index.html frontend/tsconfig.json frontend/vite.config.ts ./
+COPY frontend/src/ src/
 RUN npm run build
 
 # ============================================================
@@ -27,7 +27,7 @@ FROM nginx:1.27-alpine
 RUN rm /etc/nginx/conf.d/default.conf
 
 # Copy our nginx config and built frontend
-COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY deploy/docker/nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80

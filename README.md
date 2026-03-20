@@ -1,0 +1,72 @@
+# 智聘云（ZhiPin）
+
+一个面向招聘业务的自动化平台：`frontend/` 提供管理台，`backend/` 负责编排工作流与代理 OpenClaw，`deploy/` 保存 Docker 与部署脚本。此 README 只保留后续接手最需要的信息。
+
+## 项目结构
+```text
+.
+├── frontend/   # React + Vite 前端
+├── backend/    # FastAPI + LangGraph 后端
+├── deploy/     # Docker Compose、Dockerfile、部署/更新脚本
+└── README.md
+```
+
+## 目录说明
+
+### `frontend/`
+- `src/App.tsx`：应用路由入口，挂载主题、认证、国际化、OpenClaw 等 Provider。
+- `src/pages/`：页面层，包含仪表盘、企业/岗位、候选人、自动化、设置、监控、登录注册。
+- `src/components/`：业务组件与基础 UI 组件。
+- `src/services/workflowService.ts`：前端工作流 API 入口，负责启动/取消任务与订阅 SSE。
+- `src/stores/` / `src/hooks/` / `src/contexts/`：状态、数据订阅与全局上下文。
+- `src/lib/` / `src/types/` / `src/i18n/`：底层工具、类型和文案。
+- `package.json` / `vite.config.ts` / `tsconfig.json`：前端构建与开发配置。
+
+### `backend/`
+- `main.py`：FastAPI 入口，注册路由与 CORS。
+- `config.py`：环境变量与默认配置读取。
+- `routers/workflow.py`：工作流主入口，提供 start/cancel/status/stream。
+- `routers/openclaw_proxy.py`：OpenClaw 代理层，统一注入认证。
+- `routers/settings.py`：读写 OpenClaw 配置并触发容器重启。
+- `workflows/`：岗位发布、人才探索、简历筛选等工作流实现。
+- `prompts/` / `services/` / `parsers/`：Prompt 模板、OpenClaw/Supabase 封装、结果解析。
+- `requirements.txt`：后端依赖。
+
+### `deploy/`
+- `docker-compose.yml`：生产部署入口，串联 frontend / backend / openclaw 三个服务。
+- `docker/frontend.Dockerfile`：构建前端镜像。
+- `docker/backend.Dockerfile`：构建后端镜像。
+- `docker/openclaw.json.tmpl`：OpenClaw 配置模板。
+- `deploy.sh`：初始化部署脚本。
+- `deploy_update.sh`：按改动范围增量更新服务。
+- `.env.production.template`：生产环境变量模板。
+
+## 架构说明
+```text
+Browser
+  -> frontend/ (React SPA)
+  -> /api/workflow/* -> backend/routers/workflow.py -> backend/workflows/* -> OpenClaw
+  -> /api/openclaw/* -> backend/routers/openclaw_proxy.py -> OpenClaw
+  -> /api/settings/* -> backend/routers/settings.py -> deploy/docker/openclaw.json
+
+Supabase <- frontend 认证 / backend 截图上传与数据持久化
+```
+
+## 接手时建议先看
+1. `deploy/docker-compose.yml`：先理解服务边界和请求流向。
+2. `frontend/src/services/workflowService.ts` + `backend/routers/workflow.py`：理解前后端任务链路。
+3. `backend/workflows/base.py` + 各 workflow 文件：理解自动化执行模型。
+4. `frontend/src/pages/` + `frontend/src/stores/`：理解页面如何消费执行结果。
+5. `backend/routers/settings.py`：理解 OpenClaw 配置如何落地。
+
+## 常用命令
+- 前端开发：`cd frontend && npm run dev`
+- 前端构建检查：`cd frontend && npm run build`
+- 后端启动：`python backend/main.py`
+- 部署：`cd deploy && ./deploy.sh`
+- 增量更新：`cd deploy && ./deploy_update.sh`
+
+## 维护提示
+- 新增自动化场景时，优先复用 `backend/workflows/base.py` 的状态与步骤执行模式。
+- 排查“任务无响应”时，优先看前端 SSE 订阅、`backend/routers/workflow.py`、OpenClaw 连通性与 Supabase 凭据。
+- 现在顶层目录只保留 `frontend/`、`backend/`、`deploy/` 三个主入口，默认按此分层继续扩展。

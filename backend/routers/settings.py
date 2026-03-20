@@ -50,7 +50,7 @@ def _read_config() -> dict:
     if not _CONFIG_PATH.exists():
         raise HTTPException(
             status_code=503,
-            detail="openclaw.json 尚未生成，请先运行 ./deploy.sh 完成初始部署。"
+            detail="openclaw.json 尚未生成，请先运行 ./deploy/deploy.sh 完成初始部署。"
         )
     try:
         return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
@@ -167,6 +167,6 @@ async def update_openclaw_config(req: UpdateOpenClawRequest):
     if restarted:
         msg = "配置已保存，OpenClaw 正在重启，约 15 秒后生效。"
     else:
-        msg = "配置已保存。未检测到 Docker，请手动运行: ./deploy_update.sh -o"
+        msg = "配置已保存。未检测到 Docker，请手动运行: ./deploy/deploy_update.sh -o"
 
     return UpdateOpenClawResponse(success=True, message=msg, restarted=restarted)

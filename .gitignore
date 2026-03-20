@@ -1,5 +1,6 @@
 node_modules
 dist
+frontend/dist
 .env
 .env.local
 *.local
@@ -10,13 +11,13 @@ playwright-report/
 __pycache__/
 *.pyc
 .venv/
-server/.env
-server/*.log
+backend/.env
+backend/*.log
 
 # Docker / Production
-.env.production
+deploy/.env.production
 # openclaw.json 由 deploy.sh 从 .tmpl 渲染生成，含实际 token/key，不入库
-docker/openclaw.json
+deploy/docker/openclaw.json
 
 # IDE
 .idea/

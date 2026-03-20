@@ -1,7 +1,7 @@
 /**
  * 工作流定义（前端元数据）
  *
- * Prompt 模板已迁移到 Python 后端（server/prompts/），
+ * Prompt 模板已迁移到 Python 后端（backend/prompts/），
  * 前端只保留工作流和步骤的 UI 元数据。
  */
 
