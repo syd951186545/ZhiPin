@@ -38,7 +38,7 @@
 - `docker/backend.Dockerfile`：构建后端镜像。
 - `docker/openclaw.json.tmpl`：OpenClaw 配置模板。
 - `deploy.sh`：完整重部署脚本，会删除旧的自构建镜像并重新构建；可选拉取 OpenClaw/基础镜像。
-- `deploy_update.sh`：快速更新脚本，优先同步运行中的容器内容，仅在依赖或 Dockerfile 变更时局部回退到重建。
+- `deploy_update.sh`：同步脚本，把代码或 OpenClaw 模板配置直接同步到运行中的容器；遇到依赖、Dockerfile、Compose、环境变量改动时提示改用 `deploy.sh`。
 - `.env.production.template`：生产环境变量模板。
 
 ## 架构说明
@@ -63,17 +63,18 @@ Supabase <- frontend 认证 / backend 截图上传与数据持久化
 - 前端开发：`cd frontend && npm run dev`
 - 前端构建检查：`cd frontend && npm run build`
 - 后端启动：`python backend/main.py`
-- 快速验证更新：`cd deploy && ./deploy_update.sh`
+- 同步全部代码/配置到运行中容器：`cd deploy && ./deploy_update.sh`
 - 完整重部署：`cd deploy && ./deploy.sh`
 - 完整重部署并更新外部镜像：`cd deploy && ./deploy.sh --pull-all`
 
 ## 部署脚本说明
 - `deploy_update.sh`
-  - 目标：快速验证项目改动，尽量不重新安装依赖、不全量 build 镜像。
-  - 前端：默认使用临时 `node:20-alpine` 容器复用缓存依赖构建 `dist/`，再同步到运行中的 nginx 容器。
-  - 后端：默认直接把 `backend/` 代码同步到运行中的容器，再重启后端服务。
-  - 回退策略：如果检测到 `frontend/package*.json`、`backend/requirements.txt` 或对应 Dockerfile 变更，则只重建受影响服务。
-  - 限制：如果变更涉及 `docker-compose.yml`、`.env.production` 等基础部署配置，应改用 `deploy.sh`。
+  - 目标：把你改完的项目代码或 OpenClaw 模板配置，直接同步到已经在运行的容器。不会自动检查 git 改动。
+  - 默认行为：不带参数时，同步 `frontend + backend + OpenClaw`；也可以用 `-f`、`-b`、`-o` 只同步指定部分。
+  - 前端：使用临时 `node:20-alpine` 容器重新构建 `dist/`，再覆盖到运行中的 nginx 容器，并同步 nginx 配置。
+  - 后端：直接把 `backend/` 覆盖到运行中的 backend 容器，再重启 backend。
+  - OpenClaw：重新渲染 `openclaw.json`，覆盖到 OpenClaw 状态卷后重启容器。
+  - 限制：如果你改的是 Dockerfile、`docker-compose.yml`、`.env.production` 等基础部署内容，应改用 `deploy.sh`。
 - `deploy.sh`
   - 目标：执行完整重部署，适合环境初始化、Compose 调整、镜像彻底重建。
   - 默认会删除旧的自构建 `frontend` / `backend` 镜像并重新构建。
