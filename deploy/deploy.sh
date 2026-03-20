@@ -5,7 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+DEPLOY_DIR="$SCRIPT_DIR"
+cd "$DEPLOY_DIR"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -45,7 +46,7 @@ check_env() {
         warn ".env.production 不存在，正在从模板创建..."
         cp .env.production.template .env.production
         warn "请编辑 .env.production 填入真实配置值:"
-        warn "  nano $SCRIPT_DIR/.env.production"
+        warn "  nano $DEPLOY_DIR/.env.production"
         warn "填写完成后重新运行此脚本。"
         exit 0
     fi
@@ -73,7 +74,7 @@ setup_openclaw_config() {
     set +a
 
     envsubst < docker/openclaw.json.tmpl > docker/openclaw.json
-    info "OpenClaw 配置已渲染到 docker/openclaw.json ✓"
+    info "OpenClaw 配置已渲染到 deploy/docker/openclaw.json ✓"
 }
 
 # ── 4. 自动生成 OpenClaw Auth Token ─────────────────────────
@@ -158,7 +159,7 @@ show_status() {
     info "  查看状态:   docker compose ps"
     info "  重启服务:   docker compose restart"
     info "  停止服务:   docker compose down"
-    info "  重新构建:   docker compose up -d --build"
+    info "  重新构建:   docker compose --env-file .env.production up -d --build"
 }
 
 # ── Main ────────────────────────────────────────────────────

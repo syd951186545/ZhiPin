@@ -226,7 +226,7 @@ export default function Automation() {
           <div>
             <p className="font-medium text-yellow-800 dark:text-yellow-400">后端服务未连接</p>
             <p className="text-sm text-yellow-700 dark:text-yellow-500">
-              请确认 FastAPI 后端已启动（python server/main.py）
+              请确认 FastAPI 后端已启动（python backend/main.py）
             </p>
           </div>
         </motion.div>

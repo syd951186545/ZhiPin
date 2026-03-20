@@ -1,17 +1,17 @@
 node_modules/
-dist/
+frontend/dist/
 .git/
 .gitignore
 
 # Env files (secrets injected at runtime via docker-compose)
 .env
 .env.local
-.env.production
-server/.env
+deploy/.env.production
+backend/.env
 
 # Python artifacts
-server/__pycache__/
-server/**/__pycache__/
+backend/__pycache__/
+backend/**/__pycache__/
 *.pyc
 .venv/
 
@@ -25,7 +25,7 @@ test-results/
 playwright-report/
 
 # Logs
-server/*.log
+backend/*.log
 
 # OS files
 Thumbs.db
