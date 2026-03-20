@@ -1,68 +1,42 @@
 """
 OpenClaw 服务器配置 API
 
-提供读取和更新 openclaw.json 的接口，支持从前端直接修改模型和 API Key。
-修改后通过 Docker SDK 自动重启 openclaw 容器使配置生效。
+通过 OpenClaw Gateway 控制面读取和更新运行时配置，
+不再直接挂载或改写宿主机上的 openclaw.json。
 """
 
-import json
 import logging
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from services.openclaw_gateway_config import service as gateway_config_service
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-# 容器内挂载路径（对应 docker-compose volumes 中的配置）
-_CONFIG_PATH = Path("/app/openclaw-config.json")
-
-
-# ── Pydantic Models ──────────────────────────────────────────
 
 class OpenClawConfig(BaseModel):
     """前端可读的配置摘要（API Key 已脱敏）"""
+
     provider: str
     baseUrl: str
-    model: str          # 格式: provider/model-id，如 minimax-cn/MiniMax-M2.5
-    apiKeyMasked: str   # 脱敏后的 Key（前8位 + ***)
+    model: str
+    apiKeyMasked: str
     hasApiKey: bool
 
 
 class UpdateOpenClawRequest(BaseModel):
     model: str
-    apiKey: Optional[str] = None   # 为 None 时保留原有 Key 不变
+    apiKey: Optional[str] = None
 
 
 class UpdateOpenClawResponse(BaseModel):
     success: bool
     message: str
-    restarted: bool   # 是否成功触发容器重启
-
-
-# ── Helpers ──────────────────────────────────────────────────
-
-def _read_config() -> dict:
-    """读取 openclaw.json，不存在时返回空结构。"""
-    if not _CONFIG_PATH.exists():
-        raise HTTPException(
-            status_code=503,
-            detail="openclaw.json 尚未生成，请先运行 ./deploy/deploy.sh 完成初始部署。"
-        )
-    try:
-        return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"配置文件解析失败: {e}")
-
-
-def _write_config(config: dict) -> None:
-    """写回 openclaw.json（原子写：先写临时文件再重命名）。"""
-    tmp = _CONFIG_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.rename(_CONFIG_PATH)
+    restarted: bool
 
 
 def _mask_key(key: str) -> str:
@@ -73,54 +47,32 @@ def _mask_key(key: str) -> str:
     return key[:8] + "***"
 
 
-def _restart_openclaw() -> bool:
-    """
-    通过 Docker SDK 重启 openclaw 容器。
-    找不到容器或 Docker 不可用时返回 False（不抛异常）。
-    """
-    try:
-        import docker  # type: ignore
-        client = docker.from_env(timeout=5)
-        containers = client.containers.list(
-            filters={"label": "com.docker.compose.service=openclaw"}
-        )
-        if not containers:
-            logger.warning("未找到 openclaw 容器，跳过重启")
-            return False
-        for c in containers:
-            logger.info(f"正在重启 openclaw 容器: {c.name}")
-            c.restart(timeout=15)
-        return True
-    except ImportError:
-        logger.warning("docker 库未安装，无法自动重启容器")
-        return False
-    except Exception as e:
-        logger.warning(f"重启 openclaw 容器失败: {e}")
-        return False
+def _resolve_provider_config(config: dict, model: str) -> tuple[str, dict]:
+    providers: dict = config.get("models", {}).get("providers", {})
+    provider_from_model = model.split("/", 1)[0] if "/" in model else ""
 
+    if provider_from_model and provider_from_model in providers:
+        return provider_from_model, providers[provider_from_model]
 
-# ── Routes ───────────────────────────────────────────────────
+    if providers:
+        provider_name = next(iter(providers))
+        return provider_name, providers[provider_name]
+
+    return provider_from_model, {}
+
 
 @router.get("/openclaw", response_model=OpenClawConfig)
 async def get_openclaw_config():
-    """读取当前 openclaw 服务器配置（API Key 脱敏返回）。"""
-    cfg = _read_config()
+    """读取当前 OpenClaw Gateway 运行时配置（API Key 脱敏返回）。"""
 
-    providers: dict = cfg.get("models", {}).get("providers", {})
-    provider_name = next(iter(providers), "")
-    provider_cfg: dict = providers.get(provider_name, {})
-
-    model: str = (
-        cfg.get("agents", {})
-           .get("defaults", {})
-           .get("model", {})
-           .get("primary", "")
-    )
-    api_key: str = provider_cfg.get("apiKey", "")
+    cfg, _ = gateway_config_service.get_runtime_config()
+    model = cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", "")
+    provider_name, provider_cfg = _resolve_provider_config(cfg, model)
+    api_key = provider_cfg.get("apiKey", "") if isinstance(provider_cfg, dict) else ""
 
     return OpenClawConfig(
         provider=provider_name,
-        baseUrl=provider_cfg.get("baseUrl", ""),
+        baseUrl=provider_cfg.get("baseUrl", "") if isinstance(provider_cfg, dict) else "",
         model=model,
         apiKeyMasked=_mask_key(api_key),
         hasApiKey=bool(api_key),
@@ -129,44 +81,41 @@ async def get_openclaw_config():
 
 @router.post("/openclaw", response_model=UpdateOpenClawResponse)
 async def update_openclaw_config(req: UpdateOpenClawRequest):
-    """
-    更新 openclaw 服务器配置并重启容器。
+    """通过 Gateway config.apply 更新 OpenClaw 配置。"""
 
-    - model: 完整模型 ID，格式 provider/model-id
-    - apiKey: 新的 API Key；为 null/空时保留原有 Key
-    """
-    cfg = _read_config()
+    cfg, base_hash = gateway_config_service.get_runtime_config()
+    providers: dict = cfg.setdefault("models", {}).setdefault("providers", {})
+    provider_name = req.model.split("/", 1)[0] if "/" in req.model else ""
 
-    # ── 1. 更新模型 ──────────────────────────────────────────
-    # agents.defaults.model.primary
-    cfg.setdefault("agents", {}) \
-       .setdefault("defaults", {}) \
-       .setdefault("model", {})["primary"] = req.model
+    if provider_name and provider_name not in providers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"当前 OpenClaw 配置中不存在 provider '{provider_name}'，请先在 openclaw.json 模板中定义该 provider。",
+        )
 
-    # agents.list[0].model（同步更新 list 中第一个 agent，即 HR_Juzi）
+    cfg.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})["primary"] = req.model
+    model_catalog = cfg.setdefault("agents", {}).setdefault("defaults", {}).setdefault("models", {})
+    model_catalog.setdefault(req.model, {"alias": req.model.split("/", 1)[-1]})
+
     agents_list: list = cfg.get("agents", {}).get("list", [])
     if agents_list:
         agents_list[0]["model"] = req.model
 
-    # ── 2. 更新 API Key（仅在传入时覆盖）────────────────────
     if req.apiKey:
-        providers: dict = cfg.setdefault("models", {}) \
-                             .setdefault("providers", {})
-        provider_name = next(iter(providers), None)
-        if provider_name:
-            providers[provider_name]["apiKey"] = req.apiKey
-        else:
-            logger.warning("providers 为空，无法写入 apiKey")
+        target_provider = provider_name or next(iter(providers), None)
+        if not target_provider:
+            raise HTTPException(status_code=400, detail="当前 OpenClaw 配置未定义任何 provider，无法更新 API Key。")
+        providers[target_provider]["apiKey"] = req.apiKey
 
-    # ── 3. 写回文件 ──────────────────────────────────────────
-    _write_config(cfg)
-    logger.info(f"openclaw 配置已更新: model={req.model}, apiKey={'已更新' if req.apiKey else '未变'}")
+    logger.info(
+        "提交 OpenClaw Gateway 配置更新: model=%s, apiKey=%s",
+        req.model,
+        "已更新" if req.apiKey else "未变",
+    )
+    gateway_config_service.apply_runtime_config(cfg, base_hash)
 
-    # ── 4. 重启容器 ──────────────────────────────────────────
-    restarted = _restart_openclaw()
-    if restarted:
-        msg = "配置已保存，OpenClaw 正在重启，约 15 秒后生效。"
-    else:
-        msg = "配置已保存。未检测到 Docker，请手动运行: ./deploy/deploy_update.sh -o"
-
-    return UpdateOpenClawResponse(success=True, message=msg, restarted=restarted)
+    return UpdateOpenClawResponse(
+        success=True,
+        message="配置已提交到 OpenClaw Gateway，正在自动应用并重载服务。",
+        restarted=True,
+    )

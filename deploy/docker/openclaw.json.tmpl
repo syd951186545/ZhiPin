@@ -1,6 +1,13 @@
 {
   "gateway": {
     "bind": "lan",
+    "http": {
+      "endpoints": {
+        "responses": {
+          "enabled": true
+        }
+      }
+    },
     "auth": {
       "mode": "token",
       "token": "${OPENCLAW_AUTH_TOKEN}"
