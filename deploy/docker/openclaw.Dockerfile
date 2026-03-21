@@ -45,9 +45,8 @@ RUN chown -R node:node /opt/openclaw-home-seed
 
 USER node
 
-RUN npm config set registry "${NPM_REGISTRY}" \
-    && cd /opt/openclaw-home-seed/.openclaw/skills/playwright-skill \
-    && npm run setup
+RUN cd /opt/openclaw-home-seed/.openclaw/skills/playwright-skill \
+    && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm_config_registry="${NPM_REGISTRY}" npm install --omit=dev
 
 COPY --chown=node:node deploy/docker/openclaw-entrypoint.sh /usr/local/bin/openclaw-entrypoint.sh
 
@@ -57,3 +56,4 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \
     CHROMIUM_BIN=/usr/bin/chromium
 
 ENTRYPOINT ["/usr/local/bin/openclaw-entrypoint.sh"]
+CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
