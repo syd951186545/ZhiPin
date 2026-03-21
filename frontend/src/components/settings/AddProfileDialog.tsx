@@ -11,39 +11,46 @@ import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from '@/components/ui/select'
-import {useSettingsStore} from '@/stores/useSettingsStore'
 import {useI18n} from '@/contexts/I18nContext'
-import type {PlatformKey, PlatformProfile} from '@/types/openclaw'
+import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
+import type {PlatformKey} from '@/types/openclaw'
 import {PLATFORMS} from '@/lib/constants'
 
 interface AddProfileDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: () => Promise<void> | void
 }
 
-export default function AddProfileDialog({ open, onOpenChange }: AddProfileDialogProps) {
+export default function AddProfileDialog({ open, onOpenChange, onCreated }: AddProfileDialogProps) {
   const { t } = useI18n()
-  const addProfile = useSettingsStore((s) => s.addProfile)
+  const {createAccount} = usePlatformAccounts()
 
   const [platform, setPlatform] = useState<PlatformKey | ''>('')
   const [name, setName] = useState('')
+  const [accountName, setAccountName] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!platform || !name.trim()) return
-
-    const profile: PlatformProfile = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      platform: platform as PlatformKey,
-      status: 'needsLogin',
-      lastLogin: undefined,
-      lastVerified: undefined,
+    setSaving(true)
+    try {
+      await createAccount({
+        platform,
+        name: name.trim(),
+        account_name: accountName.trim() || undefined,
+        platform_url: PLATFORMS[platform]?.loginUrl,
+      })
+      setPlatform('')
+      setName('')
+      setAccountName('')
+      await onCreated?.()
+      onOpenChange(false)
+    } catch (e) {
+      console.error('添加账号失败:', e)
+    } finally {
+      setSaving(false)
     }
-
-    addProfile(profile)
-    setPlatform('')
-    setName('')
-    onOpenChange(false)
   }
 
   return (
@@ -74,16 +81,24 @@ export default function AddProfileDialog({ open, onOpenChange }: AddProfileDialo
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={t('settings.profiles.add.namePlaceholder')}
+              placeholder="例如：华东招聘账号"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>登录名（可选）</Label>
+            <Input
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+              placeholder="手机号或账号名"
             />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!platform || !name.trim()}>
-            {t('settings.profiles.add.submit')}
+          <Button onClick={handleSubmit} disabled={!platform || !name.trim() || saving}>
+            {saving ? '保存中...' : t('settings.profiles.add.submit')}
           </Button>
         </DialogFooter>
       </DialogContent>

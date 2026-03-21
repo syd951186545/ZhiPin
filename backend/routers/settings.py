@@ -26,6 +26,7 @@ class OpenClawConfig(BaseModel):
     model: str
     apiKeyMasked: str
     hasApiKey: bool
+    availableModels: list[dict]
 
 
 class UpdateOpenClawRequest(BaseModel):
@@ -61,6 +62,75 @@ def _resolve_provider_config(config: dict, model: str) -> tuple[str, dict]:
     return provider_from_model, {}
 
 
+def _append_model_option(
+    grouped: dict[str, dict[str, str]],
+    provider: str,
+    model_value: str,
+    alias: str | None = None,
+) -> None:
+    value = (model_value or "").strip()
+    if not value:
+        return
+
+    normalized_provider = (provider or "").strip() or (value.split("/", 1)[0] if "/" in value else "other")
+    grouped.setdefault(normalized_provider, {})
+    grouped[normalized_provider][value] = alias or value.split("/", 1)[-1]
+
+
+def _extract_available_models(config: dict, current_model: str) -> list[dict]:
+    grouped: dict[str, dict[str, str]] = {}
+    providers: dict = config.get("models", {}).get("providers", {})
+    catalog: dict = config.get("agents", {}).get("defaults", {}).get("models", {})
+
+    for model_value, meta in catalog.items():
+        if not isinstance(model_value, str):
+            continue
+        alias = meta.get("alias") if isinstance(meta, dict) else None
+        provider = ""
+        if "/" in model_value:
+            provider = model_value.split("/", 1)[0]
+        elif isinstance(meta, dict):
+            provider = str(meta.get("provider") or meta.get("providerId") or "").strip()
+        _append_model_option(grouped, provider, model_value, alias)
+
+    for provider_name, provider_cfg in providers.items():
+        if not isinstance(provider_cfg, dict):
+            continue
+
+        configured_models = provider_cfg.get("models")
+        if isinstance(configured_models, list):
+            for item in configured_models:
+                if isinstance(item, str):
+                    model_value = item if "/" in item else f"{provider_name}/{item}"
+                    _append_model_option(grouped, provider_name, model_value, item.split("/", 1)[-1])
+                elif isinstance(item, dict):
+                    raw_value = str(item.get("id") or item.get("name") or item.get("model") or "").strip()
+                    alias = str(item.get("alias") or item.get("label") or raw_value.split("/", 1)[-1]).strip()
+                    if raw_value:
+                        model_value = raw_value if "/" in raw_value else f"{provider_name}/{raw_value}"
+                        _append_model_option(grouped, provider_name, model_value, alias)
+        elif isinstance(configured_models, dict):
+            for raw_value, meta in configured_models.items():
+                if not isinstance(raw_value, str):
+                    continue
+                alias = meta.get("alias") if isinstance(meta, dict) else None
+                model_value = raw_value if "/" in raw_value else f"{provider_name}/{raw_value}"
+                _append_model_option(grouped, provider_name, model_value, alias)
+
+    _append_model_option(grouped, "", current_model, current_model.split("/", 1)[-1] if current_model else None)
+
+    return [
+        {
+            "provider": provider,
+            "models": [
+                {"value": model_value, "label": label}
+                for model_value, label in sorted(models.items(), key=lambda item: item[1].lower())
+            ],
+        }
+        for provider, models in sorted(grouped.items(), key=lambda item: item[0].lower())
+    ]
+
+
 @router.get("/openclaw", response_model=OpenClawConfig)
 async def get_openclaw_config():
     """读取当前 OpenClaw Gateway 运行时配置（API Key 脱敏返回）。"""
@@ -76,6 +146,7 @@ async def get_openclaw_config():
         model=model,
         apiKeyMasked=_mask_key(api_key),
         hasApiKey=bool(api_key),
+        availableModels=_extract_available_models(cfg, model),
     )
 
 

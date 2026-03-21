@@ -8,8 +8,9 @@ Supabase 客户端封装
 import logging
 import re
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional, TypedDict
 
 import httpx
 from supabase import create_client, Client
@@ -22,6 +23,53 @@ _anon_client: Optional[Client] = None
 _service_client: Optional[Client] = None
 
 SCREENSHOTS_BUCKET = "workflow-screenshots"
+
+
+class ValidatedSupabaseUser(TypedDict):
+    user_id: str
+    tenant_id: str
+    role: Optional[str]
+
+
+class PlatformAccountRow(TypedDict, total=False):
+    id: str
+    tenant_id: str
+    platform: str
+    name: str
+    account_name: Optional[str]
+    platform_url: Optional[str]
+    login_method: Optional[str]
+    browser_session_key: Optional[str]
+    login_state: Optional[str]
+    login_identifier_masked: Optional[str]
+    last_error: Optional[str]
+    last_bind_task_id: Optional[str]
+    last_unbind_task_id: Optional[str]
+    config: dict[str, Any]
+    is_connected: bool
+    status: str
+    last_verified: Optional[str]
+    last_login: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class PlatformBindingSessionRow(TypedDict, total=False):
+    id: str
+    account_id: str
+    tenant_id: str
+    action: str
+    status: str
+    step_key: Optional[str]
+    openclaw_session_key: str
+    latest_screenshot_url: Optional[str]
+    qr_screenshot_url: Optional[str]
+    awaiting_payload_schema: Optional[dict[str, Any]]
+    retry_count: int
+    error_message: Optional[str]
+    expires_at: Optional[str]
+    created_at: str
+    updated_at: str
 
 
 def get_supabase(auth_token: Optional[str] = None) -> Client:
@@ -47,8 +95,9 @@ def get_supabase(auth_token: Optional[str] = None) -> Client:
 
 def get_service_supabase() -> Optional[Client]:
     """
-    获取 service_role 级别的 Supabase 客户端（绕过所有 RLS 策略）。
-    可选：.env 中配置 SUPABASE_SERVICE_KEY 时启用。
+    获取 service_role 级别的 Supabase 客户端。
+    预留给未来系统任务/后台任务场景使用，当前工作流链路暂不启用。
+    启用前应单独设计入口和权限边界，避免与用户态请求混用。
     """
     global _service_client
     settings = get_settings()
@@ -57,6 +106,77 @@ def get_service_supabase() -> Optional[Client]:
     if _service_client is None:
         _service_client = create_client(settings.supabase_url, settings.supabase_service_key)
     return _service_client
+
+
+async def validate_supabase_user(
+    auth_token: str,
+    expected_user_id: Optional[str] = None,
+    expected_tenant_id: Optional[str] = None,
+) -> ValidatedSupabaseUser:
+    """
+    校验前端传来的 Supabase 用户 JWT，并返回后端确认过的用户身份。
+
+    - auth.getUser: 校验 JWT 是否有效，并拿到真实 user_id
+    - profiles: 读取租户信息，用于校验/覆盖前端透传 tenant_id
+    """
+    settings = get_settings()
+    auth_url = settings.supabase_url.rstrip("/") + "/auth/v1/user"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                auth_url,
+                headers={
+                    "Authorization": f"Bearer {auth_token}",
+                    "apikey": settings.supabase_anon_key,
+                },
+            )
+            resp.raise_for_status()
+    except Exception as exc:
+        raise ValueError("Supabase 用户令牌无效或已过期") from exc
+
+    user = resp.json() or {}
+    user_id = user.get("id")
+    if not user_id:
+        raise ValueError("Supabase 用户令牌缺少用户标识")
+
+    if expected_user_id and expected_user_id != user_id:
+        raise PermissionError("请求中的 user_id 与当前登录用户不一致")
+
+    profile_resp = (
+        get_supabase(auth_token)
+        .table("profiles")
+        .select("tenant_id, role")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    profile = profile_resp.data or {}
+    tenant_id = profile.get("tenant_id") or ""
+    if not tenant_id:
+        raise PermissionError("当前用户未绑定租户，禁止访问 Supabase 资源")
+
+    if expected_tenant_id and expected_tenant_id != tenant_id:
+        raise PermissionError("请求中的 tenant_id 与当前登录用户租户不一致")
+
+    return {
+        "user_id": user_id,
+        "tenant_id": tenant_id,
+        "role": profile.get("role"),
+    }
+
+
+def mask_login_identifier(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if raw.isdigit() and len(raw) >= 7:
+        return f"{raw[:3]}****{raw[-4:]}"
+    if len(raw) <= 2:
+        return "*" * len(raw)
+    if len(raw) <= 6:
+        return raw[0] + "*" * (len(raw) - 2) + raw[-1]
+    return raw[:2] + "*" * max(len(raw) - 4, 2) + raw[-2:]
 
 
 # ── Storage ───────────────────────────────────────────────
@@ -73,9 +193,9 @@ async def upload_screenshot(
     上传截图到 Supabase Storage (workflow-screenshots bucket)。
 
     认证优先级：
-      1. .env 中配置了 SUPABASE_SERVICE_KEY → 使用 service_role（绕过 RLS）
-      2. 传入了 auth_token（用户 JWT）→ 以认证用户身份上传（满足 RLS authenticated 策略）
-      3. 以上均无 → 返回 None，调用方回退到 base64
+      1. 传入了 auth_token（用户 JWT）→ 以认证用户身份上传（满足 RLS authenticated 策略）
+      2. 当前不启用 service_role 兜底；未来如需支持系统任务，再单独开放
+      3. 无用户 JWT → 返回 None，调用方回退到 base64
 
     存储路径: {execution_id}/{timestamp}_{filename}
     返回公开访问 URL，失败返回 None。
@@ -83,13 +203,11 @@ async def upload_screenshot(
     settings = get_settings()
 
     # 决定使用哪个 Bearer token
-    if settings.supabase_service_key:
-        bearer = settings.supabase_service_key
-        logger.debug("使用 service_role key 上传截图")
-    elif auth_token:
+    if auth_token:
         bearer = auth_token
         logger.debug("使用用户 JWT 上传截图")
     else:
+        # 预留：未来若有明确的系统任务入口，可在此显式启用 service_role 分支。
         logger.debug("无可用认证 token，跳过 Storage 上传")
         return None
 
@@ -134,6 +252,153 @@ def make_screenshot_uploader(execution_id: str, auth_token: Optional[str] = None
     async def _uploader(image_bytes: bytes, filename: str, content_type: str) -> Optional[str]:
         return await upload_screenshot(image_bytes, filename, content_type, execution_id, auth_token)
     return _uploader
+
+
+# ── Platform Accounts & Binding Sessions ───────────────────
+
+
+def list_platform_accounts(
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> list[PlatformAccountRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("platform_configs")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return result.data or []
+
+
+def get_platform_account(
+    account_id: str,
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> Optional[PlatformAccountRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("platform_configs")
+        .select("*")
+        .eq("id", account_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def create_platform_account(
+    row: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> PlatformAccountRow:
+    sb = get_supabase(auth_token)
+    result = sb.table("platform_configs").insert(row).execute()
+    return (result.data or [{}])[0]
+
+
+def update_platform_account(
+    account_id: str,
+    tenant_id: str,
+    patch: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> PlatformAccountRow:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("platform_configs")
+        .update(patch)
+        .eq("id", account_id)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    return (result.data or [{}])[0]
+
+
+def list_binding_sessions(
+    tenant_id: str,
+    account_id: Optional[str] = None,
+    auth_token: Optional[str] = None,
+) -> list[PlatformBindingSessionRow]:
+    sb = get_supabase(auth_token)
+    query = (
+        sb.table("platform_binding_sessions")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .order("created_at", desc=True)
+    )
+    if account_id:
+        query = query.eq("account_id", account_id)
+    result = query.execute()
+    return result.data or []
+
+
+def get_binding_session(
+    session_id: str,
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> Optional[PlatformBindingSessionRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("platform_binding_sessions")
+        .select("*")
+        .eq("id", session_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def create_binding_session(
+    row: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> PlatformBindingSessionRow:
+    sb = get_supabase(auth_token)
+    result = sb.table("platform_binding_sessions").insert(row).execute()
+    return (result.data or [{}])[0]
+
+
+def update_binding_session(
+    session_id: str,
+    tenant_id: str,
+    patch: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> PlatformBindingSessionRow:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("platform_binding_sessions")
+        .update(patch)
+        .eq("id", session_id)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    return (result.data or [{}])[0]
+
+
+def attach_latest_binding_session(
+    accounts: list[PlatformAccountRow],
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    if not accounts:
+        return []
+
+    sessions = list_binding_sessions(tenant_id, auth_token=auth_token)
+    latest_by_account: dict[str, PlatformBindingSessionRow] = {}
+    for session in sessions:
+        account_id = session.get("account_id")
+        if account_id and account_id not in latest_by_account:
+            latest_by_account[account_id] = session
+
+    enriched: list[dict[str, Any]] = []
+    for account in accounts:
+        item = deepcopy(account)
+        item["latest_binding_session"] = latest_by_account.get(account.get("id", ""))
+        enriched.append(item)
+    return enriched
 
 
 # ── Candidates ────────────────────────────────────────────
@@ -187,6 +452,7 @@ def create_automation_task(
     config: dict,
     platform: Optional[str] = None,
     job_id: Optional[str] = None,
+    execution_id: Optional[str] = None,
     auth_token: Optional[str] = None,
 ) -> dict:
     """创建自动化任务记录"""
@@ -200,6 +466,7 @@ def create_automation_task(
         "config": config,
         "platform": platform,
         "job_id": job_id,
+        "execution_id": execution_id,
         "started_at": datetime.now(timezone.utc).isoformat(),
     }).execute()
     return result.data[0] if result.data else {}
@@ -221,6 +488,8 @@ def complete_automation_task(
     status: str = "completed",
     result_summary: Optional[dict] = None,
     error_message: Optional[str] = None,
+    full_output: Optional[str] = None,
+    screenshot_urls: Optional[list] = None,
     auth_token: Optional[str] = None,
 ) -> dict:
     """完成自动化任务"""
@@ -232,6 +501,10 @@ def complete_automation_task(
         updates["result_summary"] = result_summary
     if error_message is not None:
         updates["error_message"] = error_message
+    if full_output is not None:
+        updates["full_output"] = full_output
+    if screenshot_urls is not None:
+        updates["screenshot_urls"] = screenshot_urls
     return update_automation_task(task_id, updates, auth_token=auth_token)
 
 

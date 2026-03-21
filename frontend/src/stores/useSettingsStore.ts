@@ -8,9 +8,6 @@ import {PLATFORMS} from '@/lib/constants'
 // ============================================================
 
 interface SettingsState {
-  // OpenClaw
-  agentId: string
-
   // Platform accounts
   platformProfiles: PlatformProfile[]
 
@@ -43,7 +40,6 @@ interface SettingsState {
   retentionDays: number
 
   // ---- Actions ----
-  setAgentId: (agentId: string) => void
   addProfile: (profile: PlatformProfile) => void
   updateProfile: (id: string, updates: Partial<PlatformProfile>) => void
   removeProfile: (id: string) => void
@@ -60,8 +56,6 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       // ---- Default Values ----
-      agentId: '',
-
       platformProfiles: [],
 
       platformConfigs: {},
@@ -88,9 +82,6 @@ export const useSettingsStore = create<SettingsState>()(
       retentionDays: 90,
 
       // ---- Actions ----
-      setAgentId: (agentId) =>
-        set((state) => ({...state, agentId})),
-
       addProfile: (profile) =>
         set((state) => ({
           platformProfiles: [...state.platformProfiles, profile],
@@ -152,7 +143,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'zhipinyun_settings',
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state = (persistedState || {}) as SettingsState
         return {

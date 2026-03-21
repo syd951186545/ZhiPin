@@ -108,7 +108,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     })
 
     try {
-      // 获取当前用户 JWT，供后端进行认证 Supabase 操作（绕过 RLS）
+      // 获取当前用户 JWT，供后端以当前用户身份访问 Supabase（遵循 RLS）
       const { data: sessionData } = await supabase.auth.getSession()
       const authToken = sessionData?.session?.access_token
       const reqWithAuth: WorkflowStartRequest = authToken
@@ -117,6 +117,13 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
       // 调用后端 API
       const executionId = await apiStartWorkflow(reqWithAuth)
+
+      // 检查用户是否在 starting 阶段已点击取消（activeExecution 会被置 null）
+      if (!get().activeExecution) {
+        // 立即通知后端取消，然后退出
+        apiCancelWorkflow(executionId).catch(() => {})
+        return
+      }
 
       set((state) => ({
         activeExecution: state.activeExecution
@@ -309,9 +316,21 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   cancelWorkflow: () => {
     const exec = get().activeExecution
-    if (!exec?.executionId) return
+    if (!exec) return
 
-    // 先本地更新状态，避免 UI 卡在“执行中”
+    if (!exec.executionId) {
+      // 仍处于 starting 阶段，executionId 尚未返回：本地立即取消。
+      // startWorkflow 获得 executionId 后会检测到 activeExecution 已被置 null，
+      // 届时会自动向后端发送取消请求。
+      const cancelled: WorkflowExecution = {
+        ...exec,
+        status: 'cancelled',
+      }
+      set({activeExecution: null, lastExecution: cancelled})
+      return
+    }
+
+    // 先本地更新状态，避免 UI 卡在”执行中”
     set(() => {
       const cancelled: WorkflowExecution = {
         ...exec,

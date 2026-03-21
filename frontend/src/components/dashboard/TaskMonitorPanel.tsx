@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {useNavigate} from 'react-router-dom';
-import {CheckCircle2, Clock, Eye, Loader2, PauseCircle, XCircle} from 'lucide-react';
+import {CheckCircle2, Clock, Eye, Loader2, PauseCircle, Square, XCircle} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
@@ -32,7 +32,8 @@ const statusColors: Record<string, string> = {
 export default function TaskMonitorPanel() {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { tasks, loading } = useAutomationTasks();
+  const { tasks, loading, cancelTask } = useAutomationTasks();
+  const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
 
   const runningTasks = tasks.filter((t) => t.status === 'running' || t.status === 'queued' || t.status === 'paused');
   const recentTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'failed').slice(0, 5);
@@ -56,6 +57,15 @@ export default function TaskMonitorPanel() {
   if (tasks.length === 0) {
     return <EmptyState title={t('dashboard.tab.monitor')} description={t('dashboard.desc')} />;
   }
+
+  const handleStopTask = async (taskId: string) => {
+    setStoppingTaskId(taskId);
+    try {
+      await cancelTask(taskId);
+    } finally {
+      setStoppingTaskId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -103,6 +113,19 @@ export default function TaskMonitorPanel() {
                 >
                   <Eye className="h-4 w-4 mr-1" />
                   {t('history.action.view')}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleStopTask(task.id)}
+                  disabled={stoppingTaskId === task.id}
+                >
+                  {stoppingTaskId === task.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Square className="h-4 w-4 mr-1" />
+                  )}
+                  停止任务
                 </Button>
               </div>
             ))}

@@ -7,24 +7,25 @@ from prompts import screenshot_instruction
 
 def build_login_check_prompt(state: dict) -> str:
     account_info = state.get("account_name", "").strip()
-    account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供（请检查浏览器是否已有登录 session）"
+    account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供"
     shot = screenshot_instruction()
-    return f"""你是一个专业的招聘助手，请执行「发布招聘公告」任务的第1步：登录检查。
+    return f"""你是一个专业的招聘助手，请执行「发布招聘公告」任务的第1步：持久会话验证。
 
 【目标平台】{state.get("platform", "")}
 {account_section}
+【持久会话键】{state.get("browser_session_key", "")}
 
 【本步骤要求】
 1. 打开{state.get("platform", "")}网站
 2. {shot}
 3. 判断是否已登录：
-   - 若已登录（能看到用户头像/企业名称等）→ 直接输出 [STEP_DONE:login_check]
-   - 若未登录且有账号信息 → 完成登录流程，再截图，然后输出 [STEP_DONE:login_check]
-   - 若未登录且无账号信息 → 截图，输出提示后输出 [STEP_FAILED:login_check]
+   - 若已登录（能看到企业名称、工作台菜单、账号头像等）→ 直接输出 [STEP_DONE:login_check]
+   - 若未登录、已跳回登录页、或需要短信/扫码/密码交互 → 截图并输出 [STEP_FAILED:login_check]
 
 【注意事项】
-- 优先判断当前浏览器 session 是否有效，不要主动退出已登录账号
-- 如遇验证码或扫码，截图后等待人工处理
+- 这是主工作流，不负责重新绑定账号
+- 只能验证当前持久浏览器 session 是否仍然有效
+- 不要主动退出已登录账号，不要重新发起完整登录流程
 
 完成后输出：[STEP_DONE:login_check]
 无法完成输出：[STEP_FAILED:login_check]"""

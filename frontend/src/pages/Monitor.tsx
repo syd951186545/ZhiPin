@@ -1,6 +1,6 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigate, useParams} from 'react-router-dom';
-import {ArrowLeft, CheckCircle2, Circle, ImageIcon, Loader2, MonitorPlay, ScrollText} from 'lucide-react';
+import {ArrowLeft, CheckCircle2, Circle, ImageIcon, Loader2, MonitorPlay, ScrollText, ZoomIn} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
@@ -41,11 +41,16 @@ export default function Monitor() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const { tasks, loading: tasksLoading } = useAutomationTasks();
   const { logs, loading: logsLoading } = useTaskLogs(taskId);
 
   const task = tasks.find((t) => t.id === taskId);
+  const resultSummary = useMemo(
+    () => (task?.result_summary as Record<string, unknown> | null) || null,
+    [task?.result_summary],
+  );
   const progress = task?.progress ?? 0;
   const currentStep = getStepFromProgress(progress);
   const taskStatus = task?.status ?? 'queued';
@@ -66,12 +71,22 @@ export default function Monitor() {
     ? t('monitor.status.running')
     : taskStatus === 'paused'
     ? t('monitor.status.paused')
+    : taskStatus === 'completed'
+    ? t('history.status.success')
+    : taskStatus === 'failed'
+    ? t('history.status.failed')
+    : taskStatus === 'cancelled'
+    ? '已取消'
     : t('monitor.status.stopped');
 
   const statusColor = isRunning
     ? 'bg-blue-500 text-white'
     : taskStatus === 'paused'
     ? 'bg-yellow-500 text-white'
+    : taskStatus === 'completed'
+    ? 'bg-green-500 text-white'
+    : taskStatus === 'failed'
+    ? 'bg-red-500 text-white'
     : '';
 
   if (tasksLoading) {
@@ -154,8 +169,114 @@ export default function Monitor() {
           </Card>
         </div>
 
-        {/* Right: Logs + Screenshot */}
+        {/* Right: Content + Screenshot + Logs */}
         <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">执行结果</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {resultSummary ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    {Object.entries(resultSummary)
+                      .filter(([, value]) => value !== null && value !== undefined && typeof value !== 'object')
+                      .map(([key, value]) => (
+                        <div key={key} className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground mb-1">{key}</p>
+                          <p className="font-medium break-all">{String(value)}</p>
+                        </div>
+                      ))}
+                  </div>
+
+                  {typeof resultSummary.announcement === 'string' && resultSummary.announcement && (
+                    <div className="rounded-lg border p-3">
+                      <p className="text-sm font-medium mb-2">AI 公告内容</p>
+                      <pre className="whitespace-pre-wrap break-words text-xs leading-6">{resultSummary.announcement}</pre>
+                    </div>
+                  )}
+
+                  {(Array.isArray(resultSummary.candidate_preview) && resultSummary.candidate_preview.length > 0) && (
+                    <div className="rounded-lg border p-3">
+                      <p className="text-sm font-medium mb-2">候选人结果预览</p>
+                      <pre className="whitespace-pre-wrap break-words text-xs leading-6">
+                        {JSON.stringify(resultSummary.candidate_preview, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {resultSummary.publish_result && typeof resultSummary.publish_result === 'object' && (
+                    <div className="rounded-lg border p-3">
+                      <p className="text-sm font-medium mb-2">发布结果</p>
+                      <pre className="whitespace-pre-wrap break-words text-xs leading-6">
+                        {JSON.stringify(resultSummary.publish_result, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">暂无结构化结果</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-base">{t('monitor.snapshot')}</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {task?.screenshot_urls && task.screenshot_urls.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {task.screenshot_urls.map((src, index) => (
+                    <button
+                      key={`${src}-${index}`}
+                      type="button"
+                      className="relative rounded-lg border overflow-hidden text-left group"
+                      onClick={() => setLightboxSrc(src)}
+                    >
+                      <img src={src} alt={`截图 ${index + 1}`} className="w-full h-48 object-cover object-top" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <ZoomIn className="h-5 w-5 text-white" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-48 rounded-lg bg-muted flex items-center justify-center">
+                  <div className="text-center text-muted-foreground">
+                    <MonitorPlay className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">
+                      {isRunning
+                        ? (lang === 'zh' ? '正在执行中...' : 'Running...')
+                        : (lang === 'zh' ? '暂无截图' : 'No screenshot')}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <ScrollText className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-base">AI 完整输出</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-96 overflow-y-auto rounded-lg border bg-muted/20 p-4">
+                {task?.full_output ? (
+                  <pre className="whitespace-pre-wrap break-words text-xs leading-6">{task.full_output}</pre>
+                ) : (
+                  <p className="text-sm text-muted-foreground">暂无 AI 输出内容</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -184,28 +305,17 @@ export default function Monitor() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-base">{t('monitor.snapshot')}</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-48 rounded-lg bg-muted flex items-center justify-center">
-                <div className="text-center text-muted-foreground">
-                  <MonitorPlay className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">
-                    {isRunning
-                      ? (lang === 'zh' ? '正在执行中...' : 'Running...')
-                      : (lang === 'zh' ? '暂无截图' : 'No screenshot')}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
+
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 p-6 flex items-center justify-center"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <img src={lightboxSrc} alt="截图预览" className="max-w-full max-h-full rounded-lg border border-white/20" />
+        </div>
+      )}
     </div>
   );
 }

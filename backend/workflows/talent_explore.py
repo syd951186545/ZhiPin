@@ -6,10 +6,10 @@ login_check → search_candidates → collect_profiles → initiate_contact → 
 """
 
 import logging
-from uuid import uuid4
 
 from workflows.base import WorkflowState, StepDefinition, run_workflow_graph
 from services.openclaw_client import OpenClawClient
+from services.platform_catalog import get_platform_name
 from services.supabase_client import (
     create_automation_task,
     complete_automation_task,
@@ -23,7 +23,7 @@ from prompts.talent_explore import (
     build_collect_profiles_prompt,
     build_initiate_contact_prompt,
 )
-from routers.workflow import emit_event, is_cancelled
+from routers.workflow import emit_event, is_cancelled, register_execution_task
 
 logger = logging.getLogger(__name__)
 
@@ -90,20 +90,26 @@ async def run(execution_id: str, req):
                 config=req.model_dump(),
                 platform=req.platform,
                 job_id=req.job_id,
+                execution_id=execution_id,
                 auth_token=auth_token,
             )
+            if task_record.get("id"):
+                register_execution_task(execution_id, task_record["id"], auth_token)
         except Exception as e:
             logger.warning(f"创建任务记录失败: {e}")
 
     initial_state: WorkflowState = {
         "execution_id": execution_id,
         "workflow_id": "talent_explore",
-        "session_id": str(uuid4()),
+        "session_id": req.platform_accounts[0].get("browser_session_key", ""),
         "current_step": "",
         "step_index": 0,
         "total_steps": len(STEPS),
-        "platform": _get_platform_name(req.platform),
+        "platform": get_platform_name(req.platform),
+        "account_id": req.account_id,
         "account_name": req.account_name,
+        "browser_session_key": req.platform_accounts[0].get("browser_session_key", ""),
+        "platform_accounts": req.platform_accounts,
         "job_id": req.job_id or "",
         "job_title": req.job_title,
         "job_location": req.job_location,
@@ -130,9 +136,9 @@ async def run(execution_id: str, req):
         "error": None,
         "cancelled": False,
         "completed": False,
-        "_openclaw_url": req.openclaw_base_url or "",
-        "_openclaw_token": req.openclaw_auth_token or "",
         "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
+        "_task_id": task_record.get("id", ""),
+        "_tenant_id": req.tenant_id,
     }
 
     async def save_results_step(state: WorkflowState) -> WorkflowState:
@@ -190,10 +196,7 @@ async def run(execution_id: str, req):
     final_state = await run_workflow_graph(
         state=initial_state,
         steps=runtime_steps,
-        openclaw=OpenClawClient(
-            base_url=req.openclaw_base_url or None,
-            auth_token=req.openclaw_auth_token or None,
-        ),
+        openclaw=OpenClawClient(),
         emit_event=emit_event,
         is_cancelled=is_cancelled,
     )
@@ -204,20 +207,44 @@ async def run(execution_id: str, req):
         "candidates_saved": 0,
     })
 
+    full_output = final_state.get("accumulated_text", "")
+    all_screenshots = final_state.get("all_screenshots", [])
+
     if final_state.get("error"):
         await emit_event(execution_id, "error", {
             "step_id": final_state.get("current_step", ""),
             "message": final_state["error"],
         })
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "failed", error_message=final_state["error"], auth_token=auth_token)
+            complete_automation_task(
+                task_record["id"], "failed",
+                error_message=final_state["error"],
+                full_output=full_output,
+                screenshot_urls=all_screenshots,
+                auth_token=auth_token,
+            )
     else:
+        structured_result = {
+            "workflow_id": "talent_explore",
+            "job_title": req.job_title,
+            "platform": req.platform,
+            "candidates_found": result_summary.get("candidates_found", len(candidates)),
+            "candidates_saved": result_summary.get("candidates_saved", 0),
+            "candidate_preview": candidates[:10],
+            "screenshots_count": len(all_screenshots),
+        }
         await emit_event(execution_id, "complete", {
             "result_summary": result_summary,
-            "screenshots": final_state.get("all_screenshots", []),
+            "screenshots": all_screenshots,
         })
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "completed", result_summary=result_summary, auth_token=auth_token)
+            complete_automation_task(
+                task_record["id"], "completed",
+                result_summary={**result_summary, **structured_result},
+                full_output=full_output,
+                screenshot_urls=all_screenshots,
+                auth_token=auth_token,
+            )
 
     if task_record.get("id") and req.tenant_id:
         insert_task_log(
@@ -230,11 +257,13 @@ async def run(execution_id: str, req):
         )
 
 
-def _get_platform_name(key: str) -> str:
-    names = {"boss_zhipin": "BOSS直聘", "58": "58同城", "linkedin": "领英"}
-    return names.get(key, key)
-
-
 def _get_source_key(platform: str) -> str:
-    source_map = {"boss_zhipin": "boss_zhipin", "58": "58", "linkedin": "linkedin"}
+    source_map = {
+        "boss_zhipin": "boss_zhipin",
+        "58": "58",
+        "liepin": "liepin",
+        "zhilian": "zhilian",
+        "51job": "51job",
+        "lagou": "lagou",
+    }
     return source_map.get(platform, "openclaw_auto")

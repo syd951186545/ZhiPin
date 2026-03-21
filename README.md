@@ -1,6 +1,6 @@
-# 智聘云（ZhiPin）
+# 机灵-企业数字员工、机器灵智平台
 
-一个面向招聘业务的自动化平台：`frontend/` 提供管理台，`backend/` 负责编排工作流与代理 OpenClaw，`deploy/` 保存 Docker 与部署脚本。此 README 只保留后续接手最需要的信息。
+一个面向企业数字员工与机器灵智场景的自动化平台：`frontend/` 提供管理台，`backend/` 负责编排工作流与代理 OpenClaw，`deploy/` 保存 Docker 与部署脚本。此 README 只保留后续接手最需要的信息。
 
 ## 项目结构
 ```text

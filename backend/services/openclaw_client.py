@@ -382,19 +382,6 @@ class OpenClawClient:
 
         return event_type, data
 
-
-def _extract_response_id(data: dict) -> Optional[str]:
-    """从 OpenClaw SSE 事件中提取 response_id"""
-    if not isinstance(data, dict):
-        return None
-    if isinstance(data.get("response"), dict) and data["response"].get("id"):
-        return data["response"]["id"]
-    if data.get("response_id"):
-        return data.get("response_id")
-    if data.get("id") and str(data.get("id")).startswith("resp_"):
-        return data.get("id")
-    return None
-
     def _extract_screenshot(self, data: dict) -> Optional[str]:
         """
         从 SSE 事件数据中提取截图 URL。
@@ -426,7 +413,6 @@ def _extract_response_id(data: dict) -> Optional[str]:
         # 格式 3: 顶层 screenshot / image_url 字段
         return data.get("screenshot") or data.get("image_url")
 
-
     async def capture_screenshot(
         self,
         session_id: str,
@@ -445,6 +431,19 @@ def _extract_response_id(data: dict) -> Optional[str]:
             screenshot_uploader=screenshot_uploader,
         )
         return result.screenshots[0] if result.screenshots else None
+
+
+def _extract_response_id(data: dict) -> Optional[str]:
+    """从 OpenClaw SSE 事件中提取 response_id"""
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get("response"), dict) and data["response"].get("id"):
+        return data["response"]["id"]
+    if data.get("response_id"):
+        return data.get("response_id")
+    if data.get("id") and str(data.get("id")).startswith("resp_"):
+        return data.get("id")
+    return None
 
 
 async def _maybe_await(fn, *args):

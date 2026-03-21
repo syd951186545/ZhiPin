@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, Optional, TypedDict
 from langgraph.graph import END, StateGraph
 
 from services.openclaw_client import OpenClawClient, StepResult
-from services.supabase_client import make_screenshot_uploader
+from services.supabase_client import make_screenshot_uploader, insert_task_log, update_automation_task
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,10 @@ class WorkflowState(TypedDict, total=False):
     platform: str
     platforms: list[str]  # 多平台工作流
     current_platform_index: int
+    account_id: str
     account_name: str
+    browser_session_key: str
+    platform_accounts: list[dict]
 
     # 岗位信息
     job_id: str
@@ -77,6 +80,8 @@ class WorkflowState(TypedDict, total=False):
 
     # 内部私有字段（各工作流 run() 函数注入，不传递给前端）
     _auth_token: str       # Supabase 用户 JWT，用于 Storage 截图上传
+    _task_id: str          # automation_tasks.id
+    _tenant_id: str        # 租户 ID（用于 task_logs）
     _openclaw_url: str     # OpenClaw base URL 覆盖
     _openclaw_token: str   # OpenClaw auth token 覆盖
     _jump_to: str          # LangGraph 条件跳转目标（内部路由使用）
@@ -123,6 +128,9 @@ async def execute_step(
     """
     step_id = step.id
     execution_id = state["execution_id"]
+    task_id = state.get("_task_id") or ""
+    tenant_id = state.get("_tenant_id") or ""
+    auth_token = state.get("_auth_token") or None
 
     # 通知前端步骤开始
     await emit_event(execution_id, "step_change", {
@@ -135,6 +143,24 @@ async def execute_step(
     })
 
     logger.info(f"[{execution_id}] 执行步骤: {step_id} ({step.name_zh})")
+    if task_id and tenant_id:
+        try:
+            insert_task_log(
+                task_id=task_id,
+                tenant_id=tenant_id,
+                level="info",
+                message=f"开始步骤：{step.name_zh}",
+                metadata={
+                    "step_id": step_id,
+                    "step_name": step.name_zh,
+                    "step_index": state.get("step_index", 0) + 1,
+                    "total_steps": state.get("total_steps", 1),
+                    "platform": state.get("platform", ""),
+                },
+                auth_token=auth_token,
+            )
+        except Exception as e:
+            logger.debug(f"[{execution_id}] 写入步骤开始日志失败: {e}")
 
     if not step.requires_openclaw:
         # 纯后端步骤（如 save_results），直接标记成功
@@ -159,7 +185,6 @@ async def execute_step(
 
     # 截图上传器：优先上传到 Supabase Storage（持久化），无认证时回退 base64
     # _auth_token 存于 state（由各工作流的 run() 函数注入）
-    auth_token = state.get("_auth_token") or None
     uploader = make_screenshot_uploader(execution_id, auth_token)
 
     # 调用 OpenClaw
@@ -212,6 +237,45 @@ async def execute_step(
             "status": "done",
         })
         logger.info(f"[{execution_id}] 步骤完成: {step_id}")
+
+    if task_id:
+        try:
+            progress = min(
+                99,
+                int(((state.get("step_index", 0) + 1) / max(state.get("total_steps", 1), 1)) * 100),
+            )
+            update_automation_task(
+                task_id,
+                {
+                    "progress": progress,
+                    "full_output": new_state.get("accumulated_text", ""),
+                    "screenshot_urls": new_state.get("all_screenshots", []),
+                    "error_message": new_state.get("error"),
+                },
+                auth_token=auth_token,
+            )
+        except Exception as e:
+            logger.debug(f"[{execution_id}] 更新任务快照失败: {e}")
+
+    if task_id and tenant_id:
+        try:
+            insert_task_log(
+                task_id=task_id,
+                tenant_id=tenant_id,
+                level="success" if result.success else "error",
+                message=f"步骤{status_label}：{step.name_zh}",
+                metadata={
+                    "step_id": step_id,
+                    "step_name": step.name_zh,
+                    "success": result.success,
+                    "error": result.error,
+                    "screenshots_count": len(result.screenshots),
+                    "text_preview": (result.accumulated_text or "")[:1000],
+                },
+                auth_token=auth_token,
+            )
+        except Exception as e:
+            logger.debug(f"[{execution_id}] 写入步骤结果日志失败: {e}")
 
     # 3. 若步骤无截图，补充一张停留页面截图（最多等待 45 秒）
     #    在 step_change 之后、error/complete 事件之前发送，前端 activeExecution 仍有效

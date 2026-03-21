@@ -1,5 +1,5 @@
 """
-智聘云 FastAPI 后端入口
+机灵平台 FastAPI 后端入口
 
 提供 LangGraph 工作流编排服务，协调 OpenClaw 浏览器自动化与 Supabase 数据持久化。
 """
@@ -14,6 +14,8 @@ from config import get_settings
 from routers.workflow import router as workflow_router
 from routers.openclaw_proxy import router as openclaw_proxy_router
 from routers.settings import router as settings_router
+from routers.platforms import router as platforms_router
+from routers.platform_accounts import router as platform_accounts_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +34,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="智聘云 Workflow API",
+    title="机灵平台 Workflow API",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -55,11 +57,13 @@ app.add_middleware(
 app.include_router(workflow_router)
 app.include_router(openclaw_proxy_router)
 app.include_router(settings_router)
+app.include_router(platforms_router)
+app.include_router(platform_accounts_router)
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "zhipin-workflow"}
+    return {"status": "ok", "service": "jiling-platform-workflow"}
 
 
 if __name__ == "__main__":

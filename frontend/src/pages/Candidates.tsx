@@ -32,7 +32,7 @@ function getScoreTextColor(score: number | null): string {
   return 'text-red-600';
 }
 
-export default function Candidates() {
+export default function Candidates({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
@@ -51,7 +51,7 @@ export default function Candidates() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <PageHeader title={t('candidates.title')} description={t('candidates.desc')} />
+        {!embedded && <PageHeader title={t('candidates.title')} description={t('candidates.desc')} />}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <Card key={i}><CardContent className="pt-6"><Skeleton className="h-32 w-full" /></CardContent></Card>
@@ -63,12 +63,14 @@ export default function Candidates() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={t('candidates.title')} description={t('candidates.desc')}>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('candidates.add')}
-        </Button>
-      </PageHeader>
+      {!embedded && (
+        <PageHeader title={t('candidates.title')} description={t('candidates.desc')}>
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('candidates.add')}
+          </Button>
+        </PageHeader>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">

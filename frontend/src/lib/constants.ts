@@ -21,7 +21,10 @@ export const CANDIDATE_SOURCE = {
   direct: '主动投递',
   '58': '58同城',
   boss_zhipin: 'BOSS直聘',
-  linkedin: '领英',
+  liepin: '猎聘',
+  zhilian: '智联招聘',
+  '51job': '前程无忧/51job',
+  lagou: '拉勾招聘',
   openclaw_auto: '自动搜索',
   upload: '手动导入',
 } as const
@@ -49,9 +52,12 @@ export const TASK_STATUS = {
 
 // 招聘平台
 export const PLATFORMS = {
-  '58': { name: '58同城', color: 'bg-orange-500', loginUrl: 'https://passport.58.com/' },
-  boss_zhipin: { name: 'BOSS直聘', color: 'bg-cyan-500', loginUrl: 'https://www.zhipin.com/' },
-  linkedin: { name: '领英', color: 'bg-blue-600', loginUrl: 'https://www.linkedin.com/login' },
+  '58': { name: '58同城', color: 'bg-orange-500', loginUrl: 'https://passport.58.com/login/?path=http%3A%2F%2Fvip.58.com' },
+  boss_zhipin: { name: 'BOSS直聘', color: 'bg-cyan-500', loginUrl: 'https://www.zhipin.com/web/geek/job' },
+  liepin: { name: '猎聘', color: 'bg-red-500', loginUrl: 'https://vip.liepin.com/' },
+  zhilian: { name: '智联招聘', color: 'bg-blue-600', loginUrl: 'https://i.zhaopin.com/' },
+  '51job': { name: '前程无忧/51job', color: 'bg-indigo-500', loginUrl: 'https://ehire.51job.com/' },
+  lagou: { name: '拉勾招聘', color: 'bg-emerald-500', loginUrl: 'https://easy.lagou.com/' },
 } as const
 
 // 工作类型

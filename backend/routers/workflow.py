@@ -11,9 +11,15 @@ import logging
 from uuid import uuid4
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+from services.supabase_client import (
+    complete_automation_task,
+    get_platform_account,
+    validate_supabase_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +33,19 @@ _event_queues: dict[str, asyncio.Queue] = {}
 _cancelled: dict[str, bool] = {}
 # execution_id -> asyncio.Task（用于真实取消 httpx 流式请求）
 _running_tasks: dict[str, asyncio.Task] = {}
+# execution_id -> task metadata（用于取消时同步更新 automation_tasks）
+_task_records: dict[str, dict[str, Optional[str]]] = {}
 
 
 def is_cancelled(execution_id: str) -> bool:
     return _cancelled.get(execution_id, False)
+
+
+def register_execution_task(execution_id: str, task_id: str, auth_token: Optional[str] = None):
+    _task_records[execution_id] = {
+        "task_id": task_id,
+        "auth_token": auth_token,
+    }
 
 
 async def emit_event(execution_id: str, event_type: str, data: dict):
@@ -67,7 +82,10 @@ class WorkflowStartRequest(BaseModel):
     # 平台与账号
     platform: str = Field("", description="目标平台 (单平台工作流)")
     platforms: list[str] = Field(default_factory=list, description="目标平台列表 (多平台工作流)")
+    account_id: str = Field("", description="单平台工作流所使用的平台账号 ID")
+    platform_account_ids: dict[str, str] = Field(default_factory=dict, description="多平台工作流的平台账号映射")
     account_name: str = Field("", description="平台账号名")
+    platform_accounts: list[dict] = Field(default_factory=list, description="解析后的平台账号列表")
 
     # 岗位信息
     job_id: Optional[str] = None
@@ -87,11 +105,7 @@ class WorkflowStartRequest(BaseModel):
     company_size: str = ""
     company_overview: str = ""
 
-    # OpenClaw 配置（可覆盖全局配置）
-    openclaw_base_url: str = ""
-    openclaw_auth_token: str = ""
-
-    # Supabase 用户认证令牌（用于后端以用户身份写入数据库，绕过 RLS）
+    # Supabase 用户认证令牌（后端会先校验该用户，再以该用户身份访问 Supabase）
     supabase_auth_token: str = ""
 
     # 工作流特有参数
@@ -117,6 +131,53 @@ class WorkflowStatusResponse(BaseModel):
 async def start_workflow(req: WorkflowStartRequest):
     """启动工作流"""
     from workflows import publish_job, talent_explore, resume_screen
+
+    if not req.supabase_auth_token:
+        raise HTTPException(status_code=401, detail="缺少 Supabase 用户令牌，无法启动工作流")
+
+    try:
+        validated_user = await validate_supabase_user(
+            req.supabase_auth_token,
+            expected_user_id=req.user_id or None,
+            expected_tenant_id=req.tenant_id or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    # 仅信任后端校验过的用户身份，覆盖前端透传值
+    req.user_id = validated_user["user_id"]
+    req.tenant_id = validated_user["tenant_id"]
+
+    if req.workflow_id in {"publish_job", "talent_explore"}:
+        if not req.account_id:
+            raise HTTPException(status_code=400, detail="未选择已绑定的平台账号")
+        account = get_platform_account(req.account_id, req.tenant_id, auth_token=req.supabase_auth_token)
+        if not account:
+            raise HTTPException(status_code=404, detail="平台账号不存在")
+        if account.get("platform") != req.platform:
+            raise HTTPException(status_code=400, detail="平台账号与当前平台不匹配")
+        if account.get("status") != "active" or not account.get("browser_session_key"):
+            raise HTTPException(status_code=400, detail="平台账号未完成绑定或登录已失效，请先重新绑定")
+        req.account_name = account.get("account_name") or account.get("name") or ""
+        req.platform_accounts = [account]
+
+    if req.workflow_id == "resume_screen":
+        resolved_accounts: list[dict] = []
+        for platform in req.platforms or []:
+            account_id = req.platform_account_ids.get(platform, "")
+            if not account_id:
+                raise HTTPException(status_code=400, detail=f"平台 {platform} 未选择默认执行账号")
+            account = get_platform_account(account_id, req.tenant_id, auth_token=req.supabase_auth_token)
+            if not account:
+                raise HTTPException(status_code=404, detail=f"平台 {platform} 的账号不存在")
+            if account.get("platform") != platform:
+                raise HTTPException(status_code=400, detail=f"平台 {platform} 的账号配置不匹配")
+            if account.get("status") != "active" or not account.get("browser_session_key"):
+                raise HTTPException(status_code=400, detail=f"平台 {platform} 的账号未完成绑定或登录已失效")
+            resolved_accounts.append(account)
+        req.platform_accounts = resolved_accounts
 
     execution_id = str(uuid4())
     _event_queues[execution_id] = asyncio.Queue()
@@ -148,7 +209,11 @@ async def start_workflow(req: WorkflowStartRequest):
 @router.post("/cancel/{execution_id}")
 async def cancel_workflow(execution_id: str):
     """取消工作流 - 立即中断 httpx 流式请求"""
-    if execution_id not in _event_queues:
+    if (
+        execution_id not in _event_queues
+        and execution_id not in _running_tasks
+        and execution_id not in _task_records
+    ):
         raise HTTPException(status_code=404, detail="执行不存在")
 
     _cancelled[execution_id] = True
@@ -184,12 +249,52 @@ async def stream_progress(execution_id: str):
                 "event": "error",
                 "data": json.dumps({"message": "SSE 超时"}, ensure_ascii=False),
             }
+        except asyncio.CancelledError:
+            # 客户端（浏览器）断开连接，取消后台工作流任务避免资源泄漏
+            logger.info(f"SSE 客户端断开，取消工作流任务: {execution_id}")
+            task = _running_tasks.get(execution_id)
+            if task and not task.done():
+                task.cancel()
         finally:
             _event_queues.pop(execution_id, None)
-            _cancelled.pop(execution_id, None)
-            _running_tasks.pop(execution_id, None)
 
     return EventSourceResponse(event_generator())
+
+
+@router.get("/check-openclaw")
+async def check_openclaw_connection():
+    """检查 OpenClaw Gateway 连通性（账号验证时调用）"""
+    from config import get_settings
+    settings = get_settings()
+    base_url = settings.openclaw_base_url.rstrip("/")
+    if not base_url:
+        raise HTTPException(status_code=503, detail="OpenClaw 网关地址未配置")
+    headers = {"Authorization": f"Bearer {settings.openclaw_auth_token}"}
+    health_endpoints = (
+        "/healthz",
+        "/api/health",
+    )
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            last_status_error: httpx.HTTPStatusError | None = None
+            for endpoint in health_endpoints:
+                try:
+                    resp = await client.get(f"{base_url}{endpoint}", headers=headers)
+                    resp.raise_for_status()
+                    return {"status": "ok", "endpoint": endpoint}
+                except httpx.HTTPStatusError as exc:
+                    last_status_error = exc
+                    # 404 代表该版本没有这个健康检查端点，继续尝试下一个。
+                    if exc.response.status_code == 404:
+                        continue
+                    raise
+        if last_status_error:
+            raise last_status_error
+        raise HTTPException(status_code=503, detail="OpenClaw 未返回任何可用健康检查端点")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=503, detail=f"OpenClaw 返回错误: {e.response.status_code}") from e
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"OpenClaw 不可达: {str(e)}") from e
 
 
 @router.get("/status/{execution_id}", response_model=WorkflowStatusResponse)
@@ -217,6 +322,18 @@ async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartReques
         # 用同步 put_nowait，避免在 cancelled 状态下再次 await 失败
         logger.info(f"工作流已被取消: {execution_id}")
         _emit_event_sync(execution_id, "cancelled", {"message": "工作流已取消"})
+        task_meta = _task_records.get(execution_id) or {}
+        task_id = task_meta.get("task_id")
+        if task_id:
+            try:
+                complete_automation_task(
+                    task_id,
+                    "cancelled",
+                    error_message="用户取消",
+                    auth_token=task_meta.get("auth_token"),
+                )
+            except Exception:
+                logger.exception("同步取消 automation_task 失败: %s", execution_id)
         # 不重新 raise，让 finally 正常运行
     except Exception as e:
         logger.exception(f"工作流执行异常: {execution_id}")
@@ -225,5 +342,7 @@ async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartReques
             "message": f"工作流执行异常: {str(e)}",
         })
     finally:
+        _cancelled.pop(execution_id, None)
         _running_tasks.pop(execution_id, None)
+        _task_records.pop(execution_id, None)
         _emit_done_sync(execution_id)

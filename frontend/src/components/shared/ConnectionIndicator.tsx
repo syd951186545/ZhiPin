@@ -1,12 +1,32 @@
-import React from 'react'
+import React, {useEffect, useState} from 'react'
 import {CheckCircle2, Loader2, WifiOff} from 'lucide-react'
-import {useOpenClaw} from '@/contexts/OpenClawContext'
 import {useI18n} from '@/contexts/I18nContext'
 import {cn} from '@/lib/utils'
+import {testBackendConnection} from '@/services/workflowService'
 
 export default function ConnectionIndicator() {
-  const {isReady, serviceState} = useOpenClaw()
   const {t} = useI18n()
+  const [serviceState, setServiceState] = useState<'idle' | 'ready' | 'error'>('idle')
+
+  useEffect(() => {
+    let cancelled = false
+
+    const check = async () => {
+      try {
+        await testBackendConnection()
+        if (!cancelled) setServiceState('ready')
+      } catch {
+        if (!cancelled) setServiceState('error')
+      }
+    }
+
+    check()
+    const timer = window.setInterval(check, 30000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [])
 
   const stateConfig = {
     ready: {
@@ -34,7 +54,7 @@ export default function ConnectionIndicator() {
         'flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-full border transition-colors',
         config.className,
       )}
-      title={isReady ? 'OpenClaw 已就绪' : '正在获取 OpenClaw 配置'}
+      title={serviceState === 'ready' ? 'FastAPI 后端已连接' : '正在检查 FastAPI 后端连接'}
     >
       {config.icon}
       {config.label}

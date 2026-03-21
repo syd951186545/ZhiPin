@@ -42,7 +42,7 @@ class OpenClawGatewayConfigService:
             {
                 "raw": json.dumps(config, ensure_ascii=False, indent=2),
                 "baseHash": base_hash,
-                "note": "Updated by ZhiPin backend settings API",
+                "note": "Updated by JiLing platform backend settings API",
             },
         )
 

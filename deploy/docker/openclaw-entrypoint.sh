@@ -22,6 +22,7 @@ mkdir -p \
     "$TARGET_ROOT/.cache"
 
 copy_if_missing "$SEED_ROOT/.openclaw/skills/playwright-skill" "$TARGET_ROOT/.openclaw/skills/playwright-skill"
+copy_if_missing "$SEED_ROOT/.openclaw/skills/browser-guardrails-skill" "$TARGET_ROOT/.openclaw/skills/browser-guardrails-skill"
 copy_if_missing "$SEED_ROOT/.cache/ms-playwright" "$TARGET_ROOT/.cache/ms-playwright"
 
 exec docker-entrypoint.sh "$@"

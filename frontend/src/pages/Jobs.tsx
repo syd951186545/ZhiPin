@@ -1,11 +1,12 @@
 import React, {useState} from 'react'
 import {
+  AlertCircle,
+  CheckCircle2,
   Loader2,
-  LogIn,
   Pencil,
   Plus,
+  Save,
   Search,
-  ShieldCheck,
   Sparkles,
   Trash2,
 } from 'lucide-react'
@@ -25,17 +26,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import PageHeader from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
 import EmptyState from '@/components/shared/EmptyState'
-import AddProfileDialog from '@/components/settings/AddProfileDialog'
-import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
 import {useI18n} from '@/contexts/I18nContext'
-import {useOpenClaw} from '@/contexts/OpenClawContext'
 import {useJobs} from '@/hooks/useJobs'
 import {useSettingsStore} from '@/stores/useSettingsStore'
-import {EMPLOYMENT_TYPE, JOB_STATUS, PLATFORMS} from '@/lib/constants'
+import {useTenantSettings} from '@/hooks/useTenantSettings'
+import {EMPLOYMENT_TYPE, JOB_STATUS} from '@/lib/constants'
 import type {Job} from '@/types/database'
 
 interface JobFormData {
@@ -60,7 +58,7 @@ const emptyForm: JobFormData = {
   requirements: '',
 }
 
-function JobManagementPanel() {
+export function JobManagementPanel() {
   const {t} = useI18n()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -367,64 +365,37 @@ function JobManagementPanel() {
 
 export default function EnterpriseManagement() {
   const {t} = useI18n()
-  const {isReady} = useOpenClaw()
   const {
-    platformProfiles,
-    platformConfigs,
     companyProfile,
-    updatePlatformConfig,
-    updateProfile,
-    removeProfile,
     updateCompanyProfile,
   } = useSettingsStore()
+  const {settings: tenantSettings, saving: companySaving, error: companyError, saveCompanyProfile} = useTenantSettings()
 
   const safeCompanyProfile = companyProfile || {name: '', address: '', size: '', overview: ''}
   const [companyForm, setCompanyForm] = useState(safeCompanyProfile)
-  const [addProfileOpen, setAddProfileOpen] = useState(false)
-  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
-  const [loginProfileId, setLoginProfileId] = useState<string | null>(null)
-  const [verifyingProfileId, setVerifyingProfileId] = useState<string | null>(null)
+  const [companySaveStatus, setCompanySaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
-  const handleSaveCompany = () => {
-    updateCompanyProfile(companyForm)
-  }
-
-  const handleLoginProfile = (profileId: string) => {
-    setLoginProfileId(profileId)
-    setLoginDialogOpen(true)
-  }
-
-  const handleVerifyProfile = async (profileId: string) => {
-    const profile = platformProfiles.find((p) => p.id === profileId)
-    if (!profile) return
-
-    setVerifyingProfileId(profileId)
-    updateProfile(profileId, {status: 'verifying'})
-
-    // 由于平台验证现在由 agent 处理，这里直接标记状态
-    setTimeout(() => {
-      updateProfile(profileId, {
-        status: 'active',
-        lastVerified: new Date().toISOString(),
+  // Sync form when Supabase data loads
+  React.useEffect(() => {
+    if (tenantSettings) {
+      setCompanyForm({
+        name: tenantSettings.company_name || '',
+        address: tenantSettings.company_address || '',
+        size: tenantSettings.company_size || '',
+        overview: tenantSettings.company_overview || '',
       })
-      setVerifyingProfileId(null)
-    }, 1000)
-  }
+    }
+  }, [tenantSettings])
 
-  const handleDeleteProfile = (profileId: string) => {
-    removeProfile(profileId)
-  }
-
-  const getProfileStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge variant="default">{t('enterprise.accounts.status.active')}</Badge>
-      case 'verifying':
-        return <Badge variant="secondary">{t('enterprise.accounts.status.verifying')}</Badge>
-      case 'expired':
-        return <Badge variant="destructive">{t('enterprise.accounts.status.expired')}</Badge>
-      default:
-        return <Badge variant="destructive">{t('enterprise.accounts.status.needsLogin')}</Badge>
+  const handleSaveCompany = async () => {
+    updateCompanyProfile(companyForm)
+    try {
+      await saveCompanyProfile(companyForm)
+      setCompanySaveStatus('success')
+    } catch {
+      setCompanySaveStatus('error')
+    } finally {
+      setTimeout(() => setCompanySaveStatus('idle'), 4000)
     }
   }
 
@@ -432,239 +403,72 @@ export default function EnterpriseManagement() {
     <div className="space-y-6">
       <PageHeader title={t('enterprise.title')} description={t('enterprise.desc')}/>
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="flex flex-wrap h-auto gap-1">
-          <TabsTrigger value="overview">{t('enterprise.tab.company')}</TabsTrigger>
-          <TabsTrigger value="accounts">{t('enterprise.tab.accounts')}</TabsTrigger>
-          <TabsTrigger value="platforms">{t('enterprise.tab.platforms')}</TabsTrigger>
-          <TabsTrigger value="jobs">{t('enterprise.tab.jobs')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('enterprise.overview.title')}</CardTitle>
-              <CardDescription>{t('enterprise.overview.desc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>{t('enterprise.overview.name')}</Label>
-                  <Input
-                    value={companyForm.name}
-                    onChange={(e) => setCompanyForm((p) => ({...p, name: e.target.value}))}
-                    placeholder={t('enterprise.overview.namePlaceholder')}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('enterprise.overview.size')}</Label>
-                  <Input
-                    value={companyForm.size}
-                    onChange={(e) => setCompanyForm((p) => ({...p, size: e.target.value}))}
-                    placeholder={t('enterprise.overview.sizePlaceholder')}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>{t('enterprise.overview.address')}</Label>
-                <Input
-                  value={companyForm.address}
-                  onChange={(e) => setCompanyForm((p) => ({...p, address: e.target.value}))}
-                  placeholder={t('enterprise.overview.addressPlaceholder')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('enterprise.overview.summary')}</Label>
-                <Textarea
-                  value={companyForm.overview}
-                  onChange={(e) => setCompanyForm((p) => ({...p, overview: e.target.value}))}
-                  placeholder={t('enterprise.overview.summaryPlaceholder')}
-                  rows={4}
-                />
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={handleSaveCompany}>{t('enterprise.overview.save')}</Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="accounts">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{t('enterprise.accounts.title')}</CardTitle>
-                  <CardDescription>{t('enterprise.accounts.desc')}</CardDescription>
-                </div>
-                <Button size="sm" onClick={() => setAddProfileOpen(true)}>
-                  {t('enterprise.accounts.new')}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {platformProfiles.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">
-                  <p>{t('enterprise.accounts.empty')}</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="text-left p-3 font-medium">{t('enterprise.accounts.table.name')}</th>
-                      <th className="text-left p-3 font-medium">{t('enterprise.accounts.table.platform')}</th>
-                      <th className="text-center p-3 font-medium">{t('enterprise.accounts.table.status')}</th>
-                      <th className="text-center p-3 font-medium">{t('enterprise.accounts.lastVerified')}</th>
-                      <th className="text-right p-3 font-medium">{t('enterprise.accounts.table.actions')}</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {platformProfiles.map((profile) => (
-                      <tr key={profile.id} className="border-b last:border-0">
-                        <td className="p-3 font-medium">
-                          {profile.name}
-                          {profile.accountName && (
-                            <span className="text-xs text-muted-foreground ml-2">({profile.accountName})</span>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          <Badge variant="outline">
-                            {PLATFORMS[profile.platform as keyof typeof PLATFORMS]?.name || profile.platform}
-                          </Badge>
-                        </td>
-                        <td className="p-3 text-center">
-                          {getProfileStatusBadge(profile.status)}
-                        </td>
-                        <td className="p-3 text-center text-xs text-muted-foreground">
-                          {profile.lastVerified
-                            ? new Date(profile.lastVerified).toLocaleString('zh-CN')
-                            : t('enterprise.accounts.neverVerified')}
-                        </td>
-                        <td className="p-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleLoginProfile(profile.id)}
-                              disabled={!isReady}
-                            >
-                              <LogIn className="h-4 w-4 mr-1"/>
-                              {t('enterprise.accounts.action.login')}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleVerifyProfile(profile.id)}
-                              disabled={verifyingProfileId === profile.id}
-                            >
-                              {verifyingProfileId === profile.id ? (
-                                <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
-                              ) : (
-                                <ShieldCheck className="h-4 w-4 mr-1"/>
-                              )}
-                              {t('enterprise.accounts.action.verify')}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteProfile(profile.id)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4"/>
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <AddProfileDialog open={addProfileOpen} onOpenChange={setAddProfileOpen}/>
-          <PlatformLoginDialog
-            open={loginDialogOpen}
-            onOpenChange={setLoginDialogOpen}
-            profileId={loginProfileId}
-          />
-        </TabsContent>
-
-        <TabsContent value="platforms">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {Object.entries(PLATFORMS).map(([key, {name: pName}]) => {
-              const defaultUrl = PLATFORMS[key as keyof typeof PLATFORMS]?.loginUrl || ''
-              const stored = platformConfigs[key] || {}
-              const config = {
-                nickname: stored.nickname || '',
-                boundProfileId: stored.boundProfileId || '',
-                customUrl: stored.customUrl || defaultUrl,
-              }
-              const profilesForPlatform = platformProfiles.filter((p) => p.platform === key)
-
-              return (
-                <Card key={key}>
-                  <CardHeader>
-                    <CardTitle>{pName}</CardTitle>
-                    <CardDescription>{t('enterprise.platforms.desc')}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>{t('enterprise.platforms.nickname')}</Label>
-                      <Input
-                        value={config.nickname}
-                        onChange={(e) => updatePlatformConfig(key, {nickname: e.target.value})}
-                        placeholder={t('enterprise.platforms.nicknamePlaceholder')}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('enterprise.platforms.boundProfile')}</Label>
-                      <Select
-                        value={config.boundProfileId}
-                        onValueChange={(v) => updatePlatformConfig(key, {boundProfileId: v})}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('enterprise.platforms.boundProfilePlaceholder')}/>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {profilesForPlatform.length === 0 ? (
-                            <SelectItem value="_none" disabled>{t('enterprise.platforms.noAccounts')}</SelectItem>
-                          ) : (
-                            profilesForPlatform.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.name} {p.status === 'active' ? '✓' : ''}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('enterprise.platforms.customUrl')}</Label>
-                      <Input
-                        value={config.customUrl}
-                        disabled
-                        placeholder={config.customUrl}
-                      />
-                    </div>
-                  </CardContent>
-                  <CardFooter>
-                    <Button onClick={() => updatePlatformConfig(key, config)}>
-                      {t('enterprise.platforms.save')}
-                    </Button>
-                  </CardFooter>
-                </Card>
-              )
-            })}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('enterprise.overview.title')}</CardTitle>
+          <CardDescription>{t('enterprise.overview.desc')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>{t('enterprise.overview.name')}</Label>
+              <Input
+                value={companyForm.name}
+                onChange={(e) => setCompanyForm((p) => ({...p, name: e.target.value}))}
+                placeholder={t('enterprise.overview.namePlaceholder')}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{t('enterprise.overview.size')}</Label>
+              <Input
+                value={companyForm.size}
+                onChange={(e) => setCompanyForm((p) => ({...p, size: e.target.value}))}
+                placeholder={t('enterprise.overview.sizePlaceholder')}
+              />
+            </div>
           </div>
-        </TabsContent>
-
-        <TabsContent value="jobs">
-          <JobManagementPanel/>
-        </TabsContent>
-      </Tabs>
+          <div className="space-y-2">
+            <Label>{t('enterprise.overview.address')}</Label>
+            <Input
+              value={companyForm.address}
+              onChange={(e) => setCompanyForm((p) => ({...p, address: e.target.value}))}
+              placeholder={t('enterprise.overview.addressPlaceholder')}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>{t('enterprise.overview.summary')}</Label>
+            <Textarea
+              value={companyForm.overview}
+              onChange={(e) => setCompanyForm((p) => ({...p, overview: e.target.value}))}
+              placeholder={t('enterprise.overview.summaryPlaceholder')}
+              rows={4}
+            />
+          </div>
+          {companyError && (
+            <p className="text-xs text-destructive">{companyError}</p>
+          )}
+          {companySaveStatus !== 'idle' && (
+            <div className={`flex items-center gap-2 text-xs rounded-md p-2 ${
+              companySaveStatus === 'success'
+                ? 'text-green-700 bg-green-50 dark:bg-green-950 dark:text-green-400'
+                : 'text-destructive bg-destructive/10'
+            }`}>
+              {companySaveStatus === 'success'
+                ? <><CheckCircle2 className="h-3.5 w-3.5"/>已保存到云端</>
+                : <><AlertCircle className="h-3.5 w-3.5"/>保存失败</>
+              }
+            </div>
+          )}
+        </CardContent>
+        <CardFooter>
+          <Button onClick={handleSaveCompany} disabled={companySaving} size="sm">
+            {companySaving
+              ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin"/>保存中...</>
+              : <><Save className="mr-2 h-3.5 w-3.5"/>{t('enterprise.overview.save')}</>
+            }
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   )
 }

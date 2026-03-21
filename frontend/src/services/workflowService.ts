@@ -2,7 +2,6 @@
  * 工作流 API 客户端
  *
  * 负责与 FastAPI 后端通信：启动工作流、取消工作流、SSE 进度订阅。
- * 替代原来的 openclawService 直接调用 OpenClaw 的逻辑。
  */
 
 // ── 类型定义 ─────────────────────────────────────────────
@@ -17,6 +16,8 @@ export interface WorkflowStartRequest {
   // 平台与账号
   platform?: string
   platforms?: string[]
+  account_id?: string
+  platform_account_ids?: Record<string, string>
   account_name?: string
 
   // 岗位信息
@@ -37,11 +38,7 @@ export interface WorkflowStartRequest {
   company_size?: string
   company_overview?: string
 
-  // OpenClaw 配置
-  openclaw_base_url?: string
-  openclaw_auth_token?: string
-
-  // Supabase 用户认证令牌（后端用于绕过 RLS 写入数据）
+  // Supabase 用户认证令牌（后端以用户身份访问 Supabase，遵循 RLS）
   supabase_auth_token?: string
 
   // 工作流参数
@@ -215,4 +212,16 @@ export async function testBackendConnection(): Promise<{ status: string }> {
     throw new Error('后端服务不可用')
   }
   return resp.json()
+}
+
+/**
+ * 检查 OpenClaw Gateway 连通性（账号验证时调用）
+ * 若不可达则抛出错误。
+ */
+export async function checkOpenClaw(): Promise<void> {
+  const resp = await fetch(`${getApiBase()}/check-openclaw`)
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}))
+    throw new Error((data as { detail?: string }).detail || 'OpenClaw 不可达')
+  }
 }

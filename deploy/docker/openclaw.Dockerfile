@@ -41,6 +41,8 @@ RUN git clone --depth 1 --branch "${PLAYWRIGHT_SKILL_REF}" https://github.com/la
     && cp -R /tmp/playwright-skill/skills/playwright-skill /opt/openclaw-home-seed/.openclaw/skills/playwright-skill \
     && rm -rf /tmp/playwright-skill
 
+COPY --chown=node:node deploy/openclaw-skills/browser-guardrails-skill /opt/openclaw-home-seed/.openclaw/skills/browser-guardrails-skill
+
 RUN chown -R node:node /opt/openclaw-home-seed
 
 USER node

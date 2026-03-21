@@ -6,10 +6,10 @@ login_check → generate_announcement → fill_and_publish → verify_result
 """
 
 import logging
-from uuid import uuid4
 
 from workflows.base import WorkflowState, StepDefinition, run_workflow_graph
 from services.openclaw_client import OpenClawClient
+from services.platform_catalog import get_platform_name
 from services.supabase_client import (
     create_automation_task,
     complete_automation_task,
@@ -22,7 +22,7 @@ from prompts.publish_job import (
     build_fill_and_publish_prompt,
     build_verify_result_prompt,
 )
-from routers.workflow import emit_event, is_cancelled
+from routers.workflow import emit_event, is_cancelled, register_execution_task
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +85,11 @@ async def run(execution_id: str, req):
                 config=req.model_dump(),
                 platform=req.platform,
                 job_id=req.job_id,
+                execution_id=execution_id,
                 auth_token=auth_token,
             )
+            if task_record.get("id"):
+                register_execution_task(execution_id, task_record["id"], auth_token)
         except Exception as e:
             logger.warning(f"创建任务记录失败: {e}")
 
@@ -94,12 +97,15 @@ async def run(execution_id: str, req):
     initial_state: WorkflowState = {
         "execution_id": execution_id,
         "workflow_id": "publish_job",
-        "session_id": str(uuid4()),
+        "session_id": req.platform_accounts[0].get("browser_session_key", ""),
         "current_step": "",
         "step_index": 0,
         "total_steps": len(STEPS),
-        "platform": _get_platform_name(req.platform),
+        "platform": get_platform_name(req.platform),
+        "account_id": req.account_id,
         "account_name": req.account_name,
+        "browser_session_key": req.platform_accounts[0].get("browser_session_key", ""),
+        "platform_accounts": req.platform_accounts,
         "job_id": req.job_id or "",
         "job_title": req.job_title,
         "job_location": req.job_location,
@@ -124,18 +130,15 @@ async def run(execution_id: str, req):
         "error": None,
         "cancelled": False,
         "completed": False,
-        "_openclaw_url": req.openclaw_base_url or "",
-        "_openclaw_token": req.openclaw_auth_token or "",
         "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
+        "_task_id": task_record.get("id", ""),
+        "_tenant_id": req.tenant_id,
     }
 
     final_state = await run_workflow_graph(
         state=initial_state,
         steps=STEPS,
-        openclaw=OpenClawClient(
-            base_url=req.openclaw_base_url or None,
-            auth_token=req.openclaw_auth_token or None,
-        ),
+        openclaw=OpenClawClient(),
         emit_event=emit_event,
         is_cancelled=is_cancelled,
     )
@@ -151,8 +154,22 @@ async def run(execution_id: str, req):
             "message": final_state["error"],
         })
         if task_record.get("id"):
-            complete_automation_task(task_record["id"], "failed", error_message=final_state["error"], auth_token=auth_token)
+            complete_automation_task(
+                task_record["id"], "failed",
+                error_message=final_state["error"],
+                full_output=final_state.get("accumulated_text", ""),
+                screenshot_urls=final_state.get("all_screenshots", []),
+                auth_token=auth_token,
+            )
     else:
+        structured_result = {
+            "workflow_id": "publish_job",
+            "job_title": req.job_title,
+            "platform": req.platform,
+            "announcement": announcement,
+            "publish_result": publish_result,
+            "screenshots_count": len(final_state.get("all_screenshots", [])),
+        }
         await emit_event(execution_id, "complete", {
             "announcement": announcement,
             "publish_result": publish_result,
@@ -162,7 +179,9 @@ async def run(execution_id: str, req):
             complete_automation_task(
                 task_record["id"],
                 "completed",
-                result_summary={"jobs_posted": 1, **publish_result},
+                result_summary={"jobs_posted": 1, **publish_result, **structured_result},
+                full_output=final_state.get("accumulated_text", ""),
+                screenshot_urls=final_state.get("all_screenshots", []),
                 auth_token=auth_token,
             )
 
@@ -177,8 +196,3 @@ async def run(execution_id: str, req):
             metadata={"publish_result": publish_result},
             auth_token=auth_token,
         )
-
-
-def _get_platform_name(key: str) -> str:
-    names = {"boss_zhipin": "BOSS直聘", "58": "58同城", "linkedin": "领英"}
-    return names.get(key, key)

@@ -1,5 +1,5 @@
 # ============================================================
-# 智聘云 Docker Compose
+# 机灵平台 Docker Compose
 # 使用方法：编辑 .env.production 后执行 ./deploy.sh
 # ============================================================
 
@@ -30,8 +30,9 @@ services:
       - OPENCLAW_BASE_URL=http://openclaw:18789
       # 对应 backend/openclaw 卷的容器内路径，必须固定
       - OPENCLAW_MEDIA_MOUNT=/openclaw-home/.openclaw/media
+      - OPENCLAW_HOME_MOUNT=/openclaw-home
     volumes:
-      - ../backend/openclaw:/openclaw-home:ro
+      - ../backend/openclaw:/openclaw-home
       # backend 通过 Docker API exec 进入 openclaw 容器调用 Gateway RPC
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
