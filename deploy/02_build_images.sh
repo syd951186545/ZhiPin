@@ -82,7 +82,6 @@ PY
 FRONTEND_IMAGE="${FRONTEND_IMAGE_REPO}:${IMAGE_TAG}"
 BACKEND_IMAGE="${BACKEND_IMAGE_REPO}:${IMAGE_TAG}"
 OPENCLAW_RUNTIME_IMAGE="${OPENCLAW_RUNTIME_REPO}:${IMAGE_TAG}"
-IMAGE_ENV_FILE="$SCRIPT_DIR/.images.env"
 
 if $PULL_OPENCLAW; then
     info "构建 openclaw 时拉取最新 OpenClaw 源镜像: $OPENCLAW_IMAGE"
@@ -107,14 +106,10 @@ fi
 info "构建 frontend 镜像: $FRONTEND_IMAGE"
 info "构建 backend 镜像: $BACKEND_IMAGE"
 info "构建 openclaw 镜像: $OPENCLAW_RUNTIME_IMAGE (base: $OPENCLAW_IMAGE)"
-docker compose "${build_args[@]}"
-docker compose "${openclaw_build_args[@]}"
+docker compose --env-file .env.production "${build_args[@]}"
+docker compose --env-file .env.production "${openclaw_build_args[@]}"
 
-cat > "$IMAGE_ENV_FILE" <<EOF_IMAGE
-FRONTEND_IMAGE=$FRONTEND_IMAGE
-BACKEND_IMAGE=$BACKEND_IMAGE
-OPENCLAW_RUNTIME_IMAGE=$OPENCLAW_RUNTIME_IMAGE
-IMAGE_TAG=$IMAGE_TAG
-EOF_IMAGE
-
-info "已写入镜像标签文件: $IMAGE_ENV_FILE"
+info "镜像构建完成，统一标签: $IMAGE_TAG"
+info "frontend: $FRONTEND_IMAGE"
+info "backend: $BACKEND_IMAGE"
+info "openclaw: $OPENCLAW_RUNTIME_IMAGE"
