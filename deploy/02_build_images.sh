@@ -21,7 +21,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 usage() {
     cat <<USAGE
 用法: $0 [--pull-openclaw] [--pull-base] [--image-tag TAG]
-  --pull-openclaw   拉取最新 OpenClaw 源镜像后再打本地时间标签
+  --pull-openclaw   构建 openclaw 时拉取最新 OpenClaw 源镜像
   --pull-base       构建 frontend/backend 时拉取最新基础镜像
   --image-tag TAG   自定义镜像 tag，默认 UTC 时间戳 YYYYMMDD-HHMMSS
 USAGE
@@ -68,6 +68,7 @@ for line in Path(sys.argv[1]).read_text(encoding='utf-8').splitlines():
         continue
     key, value = line.split('=', 1)
     key = key.strip()
+    value = value.strip()
     if key:
         print(f"export {key}={shlex.quote(value)}")
 PY
@@ -84,29 +85,30 @@ OPENCLAW_RUNTIME_IMAGE="${OPENCLAW_RUNTIME_REPO}:${IMAGE_TAG}"
 IMAGE_ENV_FILE="$SCRIPT_DIR/.images.env"
 
 if $PULL_OPENCLAW; then
-    info "拉取 OpenClaw 源镜像: $OPENCLAW_IMAGE"
-    docker pull "$OPENCLAW_IMAGE"
-elif ! docker image inspect "$OPENCLAW_IMAGE" >/dev/null 2>&1; then
-    warn "本地不存在 OpenClaw 源镜像，自动拉取: $OPENCLAW_IMAGE"
-    docker pull "$OPENCLAW_IMAGE"
+    info "构建 openclaw 时拉取最新 OpenClaw 源镜像: $OPENCLAW_IMAGE"
 fi
-
-info "为 OpenClaw 镜像打时间标签: $OPENCLAW_RUNTIME_IMAGE"
-docker tag "$OPENCLAW_IMAGE" "$OPENCLAW_RUNTIME_IMAGE"
 
 export FRONTEND_IMAGE BACKEND_IMAGE OPENCLAW_RUNTIME_IMAGE IMAGE_TAG
 
 build_args=(build frontend backend)
+openclaw_build_args=(build openclaw)
 if $PULL_BASE; then
     info "构建前拉取最新基础镜像并复用本地缓存..."
     build_args=(build --pull frontend backend)
 else
     info "使用缓存构建 frontend/backend 镜像..."
 fi
+if $PULL_OPENCLAW; then
+    openclaw_build_args=(build --pull openclaw)
+else
+    info "使用缓存构建 openclaw 镜像..."
+fi
 
 info "构建 frontend 镜像: $FRONTEND_IMAGE"
 info "构建 backend 镜像: $BACKEND_IMAGE"
+info "构建 openclaw 镜像: $OPENCLAW_RUNTIME_IMAGE (base: $OPENCLAW_IMAGE)"
 docker compose "${build_args[@]}"
+docker compose "${openclaw_build_args[@]}"
 
 cat > "$IMAGE_ENV_FILE" <<EOF_IMAGE
 FRONTEND_IMAGE=$FRONTEND_IMAGE

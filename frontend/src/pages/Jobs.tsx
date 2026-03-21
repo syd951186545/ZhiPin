@@ -96,47 +96,7 @@ function JobManagementPanel() {
     setDialogOpen(true)
   }
 
-  const handleAiGenerate = async (field: 'description' | 'requirements') => {
-    if (!form.title.trim()) return
-    setAiLoading(field)
-
-    try {
-      // Try calling MiniMax API for real AI generation
-      const apiKey = import.meta.env.VITE_MINIMAX_API_KEY
-      if (apiKey) {
-        const prompt = field === 'description'
-          ? `请为"${form.title}"这个职位生成一段专业的职位描述（100-200字），包含主要工作职责。只输出描述内容，不要标题。`
-          : `请为"${form.title}"这个职位生成任职要求（100-200字），包含技能、经验等要求。只输出要求内容，不要标题。`
-
-        const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_v2', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'MiniMax-Text-01',
-            messages: [{role: 'user', content: prompt}],
-            max_tokens: 500,
-            temperature: 0.7,
-          }),
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          const text = data.choices?.[0]?.message?.content?.trim()
-          if (text) {
-            setForm((prev) => ({...prev, [field]: text}))
-            setAiLoading(null)
-            return
-          }
-        }
-      }
-    } catch {
-      // API call failed, will use empty field - user needs to fill manually
-    }
-
-    // Fallback: just clear loading state, user fills manually
+  const handleAiGenerate = async (_field: 'description' | 'requirements') => {
     setAiLoading(null)
   }
 

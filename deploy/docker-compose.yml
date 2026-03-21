@@ -1,10 +1,7 @@
 # ============================================================
-# 智聘云 Docker Compose — 阶段式部署
+# 智聘云 Docker Compose
+# 使用方法：编辑 .env.production 后执行 ./deploy.sh
 # ============================================================
-# 使用顺序:
-#   1. ./01_prepare_env.sh
-#   2. ./02_build_images.sh
-#   3. ./03_recreate_stack.sh
 
 services:
   frontend:
@@ -29,12 +26,13 @@ services:
     env_file:
       - ../backend/.env.production
     environment:
+      # Docker 内部服务名，必须固定，覆盖 env_file 中的值
       - OPENCLAW_BASE_URL=http://openclaw:18789
+      # 对应 backend/openclaw 卷的容器内路径，必须固定
       - OPENCLAW_MEDIA_MOUNT=/openclaw-home/.openclaw/media
-      - CORS_ORIGINS=*
-      - DEBUG=false
     volumes:
       - ../backend/openclaw:/openclaw-home:ro
+      # backend 通过 Docker API exec 进入 openclaw 容器调用 Gateway RPC
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       openclaw:
@@ -45,12 +43,25 @@ services:
 
   openclaw:
     image: ${OPENCLAW_RUNTIME_IMAGE}
+    build:
+      context: ..
+      dockerfile: deploy/docker/openclaw.Dockerfile
+      args:
+        OPENCLAW_BASE_IMAGE: ${OPENCLAW_IMAGE}
+        PLAYWRIGHT_SKILL_REF: ${OPENCLAW_PLAYWRIGHT_SKILL_REF:-v4.1.0}
+        APT_MIRROR_HOST: ${OPENCLAW_APT_MIRROR_HOST:-mirrors.tuna.tsinghua.edu.cn}
+        NPM_REGISTRY: ${OPENCLAW_NPM_REGISTRY:-https://registry.npmmirror.com}
+        PLAYWRIGHT_DOWNLOAD_HOST: ${OPENCLAW_PLAYWRIGHT_DOWNLOAD_HOST:-https://npmmirror.com/mirrors/playwright}
     ports:
       - "${OPENCLAW_HOST_PORT:-28789}:18789"
       - "${OPENCLAW_HOST_PORT_BROWSER:-28791}:18791"
     environment:
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_AUTH_TOKEN}
       - TZ=${OPENCLAW_TZ:-Asia/Shanghai}
+      - PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
+      - PLAYWRIGHT_DOWNLOAD_HOST=${OPENCLAW_PLAYWRIGHT_DOWNLOAD_HOST:-https://npmmirror.com/mirrors/playwright}
+      - CHROME_BIN=/usr/bin/chromium
+      - CHROMIUM_BIN=/usr/bin/chromium
     cap_drop:
       - ALL
     cap_add:

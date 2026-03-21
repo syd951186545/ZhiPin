@@ -64,13 +64,13 @@ async def proxy_openclaw(path: str, request: Request):
         headers["x-openclaw-agent-id"] = settings.openclaw_agent_id
 
     client = httpx.AsyncClient(timeout=None)
-    resp = await client.request(
+    req = client.build_request(
         request.method,
         upstream_url,
         headers=headers,
         content=req_body if req_body else None,
-        stream=True,
     )
+    resp = await client.send(req, stream=True)
 
     async def iter_response() -> Iterable[bytes]:
         try:
