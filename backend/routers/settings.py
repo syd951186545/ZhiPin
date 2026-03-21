@@ -1,8 +1,8 @@
 """
 OpenClaw 服务器配置 API
 
-通过 OpenClaw Gateway 控制面读取和更新运行时配置，
-不再直接挂载或改写宿主机上的 openclaw.json。
+通过 OpenClaw Gateway 控制面读取和更新运行时配置。
+配置文件位于 backend/openclaw 的持久化状态目录中，Gateway 的 config.apply 会直接持久化这些变更。
 """
 
 import logging

@@ -3,11 +3,16 @@ frontend/dist/
 .git/
 .gitignore
 
-# Env files (secrets injected at runtime via docker-compose)
+# Env files
 .env
 .env.local
 deploy/.env.production
 backend/.env
+backend/.env.production
+backend/openclaw/
+
+# Frontend build-time env must be included
+!frontend/.env.production
 
 # Python artifacts
 backend/__pycache__/
