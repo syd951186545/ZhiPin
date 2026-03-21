@@ -24,18 +24,15 @@ class OpenClawGatewayConfigService:
 
     def get_runtime_config(self) -> tuple[dict[str, Any], str]:
         payload = self._gateway_call("config.get", {})
-        raw = payload.get("raw")
+        # openclaw 2026.3+ 返回 JSONC 格式的 raw 字段（含单引号/无引号键），
+        # 同时提供已解析的 parsed 字段（标准 dict），直接使用 parsed。
+        config = payload.get("parsed")
         config_hash = payload.get("hash")
 
-        if not raw or not isinstance(raw, str):
-            raise HTTPException(status_code=502, detail="Gateway 未返回原始配置内容，无法读取 OpenClaw 配置。")
+        if not isinstance(config, dict):
+            raise HTTPException(status_code=502, detail="Gateway 未返回可解析配置内容，无法读取 OpenClaw 配置。")
         if not config_hash or not isinstance(config_hash, str):
             raise HTTPException(status_code=502, detail="Gateway 未返回配置哈希，无法安全更新 OpenClaw 配置。")
-
-        try:
-            config = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=502, detail=f"Gateway 返回的配置不是有效 JSON: {exc}") from exc
 
         return config, config_hash
 
@@ -82,15 +79,21 @@ class OpenClawGatewayConfigService:
             raise HTTPException(status_code=502, detail=detail)
 
         response = self._parse_json_output(stdout_text, method)
-        if not response.get("ok", False):
-            error = response.get("error") or {}
-            message = error.get("message") if isinstance(error, dict) else None
-            raise HTTPException(status_code=502, detail=message or f"Gateway RPC {method} 返回失败")
 
-        payload = response.get("payload")
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=502, detail=f"Gateway RPC {method} 未返回可解析 payload")
-        return payload
+        # openclaw 2026.3+ gateway call --json 有两种输出格式：
+        # 1. config.get 等：直接返回 payload 对象（无 "ok" 字段）
+        # 2. config.apply 等：返回 {"ok": true/false, ...}（有 "ok" 字段）
+        if "ok" in response:
+            if not response["ok"]:
+                error = response.get("error") or {}
+                message = error.get("message") if isinstance(error, dict) else None
+                raise HTTPException(status_code=502, detail=message or f"Gateway RPC {method} 返回失败")
+            # 优先返回 payload 字段，无则返回整个 response
+            payload = response.get("payload")
+            return payload if isinstance(payload, dict) else response
+        else:
+            # 直接格式：response 本身即为 payload
+            return response
 
     def _get_openclaw_container(self):
         try:

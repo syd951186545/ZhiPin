@@ -36,10 +36,10 @@
 - `docker-compose.yml`：生产部署入口，串联 frontend / backend / openclaw 三个服务。
 - `docker/frontend.Dockerfile`：构建前端镜像。
 - `docker/backend.Dockerfile`：构建后端镜像。
-- `docker/openclaw.json.tmpl`：OpenClaw 配置模板。
+- `docker/openclaw.Dockerfile`：基于官方 OpenClaw 镜像重建，预装 Chromium 与 Playwright Browser Skill。
 - `deploy.sh`：完整重部署脚本，会删除旧的自构建镜像并重新构建；可选拉取 OpenClaw/基础镜像。
 - `deploy_update.sh`：同步脚本，把代码或 OpenClaw 模板配置直接同步到运行中的容器；遇到依赖、Dockerfile、Compose、环境变量改动时提示改用 `deploy.sh`。
-- `.env.production.template`：生产环境变量模板。
+- `.env.example`：生产环境变量模板。
 
 ## 架构说明
 ```text
@@ -77,8 +77,9 @@ Supabase <- frontend 认证 / backend 截图上传与数据持久化
   - 限制：如果你改的是 Dockerfile、`docker-compose.yml`、`.env.production` 等基础部署内容，应改用 `deploy.sh`。
 - `deploy.sh`
   - 目标：执行完整重部署，适合环境初始化、Compose 调整、镜像彻底重建。
-  - 默认会删除旧的自构建 `frontend` / `backend` 镜像并重新构建。
-  - `--pull-openclaw`：拉取最新 OpenClaw 远程镜像。
+  - 默认会删除旧的自构建 `frontend` / `backend` / `openclaw` 镜像并重新构建。
+  - `openclaw` 镜像会基于 `OPENCLAW_IMAGE` 重建，内置系统 `chromium`、社区 `playwright-skill`，并在容器启动时把预装内容 seed 到持久化的 `/home/node`。
+  - `--pull-openclaw`：构建 openclaw 前拉取最新 OpenClaw 源镜像。
   - `--pull-base`：拉取最新基础镜像（例如 `node` / `python` / `nginx`）后重建自构建镜像。
   - `--pull-all`：同时更新 OpenClaw 与基础镜像。
 
