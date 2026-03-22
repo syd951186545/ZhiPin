@@ -37,34 +37,61 @@ create index if not exists idx_platform_binding_sessions_account_created_at
 
 alter table public.platform_binding_sessions enable row level security;
 
-create policy if not exists "platform_binding_sessions_select_own_tenant"
-  on public.platform_binding_sessions
-  for select
-  using (
-    tenant_id in (
-      select p.tenant_id from public.profiles p where p.id = auth.uid()
-    )
-  );
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'platform_binding_sessions'
+      and policyname = 'platform_binding_sessions_select_own_tenant'
+  ) then
+    create policy "platform_binding_sessions_select_own_tenant"
+      on public.platform_binding_sessions
+      for select
+      using (
+        tenant_id in (
+          select p.tenant_id from public.profiles p where p.id = auth.uid()
+        )
+      );
+  end if;
+end $$;
 
-create policy if not exists "platform_binding_sessions_insert_own_tenant"
-  on public.platform_binding_sessions
-  for insert
-  with check (
-    tenant_id in (
-      select p.tenant_id from public.profiles p where p.id = auth.uid()
-    )
-  );
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'platform_binding_sessions'
+      and policyname = 'platform_binding_sessions_insert_own_tenant'
+  ) then
+    create policy "platform_binding_sessions_insert_own_tenant"
+      on public.platform_binding_sessions
+      for insert
+      with check (
+        tenant_id in (
+          select p.tenant_id from public.profiles p where p.id = auth.uid()
+        )
+      );
+  end if;
+end $$;
 
-create policy if not exists "platform_binding_sessions_update_own_tenant"
-  on public.platform_binding_sessions
-  for update
-  using (
-    tenant_id in (
-      select p.tenant_id from public.profiles p where p.id = auth.uid()
-    )
-  )
-  with check (
-    tenant_id in (
-      select p.tenant_id from public.profiles p where p.id = auth.uid()
-    )
-  );
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'platform_binding_sessions'
+      and policyname = 'platform_binding_sessions_update_own_tenant'
+  ) then
+    create policy "platform_binding_sessions_update_own_tenant"
+      on public.platform_binding_sessions
+      for update
+      using (
+        tenant_id in (
+          select p.tenant_id from public.profiles p where p.id = auth.uid()
+        )
+      )
+      with check (
+        tenant_id in (
+          select p.tenant_id from public.profiles p where p.id = auth.uid()
+        )
+      );
+  end if;
+end $$;

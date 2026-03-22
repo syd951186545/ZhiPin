@@ -25,4 +25,9 @@ copy_if_missing "$SEED_ROOT/.openclaw/skills/playwright-skill" "$TARGET_ROOT/.op
 copy_if_missing "$SEED_ROOT/.openclaw/skills/browser-guardrails-skill" "$TARGET_ROOT/.openclaw/skills/browser-guardrails-skill"
 copy_if_missing "$SEED_ROOT/.cache/ms-playwright" "$TARGET_ROOT/.cache/ms-playwright"
 
+if [ -f "$SEED_ROOT/.openclaw/openclaw.json" ]; then
+    mkdir -p "$TARGET_ROOT/.openclaw"
+    cp -f "$SEED_ROOT/.openclaw/openclaw.json" "$TARGET_ROOT/.openclaw/openclaw.json"
+fi
+
 exec docker-entrypoint.sh "$@"

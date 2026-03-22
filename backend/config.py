@@ -1,4 +1,3 @@
-import os
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
@@ -30,13 +29,6 @@ class Settings(BaseSettings):
     # CORS: 逗号分隔的允许源列表，"*" 表示允许所有
     # Docker 部署时前端通过 nginx 同源访问，设为 "*" 即可
     cors_origins: str
-
-    # Docker 共享卷：OpenClaw media 目录在后端容器中的挂载路径
-    # 开发环境设为空字符串则回退到 HTTP fetch
-    openclaw_media_mount: str
-    # Docker 共享卷：OpenClaw home 根目录，用于清理持久会话、读取技能等
-    # 开发环境可留空，相关清理逻辑会退化为仅更换 session key
-    openclaw_home_mount: str = ""
 
     model_config = {"env_file": ".env.production", "extra": "ignore"}
 

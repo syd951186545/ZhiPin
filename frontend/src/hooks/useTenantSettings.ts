@@ -18,6 +18,11 @@ export interface TenantSettingsRow {
   company_address: string
   company_size: string
   company_overview: string
+  ai_model: string
+  ai_api_key: string | null
+  ai_validation_status: string
+  ai_validation_message: string | null
+  ai_validated_at: string | null
   notification_wecom_url: string | null
   notification_email: string | null
   audit_logging: boolean

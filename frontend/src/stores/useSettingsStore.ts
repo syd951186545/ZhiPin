@@ -22,8 +22,6 @@ interface SettingsState {
 
   // AI
   aiModel: string
-  aiTemperature: number
-  aiSystemPrompt: string
 
   // Company profile
   companyProfile: {
@@ -47,7 +45,7 @@ interface SettingsState {
   getActiveProfile: (platform: PlatformKey) => PlatformProfile | undefined
   updatePlatformConfig: (platform: string, config: Partial<PlatformConfigLocal>) => void
   updateProxy: (updates: { proxyList?: string; delayEnabled?: boolean; mouseSimulation?: boolean; headless?: boolean }) => void
-  updateAI: (updates: { aiModel?: string; aiTemperature?: number; aiSystemPrompt?: string }) => void
+  updateAI: (updates: { aiModel?: string }) => void
   updateCompanyProfile: (updates: Partial<SettingsState['companyProfile']>) => void
   updateNotifications: (updates: { wecomUrl?: string; notifEmail?: string; auditLogging?: boolean; retentionDays?: number }) => void
 }
@@ -65,9 +63,7 @@ export const useSettingsStore = create<SettingsState>()(
       mouseSimulation: true,
       headless: false,
 
-      aiModel: 'MiniMax-abab6.5-chat',
-      aiTemperature: 0.7,
-      aiSystemPrompt: '',
+      aiModel: '',
 
       companyProfile: {
         name: '',

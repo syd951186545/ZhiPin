@@ -151,6 +151,8 @@ ensure_env_value "OPENCLAW_MODEL_COST_CACHE_WRITE" "0.12"
 ensure_env_value "OPENCLAW_MODEL_CONTEXT_WINDOW" "200000"
 ensure_env_value "OPENCLAW_MODEL_MAX_TOKENS" "8192"
 ensure_env_value "OPENCLAW_MEDIA_MOUNT" "/openclaw-home/.openclaw/media"
+ensure_env_value "OPENCLAW_GATEWAY_TOOLS_ALLOW" "gateway"
+ensure_env_value "OPENCLAW_RESPONSES_API_ENABLED" "true"
 ensure_env_value "OPENCLAW_PLAYWRIGHT_SKILL_REF" "v4.1.0"
 ensure_env_value "OPENCLAW_APT_MIRROR_HOST" "mirrors.tuna.tsinghua.edu.cn"
 ensure_env_value "OPENCLAW_NPM_REGISTRY" "https://registry.npmmirror.com"
@@ -251,12 +253,17 @@ provider = os.environ['OPENCLAW_MODEL_PROVIDER']
 model_id = os.environ['OPENCLAW_MODEL_ID']
 qualified_model = f"{provider}/{model_id}"
 reasoning = os.environ['OPENCLAW_MODEL_REASONING'].strip().lower() in {'1', 'true', 'yes', 'on'}
+responses_enabled = os.environ['OPENCLAW_RESPONSES_API_ENABLED'].strip().lower() in {'1', 'true', 'yes', 'on'}
 input_types = [item.strip() for item in os.environ['OPENCLAW_MODEL_INPUT_TYPES'].split(',') if item.strip()]
+gateway_tools_allow = [item.strip() for item in os.environ['OPENCLAW_GATEWAY_TOOLS_ALLOW'].split(',') if item.strip()]
+if 'gateway' not in gateway_tools_allow:
+    gateway_tools_allow.append('gateway')
 config = {
     'gateway': {
         'bind': 'lan',
-        'http': {'endpoints': {'responses': {'enabled': True}}},
+        'http': {'endpoints': {'responses': {'enabled': responses_enabled}}},
         'auth': {'mode': 'token', 'token': os.environ['OPENCLAW_AUTH_TOKEN']},
+        'tools': {'allow': gateway_tools_allow},
     },
     'browser': {
         'enabled': True,
@@ -322,6 +329,8 @@ info "已生成后端配置: $BACKEND_ENV_FILE"
 info "已覆盖 OpenClaw 运行时配置: $OPENCLAW_CONFIG_FILE"
 info "已生成 OpenClaw 配置副本: $OPENCLAW_GENERATED_FILE"
 info "OpenClaw 持久化目录: $OPENCLAW_HOME_DIR"
+info "OpenClaw Gateway tools.allow: ${OPENCLAW_GATEWAY_TOOLS_ALLOW}"
+info "OpenClaw Responses API enabled: ${OPENCLAW_RESPONSES_API_ENABLED}"
 info "OpenClaw Playwright Skill 版本: ${OPENCLAW_PLAYWRIGHT_SKILL_REF}"
 info "OpenClaw APT 镜像: ${OPENCLAW_APT_MIRROR_HOST}"
 info "OpenClaw NPM 镜像: ${OPENCLAW_NPM_REGISTRY}"

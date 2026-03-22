@@ -158,6 +158,33 @@ async function startSimpleAction(accountId: string, action: 'verify' | 'unbind')
   return data.item
 }
 
+export async function refreshQrCode(sessionId: string): Promise<string | null> {
+  const token = await getAuthToken()
+  const resp = await fetch(`/api/platform-binding-sessions/${sessionId}/refresh-qr`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({supabase_auth_token: token}),
+  })
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`刷新二维码失败 (${resp.status}): ${text}`)
+  }
+  const data = await resp.json()
+  return data.qr_screenshot_url || null
+}
+
+export async function deletePlatformAccount(accountId: string): Promise<void> {
+  const headers = await getAuthHeaders()
+  const resp = await fetch(`/api/platform-accounts/${accountId}`, {
+    method: 'DELETE',
+    headers,
+  })
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`删除账号失败 (${resp.status}): ${text}`)
+  }
+}
+
 export async function verifyPlatformAccount(accountId: string): Promise<PlatformBindingSession> {
   return startSimpleAction(accountId, 'verify')
 }
@@ -177,8 +204,12 @@ export interface PlatformBindingEventHandlers {
 export function subscribePlatformBindingSession(
   sessionId: string,
   handlers: PlatformBindingEventHandlers,
+  authToken?: string,
 ): () => void {
-  const eventSource = new EventSource(`/api/platform-binding-sessions/${sessionId}/stream`)
+  const url = authToken
+    ? `/api/platform-binding-sessions/${sessionId}/stream?token=${encodeURIComponent(authToken)}`
+    : `/api/platform-binding-sessions/${sessionId}/stream`
+  const eventSource = new EventSource(url)
   const eventMap: Record<string, keyof PlatformBindingEventHandlers> = {
     meta: 'onMeta',
     progress: 'onProgress',

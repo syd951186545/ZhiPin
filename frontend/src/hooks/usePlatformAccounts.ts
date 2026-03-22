@@ -2,6 +2,7 @@ import {useCallback, useEffect, useState} from 'react'
 import type {PlatformBindingSession, PlatformCatalogItem, PlatformLoginMethod} from '@/types/openclaw'
 import {
   createPlatformAccount,
+  deletePlatformAccount,
   fetchBindingSession,
   fetchPlatformAccounts,
   fetchPlatformCatalog,
@@ -86,6 +87,11 @@ export function usePlatformAccounts() {
     return session
   }, [load])
 
+  const deleteAccount = useCallback(async (accountId: string) => {
+    await deletePlatformAccount(accountId)
+    setAccounts((prev) => prev.filter((a) => a.id !== accountId))
+  }, [])
+
   return {
     catalog,
     accounts,
@@ -98,5 +104,6 @@ export function usePlatformAccounts() {
     submitBind,
     startVerify,
     startUnbind,
+    deleteAccount,
   }
 }

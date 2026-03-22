@@ -15,6 +15,7 @@ from parsers.platform_binding_parser import parse_platform_binding_output
 from prompts.platform_binding import (
     build_bind_start_prompt,
     build_bind_submit_prompt,
+    build_correction_prompt,
     build_unbind_prompt,
     build_verify_prompt,
 )
@@ -107,6 +108,7 @@ def _awaiting_schema(status: str) -> Optional[dict[str, Any]]:
 
 def _normalize_status(action: str, parsed_state: str, reason: str) -> str:
     if action == "unbind":
+        # LOGGED_OUT 和 FAILED 都视为解绑完成（后端会兜底轮换 session key）
         return "completed"
     return {
         "LOGGED_IN": "completed",
@@ -114,6 +116,7 @@ def _normalize_status(action: str, parsed_state: str, reason: str) -> str:
         "AWAIT_QR": "awaiting_qr",
         "AWAIT_PASSWORD_2FA": "awaiting_password_2fa",
         "FAILED": "failed",
+        "LOGGED_OUT": "completed",
     }.get(parsed_state, "failed")
 
 
@@ -223,15 +226,19 @@ async def _execute_openclaw_with_retries(
             },
         )
 
-    corrected_prompt = prompt
+    current_prompt = prompt
     last_result: Optional[StepResult] = None
     last_parsed: Optional[dict[str, Any]] = None
 
     for attempt in range(1, 4):
         if attempt > 1:
-            corrected_prompt = (
-                prompt
-                + "\n\n【纠偏要求】上一次未能稳定完成，请刷新快照、确认单标签页、重新选择元素并严格输出结构化标记。"
+            last_error = (last_result.error if last_result else None) or ""
+            last_state = (last_parsed.get("state") if last_parsed else None) or ""
+            current_prompt = build_correction_prompt(
+                original_prompt=prompt,
+                attempt=attempt,
+                last_error=last_error,
+                last_state=last_state,
             )
             await emit_binding_event(
                 session_id,
@@ -240,7 +247,7 @@ async def _execute_openclaw_with_retries(
             )
 
         result = await openclaw.execute_step(
-            prompt=corrected_prompt,
+            prompt=current_prompt,
             session_id=session_key,
             step_id=f"binding_{attempt}",
             on_progress=on_progress,
@@ -525,9 +532,99 @@ def start_unbind_session(
     )
 
 
+async def refresh_qr_session(
+    *,
+    binding_session: PlatformBindingSessionRow,
+    account: PlatformAccountRow,
+    tenant_id: str,
+    auth_token: Optional[str],
+) -> Optional[str]:
+    """刷新二维码截图。返回新的 qr_screenshot_url 或 None。"""
+    session_id = binding_session["id"]
+    browser_session_key = account.get("browser_session_key") or ""
+
+    if not try_acquire_browser_mutex(browser_session_key, f"refresh_qr:{account.get('id')}"):
+        return None
+
+    try:
+        openclaw = OpenClawClient()
+        uploader = make_screenshot_uploader(session_id, auth_token)
+        result = await openclaw.execute_step(
+            prompt="当前二维码可能已过期。请刷新页面或点击二维码区域的刷新按钮，等待新的二维码出现后截取二维码截图，输出截图文件的完整路径。",
+            session_id=browser_session_key,
+            step_id="refresh_qr",
+            screenshot_uploader=uploader,
+        )
+        new_screenshot = result.screenshots[-1] if result.screenshots else None
+        if new_screenshot:
+            update_binding_session(
+                session_id,
+                tenant_id,
+                {
+                    "qr_screenshot_url": new_screenshot,
+                    "latest_screenshot_url": new_screenshot,
+                    "updated_at": _now_iso(),
+                    "expires_at": _future_iso(10),
+                },
+                auth_token=auth_token,
+            )
+            await emit_binding_event(
+                session_id,
+                "state",
+                {
+                    "status": "awaiting_qr",
+                    "reason": "二维码已刷新，请重新扫码",
+                    "latest_screenshot": new_screenshot,
+                    "qr_screenshot_url": new_screenshot,
+                },
+            )
+        return new_screenshot
+    finally:
+        release_browser_mutex(browser_session_key)
+
+
 def get_binding_session_snapshot(
     session_id: str,
     tenant_id: str,
     auth_token: Optional[str],
 ) -> Optional[PlatformBindingSessionRow]:
     return get_binding_session(session_id, tenant_id, auth_token=auth_token)
+
+
+async def expire_stale_sessions_loop() -> None:
+    """后台任务：每 60 秒扫描并过期超时的 awaiting_* 会话。"""
+    from services.supabase_client import get_supabase
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+            sb = get_supabase(None)
+            now = datetime.now(timezone.utc).isoformat()
+            result = (
+                sb.table("platform_binding_sessions")
+                .select("id, account_id, tenant_id, status")
+                .in_("status", ["awaiting_sms", "awaiting_qr", "awaiting_password_2fa"])
+                .lt("expires_at", now)
+                .execute()
+            )
+            for row in result.data or []:
+                sid = row["id"]
+                tid = row["tenant_id"]
+                aid = row["account_id"]
+                sb.table("platform_binding_sessions").update({
+                    "status": "expired",
+                    "error_message": "会话等待超时，已自动过期",
+                    "updated_at": _now_iso(),
+                }).eq("id", sid).eq("tenant_id", tid).execute()
+                sb.table("platform_configs").update({
+                    "status": "needsLogin",
+                    "is_connected": False,
+                    "last_error": "绑定会话超时",
+                }).eq("id", aid).eq("tenant_id", tid).execute()
+                await emit_binding_event(sid, "error", {"message": "会话等待超时，已自动过期"})
+                _close_binding_stream(sid)
+                logger.info("过期会话: %s", sid)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("expire_stale_sessions_loop 异常")

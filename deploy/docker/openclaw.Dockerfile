@@ -50,6 +50,7 @@ USER node
 RUN cd /opt/openclaw-home-seed/.openclaw/skills/playwright-skill \
     && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm_config_registry="${NPM_REGISTRY}" npm install --omit=dev
 
+COPY --chown=node:node backend/openclaw/openclaw.generated.json /opt/openclaw-home-seed/.openclaw/openclaw.json
 COPY --chown=node:node deploy/docker/openclaw-entrypoint.sh /usr/local/bin/openclaw-entrypoint.sh
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \

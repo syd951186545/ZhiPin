@@ -1,20 +1,18 @@
 import React, {useState} from 'react'
+import {ExternalLink, Loader2, Smartphone, UserPlus} from 'lucide-react'
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from '@/components/ui/select'
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
+import {Badge} from '@/components/ui/badge'
 import {useI18n} from '@/contexts/I18nContext'
 import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
 import type {PlatformKey} from '@/types/openclaw'
 import {PLATFORMS} from '@/lib/constants'
+import {cn} from '@/lib/utils'
 
 interface AddProfileDialogProps {
   open: boolean
@@ -22,14 +20,34 @@ interface AddProfileDialogProps {
   onCreated?: () => Promise<void> | void
 }
 
-export default function AddProfileDialog({ open, onOpenChange, onCreated }: AddProfileDialogProps) {
-  const { t } = useI18n()
+const PLATFORM_COLORS: Record<string, string> = {
+  '58': 'bg-orange-500',
+  boss_zhipin: 'bg-cyan-500',
+  liepin: 'bg-red-500',
+  zhilian: 'bg-blue-600',
+  '51job': 'bg-indigo-500',
+  lagou: 'bg-emerald-500',
+}
+
+const LOGIN_METHODS: Record<string, string> = {
+  '58': '手机号登录',
+  boss_zhipin: '手机号登录',
+  liepin: '扫码登录',
+  zhilian: '手机号登录',
+  '51job': '账号密码登录',
+  lagou: '手机号登录',
+}
+
+export default function AddProfileDialog({open, onOpenChange, onCreated}: AddProfileDialogProps) {
+  const {t} = useI18n()
   const {createAccount} = usePlatformAccounts()
 
   const [platform, setPlatform] = useState<PlatformKey | ''>('')
   const [name, setName] = useState('')
   const [accountName, setAccountName] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const selectedPlatform = platform ? PLATFORMS[platform] : null
 
   const handleSubmit = async () => {
     if (!platform || !name.trim()) return
@@ -57,47 +75,86 @@ export default function AddProfileDialog({ open, onOpenChange, onCreated }: AddP
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('settings.profiles.add.title')}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <UserPlus className="h-4 w-4 text-primary"/>
+            </div>
+            {t('settings.profiles.add.title')}
+          </DialogTitle>
           <DialogDescription>
             {t('settings.profiles.desc')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label>{t('settings.profiles.add.platform')}</Label>
+            <Label className="text-xs">{t('settings.profiles.add.platform')}</Label>
             <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformKey)}>
               <SelectTrigger>
-                <SelectValue placeholder={t('settings.profiles.add.platform')} />
+                <SelectValue placeholder={t('settings.profiles.add.platform')}/>
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(PLATFORMS).map(([key, { name: pName }]) => (
-                  <SelectItem key={key} value={key}>{pName}</SelectItem>
+                {Object.entries(PLATFORMS).map(([key, {name: pName}]) => (
+                  <SelectItem key={key} value={key}>
+                    <span className="flex items-center gap-2">
+                      <span className={cn('inline-block h-2.5 w-2.5 rounded-full', PLATFORM_COLORS[key] || 'bg-zinc-400')}/>
+                      {pName}
+                    </span>
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+
+          {/* Platform preview card */}
+          {selectedPlatform && platform && (
+            <div className="rounded-xl border bg-gradient-to-br from-muted/30 to-muted/10 p-4">
+              <div className="flex items-center gap-3">
+                <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm', PLATFORM_COLORS[platform] || 'bg-zinc-500')}>
+                  {selectedPlatform.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{selectedPlatform.name}</p>
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ExternalLink className="h-3 w-3 shrink-0 opacity-50"/>
+                    <span className="truncate">{selectedPlatform.loginUrl}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <Badge variant="outline" className="gap-1 text-[10px]">
+                  <Smartphone className="h-2.5 w-2.5"/>
+                  {LOGIN_METHODS[platform] || '手机号登录'}
+                </Badge>
+                <span className="text-[10px] text-muted-foreground">推荐登录方式</span>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
-            <Label>{t('settings.profiles.add.name')}</Label>
+            <Label className="text-xs">{t('settings.profiles.add.name')}</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：华东招聘账号"
             />
+            <p className="text-[11px] text-muted-foreground">用于在列表中区分不同账号的显示名称</p>
           </div>
           <div className="space-y-2">
-            <Label>登录名（可选）</Label>
+            <Label className="text-xs">登录名（可选）</Label>
             <Input
               value={accountName}
               onChange={(e) => setAccountName(e.target.value)}
               placeholder="手机号或账号名"
             />
+            <p className="text-[11px] text-muted-foreground">预填登录时使用的手机号或账号名，可后续在绑定时修改</p>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!platform || !name.trim() || saving}>
+          <Button className="gap-2 shadow-sm" onClick={handleSubmit} disabled={!platform || !name.trim() || saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin"/> : <UserPlus className="h-4 w-4"/>}
             {saving ? '保存中...' : t('settings.profiles.add.submit')}
           </Button>
         </DialogFooter>

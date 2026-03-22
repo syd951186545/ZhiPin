@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from services.platform_catalog import get_platform_name
+from services.platform_catalog import get_platform_catalog_item, get_platform_name
 
 
 def _structured_output_contract() -> str:
@@ -15,6 +15,7 @@ def _structured_output_contract() -> str:
 - [LOGIN_STATE:AWAIT_QR]
 - [LOGIN_STATE:AWAIT_PASSWORD_2FA]
 - [LOGIN_STATE:FAILED]
+- [LOGIN_STATE:LOGGED_OUT]（仅解绑场景使用）
 
 并同时输出：
 - [LOGIN_STEP:当前步骤英文标识]
@@ -24,12 +25,24 @@ def _structured_output_contract() -> str:
 如有截图，必须截图当前页面并输出截图文件完整路径。"""
 
 
+def _platform_hints(platform: str) -> str:
+    try:
+        item = get_platform_catalog_item(platform)
+        hints = item.get("hints", [])
+        if hints:
+            return "【平台注意事项】\n" + "\n".join(f"- {h}" for h in hints)
+    except KeyError:
+        pass
+    return ""
+
+
 def build_bind_start_prompt(account: dict, payload: dict) -> str:
     platform_name = get_platform_name(account.get("platform", ""))
     method = payload.get("login_method", "")
     phone = payload.get("phone", "")
     login_name = payload.get("login_name", "")
-    password_hint = "已提供" if payload.get("password") else "未提供"
+    # 密码仅在 backend→OpenClaw 内部 Docker 网络传输，不入库不入日志
+    password = payload.get("password", "")
     return f"""你是招聘平台企业端登录助手。目标是在有限步骤内把账号绑定到持久浏览器会话。
 
 【任务类型】绑定账号
@@ -39,7 +52,7 @@ def build_bind_start_prompt(account: dict, payload: dict) -> str:
 【绑定方式】{method}
 【手机号】{phone or '未提供'}
 【账号名】{login_name or '未提供'}
-【密码】{password_hint}
+【密码】{password or '未提供'}
 【持久会话键】{account.get("browser_session_key", "")}
 
 【执行原则】
@@ -55,6 +68,8 @@ def build_bind_start_prompt(account: dict, payload: dict) -> str:
    - qr: 切换到扫码登录并返回二维码截图。
    - password: 输入账号密码；若触发二次验证则返回等待态。
 3. 判断最终状态并按结构化协议输出。
+
+{_platform_hints(account.get("platform", ""))}
 
 {_structured_output_contract()}
 """
@@ -74,7 +89,7 @@ def build_bind_submit_prompt(account: dict, binding_session: dict, payload: dict
 【持久会话键】{account.get("browser_session_key", "")}
 【上一状态】{binding_session.get("status", "")}
 【验证码】{verification_code or '未提供'}
-【二次验证密码】{'已提供' if password else '未提供'}
+【二次验证密码】{password or '未提供'}
 【二次验证码】{secondary_code or '未提供'}
 
 【本轮目标】
@@ -100,9 +115,39 @@ def build_verify_prompt(account: dict) -> str:
 
 【本轮目标】
 1. 打开企业端首页或工作台。
-2. 判断是否已登录，优先查找企业身份标识、账号昵称、工作台菜单、头像、退出入口。
-3. 若登录有效，输出 LOGGED_IN。
-4. 若会话失效、跳回登录页或需要重新认证，输出 FAILED。
+2. 若页面元素看起来过期、空白或加载异常，先刷新页面（navigate 到同一 URL），等待加载完成后再检查。
+3. 判断是否已登录，优先查找以下不易伪造的标识（按优先级）：
+   - 用户头像或账号昵称显示
+   - 退出登录/切换账号入口
+   - 企业名称或企业工作台菜单
+   - 招聘相关的功能入口（发布职位、候选人列表等）
+4. 若登录有效且能确认企业身份，输出 LOGGED_IN。
+5. 若会话失效、跳回登录页或需要重新认证，输出 FAILED。
+
+{_platform_hints(account.get("platform", ""))}
+
+{_structured_output_contract()}
+"""
+
+
+def build_correction_prompt(
+    original_prompt: str,
+    attempt: int,
+    last_error: str,
+    last_state: str,
+) -> str:
+    return f"""{original_prompt}
+
+【纠偏要求 - 第 {attempt} 次尝试】
+上一次执行遇到问题：{last_error or '未能解析出结构化输出标记'}
+上一次输出状态：{last_state or '无'}
+
+请按以下优先级纠偏：
+1. 刷新页面快照以获取最新 DOM 状态。
+2. 确认只有一个标签页处于活跃状态，多余标签页应关闭。
+3. 若页面有弹窗、遮罩层或滑块验证，先处理弹窗再继续主流程。
+4. 重新选择目标元素，不要复用上次的选择器。
+5. 务必在输出末尾包含结构化标记。
 
 {_structured_output_contract()}
 """
@@ -121,11 +166,17 @@ def build_unbind_prompt(account: dict) -> str:
 【本轮目标】
 1. 进入已登录页面，寻找退出登录/切换账号入口。
 2. 执行登出，并确认页面回到登录态或游客态。
-3. 若站内无法安全登出，也要明确输出 FAILED，由后端更换会话键兜底。
+3. 若站内找不到登出入口或登出按钮不可用，请执行以下清理操作：
+   a. 在浏览器控制台执行 JavaScript 清除当前域名的 cookies：
+      document.cookie.split(';').forEach(c => document.cookie = c.trim().split('=')[0] + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/');
+   b. 清除 localStorage 和 sessionStorage：
+      localStorage.clear(); sessionStorage.clear();
+   c. 刷新页面并确认回到登录/游客态。
+4. 若以上所有方式都无法确认已登出，输出 FAILED 并写明原因。
 
 【输出规则】
-- 成功登出后输出 [LOGIN_STATE:FAILED]，原因写“已登出，等待重新绑定”。
-- 若无法确认已登出，也输出 [LOGIN_STATE:FAILED] 并写明原因。
+- 成功登出后输出 [LOGIN_STATE:LOGGED_OUT]，原因写”已登出，等待重新绑定”。
+- 若无法确认已登出，输出 [LOGIN_STATE:FAILED] 并写明原因。
 - 不允许输出 LOGGED_IN。
 
 {_structured_output_contract()}

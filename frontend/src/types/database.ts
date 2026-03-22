@@ -187,8 +187,10 @@ export interface Database {
           openclaw_auth_token: string | null
           proxy_mode: boolean
           ai_model: string
-          ai_temperature: number
-          ai_system_prompt: string | null
+          ai_api_key: string | null
+          ai_validation_status: string
+          ai_validation_message: string | null
+          ai_validated_at: string | null
           notification_wecom_url: string | null
           notification_email: string | null
           audit_logging: boolean

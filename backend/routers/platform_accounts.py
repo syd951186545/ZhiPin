@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from services.platform_binding_service import (
     get_binding_session_snapshot,
+    refresh_qr_session,
     start_bind_session,
     start_unbind_session,
     start_verify_session,
@@ -19,10 +20,11 @@ from services.platform_binding_service import (
     submit_bind_session,
 )
 from services.platform_catalog import get_platform_catalog_item
-from services.platform_session_store import build_browser_session_key
+from services.platform_session_store import build_browser_session_key, clear_session_artifacts
 from services.supabase_client import (
     attach_latest_binding_session,
     create_platform_account,
+    delete_platform_account,
     get_binding_session,
     get_platform_account,
     list_platform_accounts,
@@ -177,8 +179,42 @@ async def get_binding_session_route(
     return {"item": session}
 
 
+@router.post("/api/platform-binding-sessions/{session_id}/refresh-qr")
+async def refresh_qr_route(session_id: str, req: PlatformAccountActionRequest):
+    user = await _validate_request_user(req.supabase_auth_token)
+    binding_session = get_binding_session(session_id, user["tenant_id"], auth_token=req.supabase_auth_token)
+    if not binding_session:
+        raise HTTPException(status_code=404, detail="绑定会话不存在")
+    if binding_session.get("status") != "awaiting_qr":
+        raise HTTPException(status_code=400, detail="当前会话状态不支持刷新二维码")
+    account = get_platform_account(binding_session["account_id"], user["tenant_id"], auth_token=req.supabase_auth_token)
+    if not account:
+        raise HTTPException(status_code=404, detail="平台账号不存在")
+    new_url = await refresh_qr_session(
+        binding_session=binding_session,
+        account=account,
+        tenant_id=user["tenant_id"],
+        auth_token=req.supabase_auth_token,
+    )
+    return {"qr_screenshot_url": new_url}
+
+
 @router.get("/api/platform-binding-sessions/{session_id}/stream")
-async def stream_binding_session(session_id: str):
+async def stream_binding_session(
+    session_id: str,
+    token: Optional[str] = None,
+):
+    # EventSource 不支持自定义 header，通过 query param 验证
+    if token:
+        try:
+            user = await _validate_request_user(token)
+            session = get_binding_session(session_id, user["tenant_id"], auth_token=token)
+            if not session:
+                raise HTTPException(status_code=404, detail="绑定会话不存在或无权访问")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=401, detail="认证失败")
     return EventSourceResponse(stream_binding_events(session_id))
 
 
@@ -190,6 +226,23 @@ async def verify_platform_account(account_id: str, req: PlatformAccountActionReq
         raise HTTPException(status_code=404, detail="平台账号不存在")
     session = start_verify_session(account=account, tenant_id=user["tenant_id"], auth_token=req.supabase_auth_token)
     return {"item": session}
+
+
+@router.delete("/api/platform-accounts/{account_id}")
+async def delete_platform_account_route(
+    account_id: str,
+    authorization: Optional[str] = Header(default=None),
+):
+    auth_token = _read_bearer(authorization)
+    user = await _validate_request_user(auth_token)
+    account = get_platform_account(account_id, user["tenant_id"], auth_token=auth_token)
+    if not account:
+        raise HTTPException(status_code=404, detail="平台账号不存在")
+    browser_session_key = account.get("browser_session_key") or ""
+    if browser_session_key:
+        clear_session_artifacts(browser_session_key)
+    delete_platform_account(account_id, user["tenant_id"], auth_token=auth_token)
+    return {"success": True}
 
 
 @router.post("/api/platform-accounts/{account_id}/unbind")

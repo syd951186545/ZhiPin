@@ -1,11 +1,10 @@
 """
 OpenClaw HTTP + SSE 客户端
 
-负责向 OpenClaw Agent 发送 prompt 并接收 SSE 流式响应。
+负责向 OpenClaw Responses API 发送 prompt 并接收 SSE 流式响应。
 截图处理策略：
   1. 从 accumulated_text 扫描 AI 输出的截图文件路径
-  2. 通过 Docker 共享卷直接读取截图文件字节（生产环境）
-     或回退到 HTTP fetch（开发环境）
+  2. 统一通过 OpenClaw Gateway 暴露的 HTTP 路径拉取图片字节
   3. 若提供 screenshot_uploader → 上传 Supabase Storage，返回公开 URL（持久化）
      否则 → 编码为 base64 data URL（即时展示，刷新后丢失）
 """
@@ -13,7 +12,6 @@ OpenClaw HTTP + SSE 客户端
 import asyncio
 import base64
 import json
-import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -113,8 +111,7 @@ class OpenClawClient:
         """
         获取截图文件字节，然后上传 Supabase 或编码 base64。
 
-        优先从 Docker 共享卷本地读取文件（生产环境），
-        若本地文件不存在则回退到 HTTP fetch（开发环境兼容）。
+        禁止读取宿主机挂载目录，统一通过 OpenClaw Gateway HTTP 路径获取截图。
 
         Args:
             file_url: OpenClaw AI 输出的截图路径（file:// 或绝对路径）
@@ -126,42 +123,23 @@ class OpenClawClient:
         # 去掉 file:// 前缀
         path = file_url[len("file://"):] if file_url.startswith("file://") else file_url
 
-        image_bytes = None
         content_type = "image/png" if path.endswith(".png") else "image/jpeg"
-
-        # 尝试从 Docker 共享卷本地读取
-        media_mount = get_settings().openclaw_media_mount
-        if media_mount:
-            marker = ".openclaw/media/"
-            idx = path.find(marker)
-            if idx != -1:
-                relative = path[idx + len(marker):]
-                local_path = os.path.join(media_mount, relative)
-                try:
-                    with open(local_path, "rb") as f:
-                        image_bytes = f.read()
-                    print(f"[OpenClawClient] 截图本地读取成功: {local_path}", flush=True)
-                except FileNotFoundError:
-                    print(f"[OpenClawClient] 本地文件不存在，回退 HTTP: {local_path}", flush=True)
-
-        # 回退：HTTP fetch（开发环境或本地读取失败时）
-        if image_bytes is None:
-            marker = ".openclaw/"
-            idx = path.find(marker)
-            if idx == -1:
-                print(f"[OpenClawClient] 无法解析截图路径: {file_url}", flush=True)
-                return None
-            relative = path[idx + len(marker):]
-            http_url = f"{self.base_url}/{relative}"
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.get(http_url, headers=self._fetch_headers())
-                    resp.raise_for_status()
-                    content_type = resp.headers.get("content-type", content_type).split(";")[0].strip()
-                    image_bytes = resp.content
-            except Exception as e:
-                print(f"[OpenClawClient] HTTP 获取截图也失败 {http_url}: {e}", flush=True)
-                return None
+        marker = ".openclaw/"
+        idx = path.find(marker)
+        if idx == -1:
+            print(f"[OpenClawClient] 无法解析截图路径: {file_url}", flush=True)
+            return None
+        relative = path[idx + len(marker):]
+        http_url = f"{self.base_url}/{relative}"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(http_url, headers=self._fetch_headers())
+                resp.raise_for_status()
+                content_type = resp.headers.get("content-type", content_type).split(";")[0].strip()
+                image_bytes = resp.content
+        except Exception as e:
+            print(f"[OpenClawClient] HTTP 获取截图失败 {http_url}: {e}", flush=True)
+            return None
 
         # 上传 Supabase Storage 或 base64 编码
         if screenshot_uploader:
@@ -205,7 +183,7 @@ class OpenClawClient:
         async def _process_new_screenshots_in_text() -> bool:
             """
             扫描 accumulated_text 中新出现的截图文件路径，
-            通过本地共享卷读取或 HTTP fetch 获取图片字节。
+            并通过 Gateway HTTP 路径获取图片字节。
             返回是否有新截图。
             """
             had_new = False

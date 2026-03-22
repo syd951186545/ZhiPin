@@ -72,6 +72,29 @@ class PlatformBindingSessionRow(TypedDict, total=False):
     updated_at: str
 
 
+class TenantSettingsRow(TypedDict, total=False):
+    id: str
+    tenant_id: str
+    openclaw_gateway_url: str
+    openclaw_auth_token: Optional[str]
+    proxy_mode: bool
+    ai_model: str
+    ai_api_key: Optional[str]
+    ai_validation_status: Optional[str]
+    ai_validation_message: Optional[str]
+    ai_validated_at: Optional[str]
+    notification_wecom_url: Optional[str]
+    notification_email: Optional[str]
+    audit_logging: bool
+    data_retention_days: int
+    company_name: str
+    company_address: str
+    company_size: str
+    company_overview: str
+    created_at: str
+    updated_at: str
+
+
 def get_supabase(auth_token: Optional[str] = None) -> Client:
     """
     获取 Supabase 客户端。
@@ -316,6 +339,22 @@ def update_platform_account(
     return (result.data or [{}])[0]
 
 
+def delete_platform_account(
+    account_id: str,
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> bool:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("platform_configs")
+        .delete()
+        .eq("id", account_id)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    return len(result.data or []) > 0
+
+
 def list_binding_sessions(
     tenant_id: str,
     account_id: Optional[str] = None,
@@ -399,6 +438,40 @@ def attach_latest_binding_session(
         item["latest_binding_session"] = latest_by_account.get(account.get("id", ""))
         enriched.append(item)
     return enriched
+
+
+# ── Tenant Settings ────────────────────────────────────────
+
+
+def get_tenant_settings(
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> Optional[TenantSettingsRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("tenant_settings")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def update_tenant_settings(
+    tenant_id: str,
+    patch: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> TenantSettingsRow:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("tenant_settings")
+        .update(patch)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    return (result.data or [{}])[0]
 
 
 # ── Candidates ────────────────────────────────────────────

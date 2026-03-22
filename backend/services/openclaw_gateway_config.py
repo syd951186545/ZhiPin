@@ -6,26 +6,23 @@ import json
 import logging
 from typing import Any
 
+import httpx
+
 from fastapi import HTTPException
 
 from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_OPENCLAW_SERVICE_LABEL = "com.docker.compose.service=openclaw"
-_GATEWAY_WS_URL = "ws://127.0.0.1:18789"
-
 
 class OpenClawGatewayConfigService:
-    """通过 OpenClaw Gateway RPC 读取/更新配置。"""
+    """通过 OpenClaw Gateway HTTP API 读取/更新配置。"""
 
     def __init__(self) -> None:
         self._settings = get_settings()
 
     def get_runtime_config(self) -> tuple[dict[str, Any], str]:
         payload = self._gateway_call("config.get", {})
-        # openclaw 2026.3+ 返回 JSONC 格式的 raw 字段（含单引号/无引号键），
-        # 同时提供已解析的 parsed 字段（标准 dict），直接使用 parsed。
         config = payload.get("parsed")
         config_hash = payload.get("hash")
 
@@ -46,87 +43,87 @@ class OpenClawGatewayConfigService:
             },
         )
 
+    def apply_management_api_defaults(self, config: dict[str, Any]) -> bool:
+        gateway_cfg = config.setdefault("gateway", {})
+        changed = False
+
+        tools_cfg = gateway_cfg.setdefault("tools", {})
+        allow_list = tools_cfg.get("allow")
+        if not isinstance(allow_list, list):
+            allow_list = []
+            tools_cfg["allow"] = allow_list
+            changed = True
+        if "gateway" not in allow_list:
+            allow_list.append("gateway")
+            changed = True
+
+        http_cfg = gateway_cfg.setdefault("http", {})
+        endpoints_cfg = http_cfg.setdefault("endpoints", {})
+        responses_cfg = endpoints_cfg.setdefault("responses", {})
+        if responses_cfg.get("enabled") is not True:
+            responses_cfg["enabled"] = True
+            changed = True
+
+        return changed
+
+    def ensure_management_apis_enabled(self) -> bool:
+        config, base_hash = self.get_runtime_config()
+        if not self.apply_management_api_defaults(config):
+            return False
+        self.apply_runtime_config(config, base_hash)
+        return True
+
     def _gateway_call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        container = self._get_openclaw_container()
-        command = [
-            "openclaw",
-            "gateway",
-            "call",
-            method,
-            "--url",
-            _GATEWAY_WS_URL,
-            "--token",
-            self._settings.openclaw_auth_token,
-            "--timeout",
-            "10000",
-            "--json",
-            "--params",
-            json.dumps(params, ensure_ascii=False),
-        ]
+        try:
+            response = httpx.post(
+                f"{self._settings.openclaw_base_url.rstrip('/')}/tools/invoke",
+                headers={
+                    "Authorization": f"Bearer {self._settings.openclaw_auth_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "tool": "gateway",
+                    "action": method,
+                    "args": params,
+                },
+                timeout=15.0,
+            )
+        except Exception as exc:
+            logger.exception("调用 OpenClaw Gateway HTTP API 失败: %s", method)
+            raise HTTPException(status_code=503, detail=f"无法调用 OpenClaw Gateway API: {exc}") from exc
+
+        detail = response.text.strip()
+        if response.status_code == 404:
+            raise HTTPException(
+                status_code=502,
+                detail="OpenClaw Gateway HTTP API 未开放 gateway 工具，请确认 gateway.tools.allow 已允许 gateway。",
+            )
+        if response.status_code == 401:
+            raise HTTPException(status_code=502, detail="OpenClaw Gateway 认证失败，请检查 token 配置。")
+        if response.status_code >= 400:
+            raise HTTPException(status_code=502, detail=detail or f"Gateway API {method} 调用失败")
 
         try:
-            result = container.exec_run(command, demux=True)
-        except Exception as exc:  # pragma: no cover - Docker runtime failure
-            logger.exception("执行 OpenClaw Gateway RPC 失败: %s", method)
-            raise HTTPException(status_code=503, detail=f"无法调用 OpenClaw Gateway RPC: {exc}") from exc
+            payload = response.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail=f"Gateway API {method} 返回不是有效 JSON") from exc
 
-        stdout, stderr = result.output if isinstance(result.output, tuple) else (result.output, b"")
-        stdout_text = (stdout or b"").decode("utf-8", errors="replace").strip()
-        stderr_text = (stderr or b"").decode("utf-8", errors="replace").strip()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail=f"Gateway API {method} 返回格式无效")
+        if payload.get("ok") is False:
+            error = payload.get("error") or {}
+            message = error.get("message") if isinstance(error, dict) else None
+            raise HTTPException(status_code=502, detail=message or f"Gateway API {method} 返回失败")
 
-        if result.exit_code != 0:
-            detail = stderr_text or stdout_text or f"RPC {method} 执行失败"
-            raise HTTPException(status_code=502, detail=detail)
+        result = payload.get("result", payload)
+        if not isinstance(result, dict):
+            raise HTTPException(status_code=502, detail=f"Gateway API {method} 返回结果格式无效")
 
-        response = self._parse_json_output(stdout_text, method)
+        nested = result.get("result")
+        if isinstance(nested, dict):
+            result = nested
 
-        # openclaw 2026.3+ gateway call --json 有两种输出格式：
-        # 1. config.get 等：直接返回 payload 对象（无 "ok" 字段）
-        # 2. config.apply 等：返回 {"ok": true/false, ...}（有 "ok" 字段）
-        if "ok" in response:
-            if not response["ok"]:
-                error = response.get("error") or {}
-                message = error.get("message") if isinstance(error, dict) else None
-                raise HTTPException(status_code=502, detail=message or f"Gateway RPC {method} 返回失败")
-            # 优先返回 payload 字段，无则返回整个 response
-            payload = response.get("payload")
-            return payload if isinstance(payload, dict) else response
-        else:
-            # 直接格式：response 本身即为 payload
-            return response
-
-    def _get_openclaw_container(self):
-        try:
-            import docker  # type: ignore
-
-            client = docker.from_env(timeout=5)
-            containers = client.containers.list(filters={"label": _OPENCLAW_SERVICE_LABEL})
-        except ImportError as exc:
-            raise HTTPException(status_code=500, detail="docker SDK 未安装，无法管理 OpenClaw Gateway 配置。") from exc
-        except Exception as exc:  # pragma: no cover - Docker runtime failure
-            raise HTTPException(status_code=503, detail=f"无法连接 Docker 守护进程: {exc}") from exc
-
-        if not containers:
-            raise HTTPException(status_code=503, detail="未找到运行中的 openclaw 容器，无法读取 Gateway 配置。")
-        return containers[0]
-
-    @staticmethod
-    def _parse_json_output(raw_output: str, method: str) -> dict[str, Any]:
-        if not raw_output:
-            raise HTTPException(status_code=502, detail=f"Gateway RPC {method} 未返回任何输出")
-
-        try:
-            return json.loads(raw_output)
-        except json.JSONDecodeError:
-            for line in reversed(raw_output.splitlines()):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    return json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-            raise HTTPException(status_code=502, detail=f"Gateway RPC {method} 输出不是有效 JSON")
+        return result
 
 
 service = OpenClawGatewayConfigService()
