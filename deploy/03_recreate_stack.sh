@@ -74,16 +74,30 @@ docker compose --env-file .env.production down --remove-orphans
 info "按最新镜像启动服务..."
 docker compose --env-file .env.production up -d openclaw backend frontend
 
-info "等待 backend 健康检查..."
-retries=15
+backend_container_id="$(docker compose --env-file .env.production ps -q backend)"
+[ -n "$backend_container_id" ] || error "未找到 backend 容器，请执行 docker compose --env-file .env.production ps 检查。"
+
+info "等待 backend 容器健康检查..."
+retries=90
 for _ in $(seq 1 "$retries"); do
-    if curl -sf http://localhost/api/health >/dev/null 2>&1; then
-        info "backend 健康检查通过 ✓"
-        docker compose --env-file .env.production ps
-        exit 0
-    fi
+    backend_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$backend_container_id" 2>/dev/null || true)"
+    case "$backend_status" in
+        healthy)
+            info "backend 健康检查通过 ✓"
+            docker compose --env-file .env.production ps
+            exit 0
+            ;;
+        unhealthy|exited|dead)
+            warn "backend 状态异常: ${backend_status:-unknown}"
+            docker compose --env-file .env.production ps
+            docker compose --env-file .env.production logs --tail=200 backend
+            exit 1
+            ;;
+    esac
     sleep 2
 done
 
-warn "backend 健康检查超时，请执行: docker compose --env-file .env.production logs"
+warn "backend 健康检查超时，当前状态: ${backend_status:-unknown}"
 docker compose --env-file .env.production ps
+docker compose --env-file .env.production logs --tail=200 openclaw backend frontend
+exit 1
