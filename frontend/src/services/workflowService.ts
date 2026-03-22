@@ -76,7 +76,7 @@ export interface ProgressEvent {
   step_id: string
   delta: string
   accumulated_text: string
-  screenshots: string[]
+  screenshots?: string[]
 }
 
 export interface ScreenshotEvent {

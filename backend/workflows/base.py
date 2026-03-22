@@ -85,6 +85,8 @@ class WorkflowState(TypedDict, total=False):
     _openclaw_url: str     # OpenClaw base URL 覆盖
     _openclaw_token: str   # OpenClaw auth token 覆盖
     _jump_to: str          # LangGraph 条件跳转目标（内部路由使用）
+    _pending_screenshot_uploads: list[asyncio.Task]
+    _persisted_screenshots: list[str]
 
 
 # ── 步骤定义 ──────────────────────────────────────────────
@@ -183,6 +185,14 @@ async def execute_step(
             "screenshots": screenshots,
         })
 
+    async def on_screenshot(screenshot: str):
+        await emit_event(execution_id, "screenshot", {
+            "step_id": step_id,
+            "screenshot": screenshot,
+            "action": step.name_zh,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
     # 截图上传器：优先上传到 Supabase Storage（持久化），无认证时回退 base64
     # _auth_token 存于 state（由各工作流的 run() 函数注入）
     uploader = make_screenshot_uploader(execution_id, auth_token)
@@ -193,6 +203,7 @@ async def execute_step(
         session_id=state["session_id"],
         step_id=step_id,
         on_progress=on_progress,
+        on_screenshot=on_screenshot,
         screenshot_uploader=uploader,
     )
 
@@ -202,25 +213,21 @@ async def execute_step(
     step_results[step_id] = {
         "text": result.accumulated_text,
         "screenshots": result.screenshots,
+        "persisted_screenshots": result.persisted_screenshots,
         "success": result.success,
         "error": result.error,
     }
     new_state["step_results"] = step_results
     new_state["accumulated_text"] = state.get("accumulated_text", "") + "\n" + result.accumulated_text
     new_state["all_screenshots"] = state.get("all_screenshots", []) + result.screenshots
+    new_state["_persisted_screenshots"] = _dedupe_urls(
+        state.get("_persisted_screenshots", []) + result.persisted_screenshots
+    )
+    new_state["_pending_screenshot_uploads"] = state.get("_pending_screenshot_uploads", []) + result.pending_uploads
 
     status_label = "完成" if result.success else "失败"
 
-    # 1. 先发步骤执行中产生的截图
-    for screenshot in result.screenshots:
-        await emit_event(execution_id, "screenshot", {
-            "step_id": step_id,
-            "screenshot": screenshot,
-            "action": step.name_zh,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-
-    # 2. 立即通知前端步骤已完成/失败（不等截图补充，避免 UI 卡顿）
+    # 立即通知前端步骤已完成/失败（不等截图补充与持久化，避免 UI 卡顿）
     if not result.success:
         new_state["error"] = result.error
         await emit_event(execution_id, "step_change", {
@@ -249,7 +256,7 @@ async def execute_step(
                 {
                     "progress": progress,
                     "full_output": new_state.get("accumulated_text", ""),
-                    "screenshot_urls": new_state.get("all_screenshots", []),
+                    "screenshot_urls": new_state.get("_persisted_screenshots", []),
                     "error_message": new_state.get("error"),
                 },
                 auth_token=auth_token,
@@ -277,32 +284,66 @@ async def execute_step(
         except Exception as e:
             logger.debug(f"[{execution_id}] 写入步骤结果日志失败: {e}")
 
-    # 3. 若步骤无截图，补充一张停留页面截图（最多等待 45 秒）
-    #    在 step_change 之后、error/complete 事件之前发送，前端 activeExecution 仍有效
+    # 若步骤无截图，后台异步补抓一张停留页面截图，避免阻塞主流程
     if not result.screenshots:
-        try:
-            final_ss = await asyncio.wait_for(
-                openclaw.capture_screenshot(
-                    session_id=state["session_id"],
-                    screenshot_uploader=uploader,
-                ),
-                timeout=45.0,
-            )
-            if final_ss:
-                new_state["all_screenshots"] = new_state.get("all_screenshots", []) + [final_ss]
-                await emit_event(execution_id, "screenshot", {
-                    "step_id": step_id,
-                    "screenshot": final_ss,
-                    "action": f"{step.name_zh}（{status_label}）",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
-                logger.info(f"[{execution_id}] 步骤 {step_id} 补充截图成功")
-        except asyncio.TimeoutError:
-            logger.debug(f"[{execution_id}] 步骤 {step_id} 补充截图超时，跳过")
-        except Exception as e:
-            logger.debug(f"[{execution_id}] 步骤 {step_id} 补充截图失败: {e}")
+        async def capture_after_step() -> None:
+            try:
+                capture_result = await asyncio.wait_for(
+                    openclaw.capture_screenshot(
+                        session_id=state["session_id"],
+                        on_screenshot=lambda screenshot: emit_event(execution_id, "screenshot", {
+                            "step_id": step_id,
+                            "screenshot": screenshot,
+                            "action": f"{step.name_zh}（{status_label}）",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }),
+                        screenshot_uploader=uploader,
+                    ),
+                    timeout=45.0,
+                )
+                pending = new_state.get("_pending_screenshot_uploads", []) + capture_result.pending_uploads
+                new_state["_pending_screenshot_uploads"] = pending
+                new_state["all_screenshots"] = new_state.get("all_screenshots", []) + capture_result.screenshots
+                new_state["_persisted_screenshots"] = _dedupe_urls(
+                    new_state.get("_persisted_screenshots", []) + capture_result.persisted_screenshots
+                )
+                logger.info(f"[{execution_id}] 步骤 {step_id} 补充截图完成")
+            except asyncio.TimeoutError:
+                logger.debug(f"[{execution_id}] 步骤 {step_id} 补充截图超时，跳过")
+            except Exception as e:
+                logger.debug(f"[{execution_id}] 步骤 {step_id} 补充截图失败: {e}")
+
+        asyncio.create_task(capture_after_step(), name=f"capture-after-step-{execution_id}-{step_id}")
 
     return new_state
+
+
+async def finalize_persisted_screenshots(state: WorkflowState) -> WorkflowState:
+    pending = state.get("_pending_screenshot_uploads", [])
+    if not pending:
+        return state
+
+    results = await asyncio.gather(*pending, return_exceptions=True)
+    persisted = list(state.get("_persisted_screenshots", []))
+    for item in results:
+        if isinstance(item, str) and item and item not in persisted:
+            persisted.append(item)
+
+    new_state = dict(state)
+    new_state["_persisted_screenshots"] = persisted
+    new_state["_pending_screenshot_uploads"] = []
+    return new_state
+
+
+def _dedupe_urls(urls: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+    return deduped
 
 
 def build_workflow_graph(

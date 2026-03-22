@@ -9,10 +9,11 @@ from __future__ import annotations
 from typing import Dict, Iterable
 
 import httpx
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import Response, StreamingResponse
 
 from config import get_settings
+from services.screenshot_service import service as screenshot_service
 
 router = APIRouter(prefix="/api/openclaw", tags=["openclaw"])
 
@@ -41,6 +42,16 @@ async def openclaw_info():
         "agent_id": settings.openclaw_agent_id,
         "base_url": settings.openclaw_base_url,
     }
+
+
+@router.get("/screenshot")
+async def proxy_openclaw_screenshot(
+    ref: str = Query(..., description="base64url 编码后的截图引用"),
+    sig: str = Query(..., description="截图引用签名"),
+):
+    raw_ref = screenshot_service.decode_proxy_ref(ref, sig)
+    content, content_type = await screenshot_service.fetch_image_bytes(raw_ref)
+    return Response(content=content, media_type=content_type)
 
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

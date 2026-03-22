@@ -7,7 +7,7 @@ login_check → search_candidates → collect_profiles → initiate_contact → 
 
 import logging
 
-from workflows.base import WorkflowState, StepDefinition, run_workflow_graph
+from workflows.base import WorkflowState, StepDefinition, finalize_persisted_screenshots, run_workflow_graph
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
 from services.supabase_client import (
@@ -139,6 +139,8 @@ async def run(execution_id: str, req):
         "_auth_token": req.supabase_auth_token or "",  # 用于 Storage 截图上传
         "_task_id": task_record.get("id", ""),
         "_tenant_id": req.tenant_id,
+        "_pending_screenshot_uploads": [],
+        "_persisted_screenshots": [],
     }
 
     async def save_results_step(state: WorkflowState) -> WorkflowState:
@@ -215,12 +217,13 @@ async def run(execution_id: str, req):
             "step_id": final_state.get("current_step", ""),
             "message": final_state["error"],
         })
+        final_state = await finalize_persisted_screenshots(final_state)
         if task_record.get("id"):
             complete_automation_task(
                 task_record["id"], "failed",
                 error_message=final_state["error"],
                 full_output=full_output,
-                screenshot_urls=all_screenshots,
+                screenshot_urls=final_state.get("_persisted_screenshots", []),
                 auth_token=auth_token,
             )
     else:
@@ -237,12 +240,13 @@ async def run(execution_id: str, req):
             "result_summary": result_summary,
             "screenshots": all_screenshots,
         })
+        final_state = await finalize_persisted_screenshots(final_state)
         if task_record.get("id"):
             complete_automation_task(
                 task_record["id"], "completed",
                 result_summary={**result_summary, **structured_result},
                 full_output=full_output,
-                screenshot_urls=all_screenshots,
+                screenshot_urls=final_state.get("_persisted_screenshots", []),
                 auth_token=auth_token,
             )
 

@@ -185,28 +185,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             // 追加 delta：保留所有步骤完整历史，不替换
             const newText = state.activeExecution.accumulatedText + (data.delta || '')
 
-            // 检测 progress 事件中新出现的截图，即时生成 ActionNode
-            const existingScreenshots = new Set(
-              state.activeExecution.actionNodes.map((n) => n.screenshot).filter(Boolean),
-            )
-            const newNodes: ActionNode[] = ((data.screenshots as string[]) || [])
-              .filter((s) => s && !existingScreenshots.has(s))
-              .map((s) => ({
-                id: `ss-${data.step_id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
-                action: data.step_id,
-                screenshot: s,
-                stepId: data.step_id,
-              }))
-
             return {
               activeExecution: {
                 ...state.activeExecution,
                 accumulatedText: newText,
-                actionNodes:
-                  newNodes.length > 0
-                    ? [...state.activeExecution.actionNodes, ...newNodes]
-                    : state.activeExecution.actionNodes,
               },
             }
           })
@@ -239,10 +221,23 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         onComplete: (data) => {
           set((state) => {
             if (!state.activeExecution) return state
+            const existingScreenshots = new Set(
+              state.activeExecution.actionNodes.map((n) => n.screenshot).filter(Boolean),
+            )
+            const completionNodes: ActionNode[] = (data.screenshots || [])
+              .filter((s) => s && !existingScreenshots.has(s))
+              .map((s) => ({
+                id: `complete-screenshot-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
+                action: '完成截图',
+                screenshot: s,
+                stepId: 'complete',
+              }))
             const completed: WorkflowExecution = {
               ...state.activeExecution,
               status: 'completed',
               result: data,
+              actionNodes: [...state.activeExecution.actionNodes, ...completionNodes],
             }
             return {
               activeExecution: null,

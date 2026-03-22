@@ -212,9 +212,6 @@ async def _execute_openclaw_with_retries(
     latest_screenshot: Optional[str] = None
 
     async def on_progress(delta: str, accumulated: str, screenshots: list[str]) -> None:
-        nonlocal latest_screenshot
-        if screenshots:
-            latest_screenshot = screenshots[-1]
         await emit_binding_event(
             session_id,
             "progress",
@@ -222,6 +219,20 @@ async def _execute_openclaw_with_retries(
                 "delta": delta,
                 "accumulated_text": accumulated,
                 "screenshots": screenshots,
+                "latest_screenshot": latest_screenshot,
+            },
+        )
+
+    async def on_screenshot(screenshot: str) -> None:
+        nonlocal latest_screenshot
+        latest_screenshot = screenshot
+        await emit_binding_event(
+            session_id,
+            "progress",
+            {
+                "delta": "",
+                "accumulated_text": last_result.accumulated_text if last_result else "",
+                "screenshots": [],
                 "latest_screenshot": latest_screenshot,
             },
         )
@@ -251,6 +262,7 @@ async def _execute_openclaw_with_retries(
             session_id=session_key,
             step_id=f"binding_{attempt}",
             on_progress=on_progress,
+            on_screenshot=on_screenshot,
             screenshot_uploader=uploader,
         )
         last_result = result
@@ -319,7 +331,17 @@ async def _run_action(
 
         result, parsed = await _execute_openclaw_with_retries(session_id, account, prompt, auth_token)
         screenshots = result.screenshots or []
-        latest_screenshot = screenshots[-1] if screenshots else binding_session.get("latest_screenshot_url")
+        persisted_screenshots = list(result.persisted_screenshots or [])
+        if result.pending_uploads:
+            upload_results = await asyncio.gather(*result.pending_uploads, return_exceptions=True)
+            for item in upload_results:
+                if isinstance(item, str) and item and item not in persisted_screenshots:
+                    persisted_screenshots.append(item)
+        latest_screenshot = (
+            persisted_screenshots[-1]
+            if persisted_screenshots
+            else binding_session.get("latest_screenshot_url")
+        )
 
         if not parsed:
             reason = result.error or "OpenClaw 未按协议输出结构化状态"
@@ -549,13 +571,27 @@ async def refresh_qr_session(
     try:
         openclaw = OpenClawClient()
         uploader = make_screenshot_uploader(session_id, auth_token)
+        from config import get_settings
+        media_mount = get_settings().openclaw_media_mount.rstrip("/")
         result = await openclaw.execute_step(
-            prompt="当前二维码可能已过期。请刷新页面或点击二维码区域的刷新按钮，等待新的二维码出现后截取二维码截图，输出截图文件的完整路径。",
+            prompt=(
+                "当前二维码可能已过期。请刷新页面或点击二维码区域的刷新按钮，等待新的二维码出现。"
+                "然后使用浏览器内置截图能力截取二维码截图。"
+                "优先直接返回截图工具产生的 image_url 或 markdown 图片链接，不要输出本地文件路径。"
+                f"如果截图工具只能提供文件路径，截图必须位于稳定媒体目录 {media_mount}/browser/ 下，"
+                "禁止输出 /tmp 或 /home 等本地绝对路径。"
+            ),
             session_id=browser_session_key,
             step_id="refresh_qr",
             screenshot_uploader=uploader,
         )
-        new_screenshot = result.screenshots[-1] if result.screenshots else None
+        persisted = list(result.persisted_screenshots or [])
+        if result.pending_uploads:
+            upload_results = await asyncio.gather(*result.pending_uploads, return_exceptions=True)
+            for item in upload_results:
+                if isinstance(item, str) and item and item not in persisted:
+                    persisted.append(item)
+        new_screenshot = persisted[-1] if persisted else None
         if new_screenshot:
             update_binding_session(
                 session_id,

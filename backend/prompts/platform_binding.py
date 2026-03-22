@@ -4,11 +4,13 @@
 
 from __future__ import annotations
 
+from config import get_settings
 from services.platform_catalog import get_platform_catalog_item, get_platform_name
 
 
 def _structured_output_contract() -> str:
-    return """【结构化输出要求】
+    media_mount = get_settings().openclaw_media_mount.rstrip("/")
+    return f"""【结构化输出要求】
 你必须在输出末尾包含以下结构化标记之一：
 - [LOGIN_STATE:LOGGED_IN]
 - [LOGIN_STATE:AWAIT_SMS]
@@ -22,7 +24,11 @@ def _structured_output_contract() -> str:
 - [LOGIN_REASON:20字以内原因或下一步提示]
 - [LOGIN_IDENTIFIER:手机号或账号的脱敏形式，可选]
 
-如有截图，必须截图当前页面并输出截图文件完整路径。"""
+如有截图，必须遵守以下规则：
+- 只能使用浏览器内置截图能力，不要使用 shell、exec 或 /tmp 临时截图
+- 优先直接输出截图工具返回的 image_url 或 markdown 图片链接，不要输出本地文件路径
+- 如果截图工具只能提供文件路径，截图必须位于稳定媒体目录 {media_mount}/browser/ 下
+- 禁止输出 /tmp 或 /home 等本地绝对路径。"""
 
 
 def _platform_hints(platform: str) -> str:
@@ -60,6 +66,7 @@ def build_bind_start_prompt(account: dict, payload: dict) -> str:
 2. 若页面漂移或元素失效，刷新快照并重选一次。
 3. 若需要用户参与，立即停在对应页面并返回等待态。
 4. 不要无限重试；明显失败则返回 FAILED。
+5. 二维码或验证页截图时，优先返回截图工具生成的 image_url，不要输出本地路径。
 
 【本轮目标】
 1. 打开企业端登录页。
@@ -97,6 +104,7 @@ def build_bind_submit_prompt(account: dict, binding_session: dict, payload: dict
 2. 若已提供验证码或二次验证信息，则填写并提交。
 3. 若仍需等待新的用户动作，则返回对应等待态。
 4. 若登录成功，进入企业工作台并确认账号处于已登录状态。
+5. 如需截图，优先返回截图工具生成的 image_url；只有工具无法提供 URL 时才允许稳定媒体路径。
 
 {_structured_output_contract()}
 """
@@ -148,6 +156,7 @@ def build_correction_prompt(
 3. 若页面有弹窗、遮罩层或滑块验证，先处理弹窗再继续主流程。
 4. 重新选择目标元素，不要复用上次的选择器。
 5. 务必在输出末尾包含结构化标记。
+6. 若需要截图，优先返回截图工具生成的 image_url，不要输出本地路径。
 
 {_structured_output_contract()}
 """
@@ -173,6 +182,7 @@ def build_unbind_prompt(account: dict) -> str:
       localStorage.clear(); sessionStorage.clear();
    c. 刷新页面并确认回到登录/游客态。
 4. 若以上所有方式都无法确认已登出，输出 FAILED 并写明原因。
+5. 如需截图，优先返回截图工具生成的 image_url；只有工具无法提供 URL 时才允许稳定媒体路径。
 
 【输出规则】
 - 成功登出后输出 [LOGIN_STATE:LOGGED_OUT]，原因写”已登出，等待重新绑定”。

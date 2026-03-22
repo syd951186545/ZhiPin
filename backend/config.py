@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     openclaw_base_url: str
     openclaw_auth_token: str
     openclaw_agent_id: str
+    openclaw_media_mount: str
+    openclaw_home_mount: str = "/openclaw-home"
 
     # Server
     host: str

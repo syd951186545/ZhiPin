@@ -8,7 +8,7 @@
 
 import logging
 
-from workflows.base import WorkflowState, StepDefinition, execute_step, run_workflow_graph
+from workflows.base import WorkflowState, StepDefinition, execute_step, finalize_persisted_screenshots, run_workflow_graph
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
 from services.supabase_client import (
@@ -159,6 +159,8 @@ async def run(execution_id: str, req):
         "_auth_token": req.supabase_auth_token or "",
         "_task_id": task_record.get("id", ""),
         "_tenant_id": req.tenant_id,
+        "_pending_screenshot_uploads": [],
+        "_persisted_screenshots": [],
     }
 
     runtime_steps: list[StepDefinition] = []
@@ -341,12 +343,13 @@ async def run(execution_id: str, req):
     full_output = final_state.get("accumulated_text", "")
 
     if final_state.get("cancelled"):
+        final_state = await finalize_persisted_screenshots(final_state)
         if task_record.get("id"):
             complete_automation_task(
                 task_record["id"], "cancelled",
                 error_message="用户取消",
                 full_output=full_output,
-                screenshot_urls=final_state.get("all_screenshots", []),
+                screenshot_urls=final_state.get("_persisted_screenshots", []),
                 auth_token=auth_token,
             )
         return
@@ -360,6 +363,7 @@ async def run(execution_id: str, req):
         "screenshots": all_screenshots,
     })
 
+    final_state = await finalize_persisted_screenshots(final_state)
     if task_record.get("id"):
         structured_result = {
             "workflow_id": "resume_screen",
@@ -376,7 +380,7 @@ async def run(execution_id: str, req):
             task_record["id"], "completed",
             result_summary={**result_summary, **structured_result},
             full_output=full_output,
-            screenshot_urls=all_screenshots,
+            screenshot_urls=final_state.get("_persisted_screenshots", []),
             auth_token=auth_token,
         )
 
