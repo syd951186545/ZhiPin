@@ -1,6 +1,11 @@
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent
+ENV_FILE = BASE_DIR / ".env.production"
 
 
 class Settings(BaseSettings):
@@ -32,7 +37,7 @@ class Settings(BaseSettings):
     # Docker 部署时前端通过 nginx 同源访问，设为 "*" 即可
     cors_origins: str
 
-    model_config = {"env_file": ".env.production", "extra": "ignore"}
+    model_config = {"env_file": str(ENV_FILE), "extra": "ignore"}
 
 
 @lru_cache
