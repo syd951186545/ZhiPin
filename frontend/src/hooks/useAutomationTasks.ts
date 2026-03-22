@@ -19,6 +19,25 @@ type AutomationTaskInsert = Omit<
   AutomationTask,
   'id' | 'progress' | 'created_at' | 'updated_at'
 >
+type AutomationTaskListRow = Omit<AutomationTask, 'tenant_id' | 'created_by' | 'config' | 'full_output'>
+
+const AUTOMATION_TASK_LIST_FIELDS = [
+  'id',
+  'job_id',
+  'type',
+  'name',
+  'status',
+  'platform',
+  'progress',
+  'result_summary',
+  'error_message',
+  'execution_id',
+  'screenshot_urls',
+  'started_at',
+  'completed_at',
+  'created_at',
+  'updated_at',
+].join(', ')
 
 export function useAutomationTasks(filters?: UseAutomationTasksFilters) {
   const [tasks, setTasks] = useState<AutomationTask[]>([])
@@ -32,7 +51,7 @@ export function useAutomationTasks(filters?: UseAutomationTasksFilters) {
     try {
       let query = supabase
         .from('automation_tasks')
-        .select('*')
+        .select(AUTOMATION_TASK_LIST_FIELDS)
         .order('created_at', { ascending: false })
 
       if (filters?.status) {
@@ -48,7 +67,7 @@ export function useAutomationTasks(filters?: UseAutomationTasksFilters) {
       const { data, error: fetchError } = await query
       if (fetchError) throw fetchError
 
-      const allTasks = (data as AutomationTask[]) || []
+      const allTasks = ((data || []) as unknown as AutomationTaskListRow[]) as AutomationTask[]
 
       // 自动将长时间卡在 running 状态的任务标记为 failed
       const now = Date.now()

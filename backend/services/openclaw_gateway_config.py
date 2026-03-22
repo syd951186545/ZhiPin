@@ -119,6 +119,14 @@ class OpenClawGatewayConfigService:
         if not isinstance(result, dict):
             raise HTTPException(status_code=502, detail=f"Gateway API {method} 返回结果格式无效")
 
+        # 实际数据嵌套在 result.details.result 中
+        details = result.get("details")
+        if isinstance(details, dict):
+            inner = details.get("result")
+            if isinstance(inner, dict):
+                return inner
+
+        # 兼容旧版响应格式：result.result
         nested = result.get("result")
         if isinstance(nested, dict):
             result = nested

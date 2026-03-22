@@ -428,46 +428,77 @@ async def get_openclaw_config(
     if not tenant_settings:
         raise HTTPException(status_code=404, detail="未找到当前租户的系统设置记录")
 
-    cfg: dict[str, Any] = {}
-    runtime_model = ""
-    provider_name = ""
-    provider_cfg: dict[str, Any] = {}
-    runtime_api_key = ""
-    gateway_available = True
-    gateway_warning = ""
-
-    try:
-        cfg, _ = gateway_config_service.get_runtime_config()
-        runtime_model = cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", "")
-        provider_name, provider_cfg = _resolve_provider_config(cfg, runtime_model or str(tenant_settings.get("ai_model") or "").strip())
-        runtime_api_key = str(provider_cfg.get("apiKey") or "").strip() if isinstance(provider_cfg, dict) else ""
-    except HTTPException as exc:
-        gateway_available = False
-        gateway_warning = str(exc.detail)
-        logger.warning("读取 OpenClaw Gateway 配置失败，已降级为数据库配置: %s", gateway_warning)
-
+    db_validation_status = str(tenant_settings.get("ai_validation_status") or "unknown")
     database_model = str(tenant_settings.get("ai_model") or "").strip()
     database_api_key = str(tenant_settings.get("ai_api_key") or "").strip()
 
-    model = (runtime_model or database_model).strip()
+    # ── 已配置过：直接使用数据库中上一次成功生效的配置，不再查询 Gateway ──
+    if db_validation_status == "success":
+        model = database_model
+        provider_name = model.split("/", 1)[0] if "/" in model else ""
+        if database_api_key:
+            # 用户手动配置并保存过真实 Key
+            api_key_masked = _mask_key(database_api_key)
+        else:
+            # 使用的是 OpenClaw 系统内置 Key（保存时 key 为 null 表示沿用系统默认）
+            api_key_masked = "系统默认 API Key，已配置生效"
+        return OpenClawConfig(
+            provider=provider_name,
+            baseUrl=settings.openclaw_base_url,
+            model=model,
+            apiKeyMasked=api_key_masked,
+            hasApiKey=True,
+            hasStoredApiKey=True,
+            availableModels=_extract_available_models({}, model),
+            validationStatus=db_validation_status,
+            validationMessage=str(tenant_settings.get("ai_validation_message") or ""),
+            validatedAt=tenant_settings.get("ai_validated_at"),
+            gatewayAvailable=True,
+        )
+
+    # ── 首次使用：从 Gateway 读取当前配置作为初始值 ──
+    try:
+        cfg, _ = gateway_config_service.get_runtime_config()
+        runtime_model = cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", "")
+        provider_name, provider_cfg = _resolve_provider_config(cfg, runtime_model)
+        raw_api_key = str(provider_cfg.get("apiKey") or "").strip() if isinstance(provider_cfg, dict) else ""
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "首次配置需要从 OpenClaw Gateway 读取当前模型信息，但 Gateway 当前不可用。"
+                "请确保 OpenClaw Gateway 正常运行后刷新此页面。"
+                f"Gateway 错误：{exc.detail}"
+            ),
+        ) from exc
+
+    model = runtime_model
     if not provider_name:
         provider_name = model.split("/", 1)[0] if "/" in model else ""
 
-    effective_api_key = runtime_api_key or database_api_key
-    has_runtime_api_key = bool(runtime_api_key)
+    if raw_api_key == "__OPENCLAW_REDACTED__":
+        # OpenClaw 系统内置 Key，已生效但接口中不可读取
+        api_key_masked = "系统默认 API Key，已配置生效"
+        has_api_key = True
+    elif raw_api_key:
+        api_key_masked = _mask_key(raw_api_key)
+        has_api_key = True
+    else:
+        api_key_masked = ""
+        has_api_key = False
 
     return OpenClawConfig(
         provider=provider_name,
         baseUrl=str(provider_cfg.get("baseUrl") or settings.openclaw_base_url or "") if isinstance(provider_cfg, dict) else settings.openclaw_base_url,
         model=model,
-        apiKeyMasked=_mask_key(effective_api_key),
-        hasApiKey=bool(effective_api_key),
-        hasStoredApiKey=has_runtime_api_key if runtime_model or runtime_api_key or provider_cfg else bool(database_api_key),
-        availableModels=_extract_available_models(cfg, model) if cfg else OFFICIAL_OPENCLAW_MODEL_CATALOG,
-        validationStatus=str(tenant_settings.get("ai_validation_status") or "unknown"),
-        validationMessage=str(tenant_settings.get("ai_validation_message") or gateway_warning or ""),
+        apiKeyMasked=api_key_masked,
+        hasApiKey=has_api_key,
+        hasStoredApiKey=has_api_key,
+        availableModels=_extract_available_models(cfg, model),
+        validationStatus=db_validation_status,
+        validationMessage=str(tenant_settings.get("ai_validation_message") or ""),
         validatedAt=tenant_settings.get("ai_validated_at"),
-        gatewayAvailable=gateway_available,
+        gatewayAvailable=True,
     )
 
 
@@ -522,7 +553,9 @@ async def update_openclaw_config(
     target_provider_cfg = providers.get(target_provider_name)
     if not isinstance(target_provider_cfg, dict):
         raise HTTPException(status_code=400, detail=f"Provider '{target_provider_name}' 配置无效。")
-    target_provider_cfg["apiKey"] = effective_api_key
+    # __OPENCLAW_REDACTED__ 表示当前使用的是系统内置 Key，不覆盖 gateway 中的原始值
+    if effective_api_key != "__OPENCLAW_REDACTED__":
+        target_provider_cfg["apiKey"] = effective_api_key
 
     logger.info("提交 OpenClaw Gateway 配置更新: tenant=%s model=%s provider=%s", user["tenant_id"], req.model, target_provider_name)
     gateway_config_service.apply_runtime_config(cfg, base_hash)
@@ -538,11 +571,13 @@ async def update_openclaw_config(
         raise HTTPException(status_code=400, detail=validation_message)
 
     validated_at = datetime.now(timezone.utc).isoformat()
+    # 系统内置 Key 不写入数据库（用 null 表示"沿用系统默认"）
+    db_api_key = None if effective_api_key == "__OPENCLAW_REDACTED__" else (effective_api_key or None)
     update_tenant_settings(
         user["tenant_id"],
         {
             "ai_model": req.model.strip(),
-            "ai_api_key": effective_api_key,
+            "ai_api_key": db_api_key,
             "ai_validation_status": validation_status,
             "ai_validation_message": validation_message,
             "ai_validated_at": validated_at,

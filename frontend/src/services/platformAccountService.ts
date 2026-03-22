@@ -220,6 +220,8 @@ export function subscribePlatformBindingSession(
 
   for (const [eventName, handlerKey] of Object.entries(eventMap)) {
     eventSource.addEventListener(eventName, (event: MessageEvent) => {
+      // event.data 为 undefined/null 时是浏览器原生连接错误事件，跳过解析
+      if (event.data == null || event.data === 'undefined') return
       try {
         const data = JSON.parse(event.data)
         const handler = handlers[handlerKey]

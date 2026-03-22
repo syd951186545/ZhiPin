@@ -241,6 +241,11 @@ async function getAuthHeaders() {
   return {Authorization: `Bearer ${token}`}
 }
 
+// Module-level cache for OpenClaw config — survives re-mounts within the same session
+let _openclawConfigCache: ServerConfig | null = null
+let _openclawConfigCacheTime = 0
+const OPENCLAW_CONFIG_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 export default function Settings() {
   const {t} = useI18n()
 
@@ -264,20 +269,38 @@ export default function Settings() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveMessage, setSaveMessage] = useState('')
 
-  const fetchServerConfig = useCallback(async () => {
+  const fetchServerConfig = useCallback(async (force = false) => {
+    // Use cached data if available and fresh (unless forced refresh)
+    if (!force && _openclawConfigCache && Date.now() - _openclawConfigCacheTime < OPENCLAW_CONFIG_CACHE_TTL) {
+      const cached = _openclawConfigCache
+      setServerConfig(cached)
+      const nextModel = cached.model || ''
+      setEditModel(nextModel)
+      updateAI({aiModel: nextModel})
+      setSaveStatus('idle')
+      setSaveMessage('')
+      return
+    }
+
     setServerLoading(true)
     try {
       const headers = await getAuthHeaders()
       const res = await fetch('/api/settings/openclaw', {headers})
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '加载 AI 配置失败')
+      _openclawConfigCache = data as ServerConfig
+      _openclawConfigCacheTime = Date.now()
       setServerConfig(data as ServerConfig)
       const nextModel = (data as ServerConfig).model || ''
       setEditModel(nextModel)
       updateAI({aiModel: nextModel})
+      setSaveStatus('idle')
+      setSaveMessage('')
     } catch (error) {
       console.warn('获取 AI 配置失败:', error)
       setServerConfig(null)
+      setSaveStatus('error')
+      setSaveMessage(error instanceof Error ? error.message : '加载 AI 配置失败')
     } finally {
       setServerLoading(false)
     }
@@ -312,7 +335,8 @@ export default function Settings() {
       setSaveMessage(result.validationMessage || result.message)
       setEditApiKey('')
       updateAI({aiModel: editModel.trim()})
-      await fetchServerConfig()
+      _openclawConfigCache = null  // Invalidate cache after save
+      await fetchServerConfig(true)
     } catch (error) {
       setSaveStatus('error')
       setSaveMessage(error instanceof Error ? error.message : '保存失败，请检查后端日志')
@@ -343,7 +367,7 @@ export default function Settings() {
     () => new Set(modelGroups.flatMap((group) => group.models.map((item) => item.value))),
     [modelGroups]
   )
-  const selectedModelValue = editModel && modelValueSet.has(editModel) ? editModel : undefined
+  const selectedModelValue = editModel && modelValueSet.has(editModel) ? editModel : ''
 
   const {saveNotifications} = useTenantSettings()
   const [notifSaving, setNotifSaving] = useState(false)
@@ -391,7 +415,7 @@ export default function Settings() {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label>{t('settings.ai.model')}</Label>
-                <p className="text-xs text-muted-foreground">当前值从 OpenClaw Gateway 运行时配置读取；模型列表使用前端预置清单并按厂商分组展示。</p>
+                <p className="text-xs text-muted-foreground">首次使用时从 OpenClaw Gateway 读取当前模型；配置保存生效后改为从数据库读取，下次直接显示上次成功的配置。</p>
                 <Select
                   value={selectedModelValue}
                   onValueChange={setEditModel}
@@ -420,7 +444,7 @@ export default function Settings() {
 
               <div className="space-y-2">
                 <Label>当前已配对 API Key</Label>
-                <p className="text-xs text-muted-foreground">从 OpenClaw Gateway 当前运行时配置读取。仅展示前后几位，页面中不可复制；切换到其他厂商模型时需填写对应新 Key。</p>
+                <p className="text-xs text-muted-foreground">首次使用显示 OpenClaw 当前 Key 状态；保存生效后从数据库读取。"系统默认 API Key"表示使用 OpenClaw 内置配置；切换其他厂商时需填写对应 Key。</p>
                 <div
                   className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-mono select-none"
                   onCopy={(event) => event.preventDefault()}
@@ -432,7 +456,7 @@ export default function Settings() {
 
               <div className="space-y-2">
                 <Label>更新 API Key</Label>
-                <p className="text-xs text-muted-foreground">留空表示沿用 Gateway 当前已配置的 Key；填写后会先校验可用性，通过后才会保存。</p>
+                <p className="text-xs text-muted-foreground">留空表示沿用数据库中当前已保存的 Key；填写后会先校验可用性，通过后才会保存并同步到 OpenClaw。</p>
                 <Input
                   type="password"
                   value={editApiKey}
@@ -470,7 +494,7 @@ export default function Settings() {
                     <Server className="h-4 w-4 text-muted-foreground" />
                     <span className="font-medium text-sm">OpenClaw 运行时同步</span>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={fetchServerConfig} disabled={serverLoading}>
+                  <Button variant="ghost" size="sm" onClick={() => fetchServerConfig(true)} disabled={serverLoading}>
                     <RefreshCw className={`h-3.5 w-3.5 ${serverLoading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>

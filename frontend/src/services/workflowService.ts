@@ -128,6 +128,8 @@ function getApiBase(): string {
   return '/api/workflow'
 }
 
+let backendHealthRequest: Promise<{ status: string }> | null = null
+
 /**
  * 启动工作流
  */
@@ -207,11 +209,19 @@ export function subscribeWorkflow(
  * 测试后端连接
  */
 export async function testBackendConnection(): Promise<{ status: string }> {
-  const resp = await fetch('/api/health')
-  if (!resp.ok) {
-    throw new Error('后端服务不可用')
+  if (!backendHealthRequest) {
+    backendHealthRequest = fetch('/api/health')
+      .then(async (resp) => {
+        if (!resp.ok) {
+          throw new Error('后端服务不可用')
+        }
+        return resp.json()
+      })
+      .finally(() => {
+        backendHealthRequest = null
+      })
   }
-  return resp.json()
+  return backendHealthRequest
 }
 
 /**

@@ -171,11 +171,14 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
         },
         onState: (d) => {
           const status = String(d.status || '') as PlatformBindingSessionStatus
-          setSessionStatus(status)
-          setSessionReason(String(d.reason || ''))
+          // 只在有明确状态时更新（重试通知等无 status 字段的事件不应覆盖当前状态）
+          if (status) {
+            setSessionStatus(status)
+            if (status !== 'running') setPending(false)
+          }
+          if (d.reason) setSessionReason(String(d.reason))
           const screenshot = String(d.latest_screenshot || '') || null
           if (screenshot) setLatestScreenshot(screenshot)
-          if (status !== 'running') setPending(false)
         },
         onComplete: async (d) => {
           setSessionStatus('completed')

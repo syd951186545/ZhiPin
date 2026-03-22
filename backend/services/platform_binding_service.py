@@ -243,7 +243,7 @@ async def _execute_openclaw_with_retries(
             await emit_binding_event(
                 session_id,
                 "state",
-                {"message": f"第 {attempt} 次尝试纠偏执行", "attempt": attempt},
+                {"status": "running", "message": f"第 {attempt} 次尝试纠偏执行", "attempt": attempt},
             )
 
         result = await openclaw.execute_step(
@@ -589,6 +589,37 @@ def get_binding_session_snapshot(
     auth_token: Optional[str],
 ) -> Optional[PlatformBindingSessionRow]:
     return get_binding_session(session_id, tenant_id, auth_token=auth_token)
+
+
+def cleanup_orphaned_running_sessions() -> None:
+    """启动时清理孤儿 running 会话（进程重启后 in-memory task 丢失，DB 仍为 running）。"""
+    from services.supabase_client import get_service_supabase, get_supabase
+
+    try:
+        sb = get_service_supabase() or get_supabase(None)
+        result = (
+            sb.table("platform_binding_sessions")
+            .select("id, account_id, tenant_id")
+            .eq("status", "running")
+            .execute()
+        )
+        for row in result.data or []:
+            sid = row["id"]
+            tid = row["tenant_id"]
+            aid = row["account_id"]
+            sb.table("platform_binding_sessions").update({
+                "status": "failed",
+                "error_message": "后端重启，任务已中断，请重新发起绑定",
+                "updated_at": _now_iso(),
+            }).eq("id", sid).eq("tenant_id", tid).execute()
+            sb.table("platform_configs").update({
+                "status": "needsLogin",
+                "is_connected": False,
+                "last_error": "后端重启，绑定任务中断",
+            }).eq("id", aid).eq("tenant_id", tid).execute()
+            logger.info("清理孤儿会话: %s", sid)
+    except Exception:
+        logger.exception("cleanup_orphaned_running_sessions 异常")
 
 
 async def expire_stale_sessions_loop() -> None:

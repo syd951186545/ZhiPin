@@ -29,8 +29,9 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info(f"OpenClaw: {settings.openclaw_base_url}")
     logger.info(f"Supabase: {settings.supabase_url[:40]}...")
-    from services.platform_binding_service import expire_stale_sessions_loop
+    from services.platform_binding_service import expire_stale_sessions_loop, cleanup_orphaned_running_sessions
     import asyncio
+    cleanup_orphaned_running_sessions()
     expire_task = asyncio.create_task(expire_stale_sessions_loop())
     yield
     expire_task.cancel()

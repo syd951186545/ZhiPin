@@ -13,10 +13,43 @@ import {
   type PlatformAccountApiRow,
 } from '@/services/platformAccountService'
 
+let platformCatalogCache: PlatformCatalogItem[] | null = null
+let platformCatalogRequest: Promise<PlatformCatalogItem[]> | null = null
+let platformAccountsRequest: Promise<PlatformAccountApiRow[]> | null = null
+
+async function loadPlatformCatalogCached() {
+  if (platformCatalogCache) {
+    return platformCatalogCache
+  }
+
+  if (!platformCatalogRequest) {
+    platformCatalogRequest = fetchPlatformCatalog()
+      .then((items) => {
+        platformCatalogCache = items
+        return items
+      })
+      .finally(() => {
+        platformCatalogRequest = null
+      })
+  }
+
+  return platformCatalogRequest
+}
+
+async function loadPlatformAccountsDeduped() {
+  if (!platformAccountsRequest) {
+    platformAccountsRequest = fetchPlatformAccounts().finally(() => {
+      platformAccountsRequest = null
+    })
+  }
+
+  return platformAccountsRequest
+}
+
 export function usePlatformAccounts() {
   const [catalog, setCatalog] = useState<PlatformCatalogItem[]>([])
   const [accounts, setAccounts] = useState<PlatformAccountApiRow[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -24,8 +57,8 @@ export function usePlatformAccounts() {
     setError(null)
     try {
       const [catalogItems, accountItems] = await Promise.all([
-        fetchPlatformCatalog(),
-        fetchPlatformAccounts(),
+        loadPlatformCatalogCached(),
+        loadPlatformAccountsDeduped(),
       ])
       setCatalog(catalogItems)
       setAccounts(accountItems)

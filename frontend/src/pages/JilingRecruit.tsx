@@ -21,9 +21,9 @@ import AddProfileDialog from '@/components/settings/AddProfileDialog'
 import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
 import TaskMonitorPanel from '@/components/dashboard/TaskMonitorPanel'
 import {useAuth} from '@/contexts/AuthContext'
-import {useJobs} from '@/hooks/useJobs'
 import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
 import {PLATFORMS} from '@/lib/constants'
+import {supabase} from '@/lib/supabase'
 import {cn} from '@/lib/utils'
 import {JobManagementPanel} from '@/pages/Jobs'
 import Candidates from '@/pages/Candidates'
@@ -31,6 +31,7 @@ import {testBackendConnection} from '@/services/workflowService'
 import type {WorkflowId} from '@/services/workflowService'
 import {useSettingsStore} from '@/stores/useSettingsStore'
 import {useWorkflowStore} from '@/stores/useWorkflowStore'
+import type {Job} from '@/types/database'
 
 /* ── color helpers ─────────────────────────────────────────── */
 
@@ -50,6 +51,41 @@ const WORKFLOW_THEMES: Record<string, {gradient: string; iconBg: string}> = {
 }
 
 const pc = (key: string) => PLATFORM_COLORS[key] || PLATFORM_COLORS['58']
+
+type RecruitJobOption = Pick<Job, 'id' | 'title'>
+type RecruitJobDetail = Pick<
+  Job,
+  'id' | 'title' | 'location' | 'salary_min' | 'salary_max' | 'employment_type' | 'department' | 'description' | 'requirements' | 'benefits'
+>
+
+let recruitJobOptionsCache: RecruitJobOption[] | null = null
+let recruitJobOptionsRequest: Promise<RecruitJobOption[]> | null = null
+
+async function loadRecruitJobOptions(): Promise<RecruitJobOption[]> {
+  if (recruitJobOptionsCache) {
+    return recruitJobOptionsCache
+  }
+
+  if (!recruitJobOptionsRequest) {
+    recruitJobOptionsRequest = (async () => {
+      try {
+        const {data, error} = await supabase
+          .from('jobs')
+          .select('id, title')
+          .order('created_at', {ascending: false})
+
+        if (error) throw error
+        const nextJobs = (data || []) as RecruitJobOption[]
+        recruitJobOptionsCache = nextJobs
+        return nextJobs
+      } finally {
+        recruitJobOptionsRequest = null
+      }
+    })()
+  }
+
+  return recruitJobOptionsRequest
+}
 
 /* ── constants ─────────────────────────────────────────────── */
 
@@ -99,18 +135,18 @@ const bindingStatus = (status?: string | null) => {
 
 export default function JilingRecruit() {
   const {user} = useAuth()
-  const {jobs, loading: jobsLoading} = useJobs()
   const {catalog, accounts, loading: accountsLoading, startVerify, startUnbind, deleteAccount, load: reloadPlatformAccounts} = usePlatformAccounts()
   const {platformConfigs, companyProfile, updatePlatformConfig} = useSettingsStore()
   const {activeExecution, lastExecution, backendReady, startWorkflow, cancelWorkflow, setBackendReady} = useWorkflowStore()
   const safeCompanyProfile = companyProfile || {name: '', address: '', size: '', overview: ''}
+  const [jobs, setJobs] = useState<RecruitJobOption[]>([])
+  const [jobsLoading, setJobsLoading] = useState(true)
 
   const [selectedPlatform, setSelectedPlatform] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [platformExecConfigs, setPlatformExecConfigs] = useState<Record<string, {accountId: string; jobId: string}>>({})
   const [matchThreshold, setMatchThreshold] = useState(60)
-  const [pageLoading, setPageLoading] = useState(true)
   const [addAccountOpen, setAddAccountOpen] = useState(false)
   const [bindDialogOpen, setBindDialogOpen] = useState(false)
   const [bindAccountId, setBindAccountId] = useState<string | null>(null)
@@ -132,8 +168,37 @@ export default function JilingRecruit() {
   const pendingAccounts = totalAccounts - activeAccounts
 
   useEffect(() => {
-    testBackendConnection().then(() => setBackendReady(true)).catch(() => setBackendReady(false)).finally(() => setPageLoading(false))
+    testBackendConnection().then(() => setBackendReady(true)).catch(() => setBackendReady(false))
   }, [setBackendReady])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadJobOptions = async () => {
+      setJobsLoading(true)
+      try {
+        const nextJobs = await loadRecruitJobOptions()
+        if (!cancelled) {
+          setJobs(nextJobs)
+        }
+      } catch (error) {
+        console.error('加载岗位列表失败', error)
+        if (!cancelled) {
+          setJobs([])
+        }
+      } finally {
+        if (!cancelled) {
+          setJobsLoading(false)
+        }
+      }
+    }
+
+    loadJobOptions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!selectedPlatform && catalog[0]) setSelectedPlatform(catalog[0].key)
@@ -200,7 +265,18 @@ export default function JilingRecruit() {
 
     const firstPlatform = selectedPlatforms[0]
     const firstJobId = platformExecConfigs[firstPlatform]?.jobId
-    const firstJob = jobs.find((j) => j.id === firstJobId)
+    const {data: firstJobData, error: firstJobError} = await supabase
+      .from('jobs')
+      .select('id, title, location, salary_min, salary_max, employment_type, department, description, requirements, benefits')
+      .eq('id', firstJobId)
+      .single()
+
+    if (firstJobError) {
+      setWorkflowError(`加载岗位详情失败：${firstJobError.message}`)
+      return
+    }
+
+    const firstJob = firstJobData as RecruitJobDetail | null
     if (!firstJob) {
       setWorkflowError('未找到选择的岗位信息，请重新选择。')
       return
@@ -234,7 +310,7 @@ export default function JilingRecruit() {
       min_match_score: matchThreshold,
       max_results: 30,
     })
-  }, [accounts, jobs, matchThreshold, platformConfigs, platformExecConfigs, safeCompanyProfile, selectedPlatforms, startWorkflow, user])
+  }, [accounts, matchThreshold, platformConfigs, platformExecConfigs, safeCompanyProfile, selectedPlatforms, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
     setActionPendingAccountId(accountId)
@@ -258,17 +334,6 @@ export default function JilingRecruit() {
     })
   }
 
-  if (pageLoading || accountsLoading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-24 w-full rounded-2xl"/>
-        <div className="grid gap-4 xl:grid-cols-3">
-          {Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-72 rounded-xl"/>)}
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
       {/* ── Header with gradient background ── */}
@@ -288,15 +353,21 @@ export default function JilingRecruit() {
         <div className="mt-4 flex flex-wrap items-center gap-6">
           <div className="flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500"/>
-            <span className="text-sm text-muted-foreground">已绑定 <span className="font-semibold text-foreground">{activeAccounts}</span></span>
+            <span className="text-sm text-muted-foreground">
+              已绑定 <span className="font-semibold text-foreground">{accountsLoading ? '加载中' : activeAccounts}</span>
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-amber-500"/>
-            <span className="text-sm text-muted-foreground">待绑定 <span className="font-semibold text-foreground">{pendingAccounts}</span></span>
+            <span className="text-sm text-muted-foreground">
+              待绑定 <span className="font-semibold text-foreground">{accountsLoading ? '加载中' : pendingAccounts}</span>
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-primary/40"/>
-            <span className="text-sm text-muted-foreground">总账号 <span className="font-semibold text-foreground">{totalAccounts}</span></span>
+            <span className="text-sm text-muted-foreground">
+              总账号 <span className="font-semibold text-foreground">{accountsLoading ? '加载中' : totalAccounts}</span>
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span className={cn('inline-block h-2 w-2 rounded-full', backendReady ? 'bg-emerald-500' : 'bg-red-500')}/>
@@ -340,7 +411,11 @@ export default function JilingRecruit() {
             <CardDescription>6 个国内主流招聘平台，预置企业端入口。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 pt-4 sm:grid-cols-2">
-            {catalog.map((item) => {
+            {accountsLoading && catalog.length === 0 ? Array.from({length: 6}).map((_, index) => (
+              <div key={index} className="rounded-xl border p-4">
+                <Skeleton className="h-16 w-full"/>
+              </div>
+            )) : catalog.map((item) => {
               const count = accounts.filter((a) => a.platform === item.key).length
               const hasActive = accounts.some((a) => a.platform === item.key && a.status === 'active')
               const colors = pc(item.key)
@@ -397,7 +472,13 @@ export default function JilingRecruit() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3 pt-4">
-            {selectedPlatformAccounts.length === 0 ? (
+            {accountsLoading ? (
+              Array.from({length: 3}).map((_, index) => (
+                <div key={index} className="rounded-xl border p-4">
+                  <Skeleton className="h-20 w-full"/>
+                </div>
+              ))
+            ) : selectedPlatformAccounts.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed p-8 text-center">
                 <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                   <UserPlus className="h-5 w-5 text-muted-foreground"/>
@@ -511,13 +592,18 @@ export default function JilingRecruit() {
               <Select
                 value={platformConfigs[selectedPlatform]?.boundProfileId || selectedAccountId || ''}
                 onValueChange={(value) => { updatePlatformConfig(selectedPlatform, {boundProfileId: value}); setSelectedAccountId(value) }}
+                disabled={accountsLoading || selectedPlatformAccounts.length === 0}
               >
                 <SelectTrigger><SelectValue placeholder="选择默认执行账号"/></SelectTrigger>
                 <SelectContent>{selectedPlatformAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
 
-            {selectedAccount ? (
+            {accountsLoading ? (
+              <div className="rounded-xl border p-4">
+                <Skeleton className="h-40 w-full"/>
+              </div>
+            ) : selectedAccount ? (
               <div className="rounded-xl border bg-gradient-to-br from-card to-muted/20 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-semibold">{selectedAccount.name}</p>
@@ -589,6 +675,11 @@ export default function JilingRecruit() {
             </CardHeader>
             <CardContent className="pt-4">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {accountsLoading && catalog.length === 0 ? Array.from({length: 6}).map((_, index) => (
+                  <div key={index} className="rounded-xl border p-4">
+                    <Skeleton className="h-40 w-full"/>
+                  </div>
+                )) : null}
                 {catalog.map((item) => {
                   const platformAccounts = accounts.filter((a) => a.platform === item.key && a.status === 'active')
                   const config = platformExecConfigs[item.key] || {accountId: '', jobId: ''}
@@ -644,11 +735,13 @@ export default function JilingRecruit() {
                             <Select
                               value={config.accountId || ''}
                               onValueChange={(value) => setPlatformExecConfigs((prev) => ({...prev, [item.key]: {...(prev[item.key] || {}), accountId: value}}))}
-                              disabled={!!activeExecution}
+                              disabled={!!activeExecution || accountsLoading}
                             >
                               <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="选择已绑定账号"/></SelectTrigger>
                               <SelectContent>
-                                {platformAccounts.length === 0
+                                {accountsLoading
+                                  ? <SelectItem value="_loading_accounts" disabled>账号加载中...</SelectItem>
+                                  : platformAccounts.length === 0
                                   ? <SelectItem value="_none" disabled>暂无已绑定账号</SelectItem>
                                   : platformAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
                               </SelectContent>
@@ -659,11 +752,13 @@ export default function JilingRecruit() {
                             <Select
                               value={config.jobId || ''}
                               onValueChange={(value) => setPlatformExecConfigs((prev) => ({...prev, [item.key]: {...(prev[item.key] || {}), jobId: value}}))}
-                              disabled={!!activeExecution}
+                              disabled={!!activeExecution || jobsLoading}
                             >
                               <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="选择岗位"/></SelectTrigger>
                               <SelectContent>
-                                {jobs.length === 0
+                                {jobsLoading
+                                  ? <SelectItem value="_loading_jobs" disabled>岗位加载中...</SelectItem>
+                                  : jobs.length === 0
                                   ? <SelectItem value="_none" disabled>暂无岗位</SelectItem>
                                   : jobs.map((job) => <SelectItem key={job.id} value={job.id}>{job.title}</SelectItem>)}
                               </SelectContent>

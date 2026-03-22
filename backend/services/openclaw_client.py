@@ -28,11 +28,12 @@ SSE_TIMEOUT = 300.0  # 5 minutes per step
 _MARKDOWN_IMG_RE = re.compile(r'!\[.*?\]\((file://[^)]+\.(?:png|jpg|jpeg|webp))\)')
 
 # 匹配 OpenClaw AI 输出的原始文件路径（不含 file:// 前缀）。
-# AI 可能用反引号、**粗体**、普通文本等格式输出，统一从 / 开始匹配：
+# AI 可能用反引码、**粗体**、普通文本等格式输出，统一从 / 开始匹配：
 #   `/home/sunyd/.openclaw/media/browser/xxx.png`
 #   **/home/sunyd/.openclaw/media/browser/xxx.png**
 #   路径为：/home/sunyd/.openclaw/media/browser/xxx.png
-_PLAIN_PATH_RE = re.compile(r'(/[^\s\'"<>|]+\.openclaw[^\s\'"<>|]*\.(?:png|jpg|jpeg|webp))')
+#   Screenshot: /tmp/58-qrcode-area.png
+_PLAIN_PATH_RE = re.compile(r'(/(?:tmp|home|root|var|opt)/[^\s\'"<>|]*\.(?:png|jpg|jpeg|webp))')
 
 
 @dataclass
