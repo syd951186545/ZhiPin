@@ -27,8 +27,8 @@ import {supabase} from '@/lib/supabase'
 import {cn} from '@/lib/utils'
 import {JobManagementPanel} from '@/pages/Jobs'
 import Candidates from '@/pages/Candidates'
-import {testBackendConnection} from '@/services/workflowService'
-import type {WorkflowId} from '@/services/workflowService'
+import {getWorkflowTemplates, testBackendConnection, validateWorkflowTemplate} from '@/services/workflowService'
+import type {WorkflowId, WorkflowTemplate} from '@/services/workflowService'
 import {useSettingsStore} from '@/stores/useSettingsStore'
 import {useWorkflowStore} from '@/stores/useWorkflowStore'
 import type {Job} from '@/types/database'
@@ -137,7 +137,7 @@ export default function JilingRecruit() {
   const {user} = useAuth()
   const {catalog, accounts, loading: accountsLoading, startVerify, startUnbind, deleteAccount, load: reloadPlatformAccounts} = usePlatformAccounts()
   const {platformConfigs, companyProfile, updatePlatformConfig} = useSettingsStore()
-  const {activeExecution, lastExecution, backendReady, startWorkflow, cancelWorkflow, setBackendReady} = useWorkflowStore()
+  const {activeExecution, lastExecution, backendReady, startWorkflow, cancelWorkflow, setBackendReady, restoreExecution} = useWorkflowStore()
   const safeCompanyProfile = companyProfile || {name: '', address: '', size: '', overview: ''}
   const [jobs, setJobs] = useState<RecruitJobOption[]>([])
   const [jobsLoading, setJobsLoading] = useState(true)
@@ -152,12 +152,25 @@ export default function JilingRecruit() {
   const [bindAccountId, setBindAccountId] = useState<string | null>(null)
   const [actionPendingAccountId, setActionPendingAccountId] = useState<string | null>(null)
   const [workflowError, setWorkflowError] = useState<string | null>(null)
+  const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([])
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [copiedText, setCopiedText] = useState(false)
   const [activeTab, setActiveTab] = useState('execute')
 
   const textEndRef = useRef<HTMLDivElement>(null)
   const displayExec = activeExecution || lastExecution
+  const workflowTemplateMap = useMemo(
+    () => Object.fromEntries(workflowTemplates.map((template) => [template.id, template])),
+    [workflowTemplates],
+  )
+  const workflowCards = useMemo(() => WORKFLOW_CARDS.map((card) => ({
+    ...card,
+    title: workflowTemplateMap[card.id]?.title || card.title,
+    desc: workflowTemplateMap[card.id]?.description || card.desc,
+    multiPlatform: workflowTemplateMap[card.id]?.multi_platform ?? card.multiPlatform,
+    executionMode: workflowTemplateMap[card.id]?.execution_mode || 'auto_submit',
+    screenshotMode: workflowTemplateMap[card.id]?.screenshot_mode || 'direct_url',
+  })), [workflowTemplateMap])
   const selectedPlatformAccounts = useMemo(() => accounts.filter((item) => item.platform === selectedPlatform), [accounts, selectedPlatform])
   const selectedAccount = useMemo(() => selectedPlatformAccounts.find((item) => item.id === selectedAccountId), [selectedAccountId, selectedPlatformAccounts])
   const progressPercent = displayExec ? Math.round((displayExec.steps.filter((step) => step.status === 'done').length / Math.max(displayExec.totalSteps, 1)) * 100) : 0
@@ -168,8 +181,46 @@ export default function JilingRecruit() {
   const pendingAccounts = totalAccounts - activeAccounts
 
   useEffect(() => {
-    testBackendConnection().then(() => setBackendReady(true)).catch(() => setBackendReady(false))
-  }, [setBackendReady])
+    let cancelled = false
+
+    testBackendConnection()
+      .then(async () => {
+        if (cancelled) return
+        setBackendReady(true)
+        try {
+          await restoreExecution()
+        } catch (error) {
+          console.error('恢复招聘执行状态失败', error)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBackendReady(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [restoreExecution, setBackendReady])
+
+  useEffect(() => {
+    let cancelled = false
+
+    getWorkflowTemplates()
+      .then((items) => {
+        if (!cancelled) {
+          setWorkflowTemplates(items)
+        }
+      })
+      .catch((error) => {
+        console.error('加载工作流模板失败', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -284,7 +335,7 @@ export default function JilingRecruit() {
     const firstAccountId = platformAccountIds[firstPlatform]
     const firstAccount = accounts.find((a) => a.id === firstAccountId)
 
-    await startWorkflow({
+    const workflowPayload = {
       workflow_id: workflowId,
       tenant_id: user?.tenantId || '',
       user_id: user?.id || '',
@@ -309,18 +360,27 @@ export default function JilingRecruit() {
       company_overview: safeCompanyProfile.overview,
       min_match_score: matchThreshold,
       max_results: 30,
-    })
+    }
+
+    const validation = await validateWorkflowTemplate(workflowId, workflowPayload)
+    if (!validation.valid) {
+      setWorkflowError(validation.errors[0] || '当前工作流配置未通过校验，请先完成配置。')
+      return
+    }
+
+    await startWorkflow(workflowPayload)
   }, [accounts, matchThreshold, platformConfigs, platformExecConfigs, safeCompanyProfile, selectedPlatforms, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
     setActionPendingAccountId(accountId)
     setWorkflowError(null)
+    setBindAccountId(accountId)
+    setBindDialogOpen(true)
     try {
       if (type === 'verify') await startVerify(accountId)
       else await startUnbind(accountId)
-      setBindAccountId(accountId)
-      setBindDialogOpen(true)
     } catch (error) {
+      setBindDialogOpen(false)
       setWorkflowError(error instanceof Error ? error.message : `${type === 'verify' ? '验证' : '解绑'}失败`)
     } finally {
       setActionPendingAccountId(null)
@@ -335,7 +395,7 @@ export default function JilingRecruit() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="jiling-recruit-page">
       {/* ── Header with gradient background ── */}
       <div className="rounded-2xl bg-gradient-to-r from-primary/[0.06] via-primary/[0.03] to-transparent p-6 dark:from-primary/[0.08] dark:via-primary/[0.04]">
         <div className="flex items-start justify-between gap-4">
@@ -392,20 +452,20 @@ export default function JilingRecruit() {
       )}
 
       {/* ── Tabs ── */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6" data-testid="jiling-recruit-tabs">
         <TabsList className="h-10 bg-muted/50 p-1">
-          <TabsTrigger value="execute" className="gap-1.5 data-[state=active]:shadow-sm"><Play className="h-3.5 w-3.5"/>招聘执行</TabsTrigger>
+          <TabsTrigger value="execute" className="gap-1.5 data-[state=active]:shadow-sm" data-testid="tab-execute"><Play className="h-3.5 w-3.5"/>招聘执行</TabsTrigger>
           <TabsTrigger value="candidates" className="gap-1.5 data-[state=active]:shadow-sm"><FileSearch className="h-3.5 w-3.5"/>候选人</TabsTrigger>
-          <TabsTrigger value="platform-config" className="gap-1.5 data-[state=active]:shadow-sm"><LinkIcon className="h-3.5 w-3.5"/>平台和账号配置</TabsTrigger>
+          <TabsTrigger value="platform-config" className="gap-1.5 data-[state=active]:shadow-sm" data-testid="tab-platform-config"><LinkIcon className="h-3.5 w-3.5"/>平台和账号配置</TabsTrigger>
           <TabsTrigger value="jobs" className="gap-1.5 data-[state=active]:shadow-sm"><Cpu className="h-3.5 w-3.5"/>岗位管理</TabsTrigger>
         </TabsList>
 
         {/* ── Platform & Account Config Tab ── */}
-        <TabsContent value="platform-config" className="space-y-0 mt-0">
+        <TabsContent value="platform-config" className="space-y-0 mt-0" data-testid="platform-config-tab">
         <div className="grid gap-5 xl:grid-cols-[1.15fr,1.15fr,1fr]">
 
         {/* Platform Catalog */}
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden" data-testid="platform-catalog-panel">
           <CardHeader className="bg-gradient-to-r from-primary/[0.04] to-transparent">
             <CardTitle className="text-base">平台目录</CardTitle>
             <CardDescription>6 个国内主流招聘平台，预置企业端入口。</CardDescription>
@@ -424,6 +484,7 @@ export default function JilingRecruit() {
                 <motion.button
                   key={item.key}
                   type="button"
+                  data-testid={`platform-card-${item.key}`}
                   whileHover={{scale: 1.02}}
                   whileTap={{scale: 0.98}}
                   onClick={() => setSelectedPlatform(item.key)}
@@ -466,7 +527,7 @@ export default function JilingRecruit() {
                 <CardTitle className="text-base">{PLATFORMS[selectedPlatform as keyof typeof PLATFORMS]?.name || '平台'} 账号列表</CardTitle>
                 <CardDescription className="mt-1">同平台多账号并存，每个账号独立持久会话。</CardDescription>
               </div>
-              <Button size="sm" className="gap-2 shadow-sm shrink-0" onClick={() => setAddAccountOpen(true)}>
+              <Button size="sm" className="gap-2 shadow-sm shrink-0" onClick={() => setAddAccountOpen(true)} data-testid="open-add-account-dialog">
                 <UserPlus className="h-4 w-4"/>新增平台账号
               </Button>
             </div>
@@ -497,6 +558,7 @@ export default function JilingRecruit() {
                   layout
                   initial={{opacity: 0, y: 8}}
                   animate={{opacity: 1, y: 0}}
+                  data-testid={`account-row-${account.id}`}
                   className={cn(
                     'group relative overflow-hidden rounded-xl border p-4 transition-all duration-200',
                     isSelected ? 'border-primary/30 bg-primary/[0.03] shadow-sm' : 'border-border hover:shadow-sm hover:border-border/80',
@@ -531,24 +593,27 @@ export default function JilingRecruit() {
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid={`account-actions-${account.id}`}>
                             <MoreHorizontal className="h-4 w-4"/>
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-36">
                           <DropdownMenuItem
+                            data-testid={`account-verify-${account.id}`}
                             onClick={() => handleAction('verify', account.id)}
                             disabled={actionPendingAccountId === account.id}
                           >
                             <ShieldCheck className="mr-2 h-4 w-4"/>验证登录
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            data-testid={`account-set-default-${account.id}`}
                             onClick={() => { updatePlatformConfig(selectedPlatform, {boundProfileId: account.id}); setSelectedAccountId(account.id) }}
                           >
                             <Check className="mr-2 h-4 w-4"/>设为默认
                           </DropdownMenuItem>
                           <DropdownMenuSeparator/>
                           <DropdownMenuItem
+                            data-testid={`account-unbind-${account.id}`}
                             className="text-red-600 focus:text-red-600 dark:text-red-400"
                             onClick={() => handleAction('unbind', account.id)}
                             disabled={actionPendingAccountId === account.id}
@@ -556,6 +621,7 @@ export default function JilingRecruit() {
                             <Unplug className="mr-2 h-4 w-4"/>解绑账号
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            data-testid={`account-delete-${account.id}`}
                             className="text-red-600 focus:text-red-600 dark:text-red-400"
                             onClick={async () => {
                               if (!confirm('确定要删除此账号吗？删除后不可恢复。')) return
@@ -581,7 +647,7 @@ export default function JilingRecruit() {
         </Card>
 
         {/* Account Task Panel */}
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden" data-testid="account-task-panel">
           <CardHeader className="bg-gradient-to-r from-primary/[0.04] to-transparent">
             <CardTitle className="text-base">账号任务面板</CardTitle>
             <CardDescription>默认执行账号、绑定/验证/解绑入口。</CardDescription>
@@ -594,7 +660,7 @@ export default function JilingRecruit() {
                 onValueChange={(value) => { updatePlatformConfig(selectedPlatform, {boundProfileId: value}); setSelectedAccountId(value) }}
                 disabled={accountsLoading || selectedPlatformAccounts.length === 0}
               >
-                <SelectTrigger><SelectValue placeholder="选择默认执行账号"/></SelectTrigger>
+                <SelectTrigger data-testid="default-account-select"><SelectValue placeholder="选择默认执行账号"/></SelectTrigger>
                 <SelectContent>{selectedPlatformAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
@@ -604,7 +670,7 @@ export default function JilingRecruit() {
                 <Skeleton className="h-40 w-full"/>
               </div>
             ) : selectedAccount ? (
-              <div className="rounded-xl border bg-gradient-to-br from-card to-muted/20 p-4">
+              <div className="rounded-xl border bg-gradient-to-br from-card to-muted/20 p-4" data-testid="selected-account-panel">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-semibold">{selectedAccount.name}</p>
                   {statusBadge(selectedAccount.status)}
@@ -615,13 +681,13 @@ export default function JilingRecruit() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button size="sm" className="gap-2 shadow-sm" onClick={() => { setBindAccountId(selectedAccount.id); setBindDialogOpen(true) }}>
+                  <Button size="sm" className="gap-2 shadow-sm" onClick={() => { setBindAccountId(selectedAccount.id); setBindDialogOpen(true) }} data-testid="open-bind-dialog">
                     <LogIn className="h-3.5 w-3.5"/>开始绑定
                   </Button>
-                  <Button size="sm" variant="outline" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950" onClick={() => handleAction('verify', selectedAccount.id)}>
+                  <Button size="sm" variant="outline" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950" onClick={() => handleAction('verify', selectedAccount.id)} data-testid="verify-account">
                     <ShieldCheck className="h-3.5 w-3.5"/>验证登录
                   </Button>
-                  <Button size="sm" variant="outline" className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950" onClick={() => handleAction('unbind', selectedAccount.id)}>
+                  <Button size="sm" variant="outline" className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950" onClick={() => handleAction('unbind', selectedAccount.id)} data-testid="unbind-account">
                     <Unplug className="h-3.5 w-3.5"/>解绑账号
                   </Button>
                 </div>
@@ -629,6 +695,7 @@ export default function JilingRecruit() {
                 {selectedAccount.latestBindingSession?.latest_screenshot_url && (
                   <button
                     type="button"
+                    data-testid="latest-account-screenshot"
                     className="group/img mt-4 block w-full overflow-hidden rounded-lg border shadow-sm transition-shadow hover:shadow-md"
                     onClick={() => setLightboxSrc(selectedAccount.latestBindingSession?.latest_screenshot_url || null)}
                   >
@@ -654,9 +721,9 @@ export default function JilingRecruit() {
         </div>
         </TabsContent>
 
-        <TabsContent value="execute" className="space-y-6 mt-0">
+        <TabsContent value="execute" className="space-y-6 mt-0" data-testid="execute-tab">
           {/* Multi-platform Selection */}
-          <Card>
+          <Card data-testid="execute-platform-selection">
             <CardHeader className="bg-gradient-to-r from-primary/[0.04] to-transparent pb-3">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -689,6 +756,7 @@ export default function JilingRecruit() {
                   return (
                     <motion.div
                       key={item.key}
+                      data-testid={`execute-platform-card-${item.key}`}
                       whileHover={canSelect && !activeExecution ? {scale: 1.01} : undefined}
                       whileTap={canSelect && !activeExecution ? {scale: 0.99} : undefined}
                       onClick={() => canSelect && !activeExecution && togglePlatformSelection(item.key)}
@@ -737,7 +805,7 @@ export default function JilingRecruit() {
                               onValueChange={(value) => setPlatformExecConfigs((prev) => ({...prev, [item.key]: {...(prev[item.key] || {}), accountId: value}}))}
                               disabled={!!activeExecution || accountsLoading}
                             >
-                              <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="选择已绑定账号"/></SelectTrigger>
+                              <SelectTrigger className="h-7 text-xs" data-testid={`execute-account-select-${item.key}`}><SelectValue placeholder="选择已绑定账号"/></SelectTrigger>
                               <SelectContent>
                                 {accountsLoading
                                   ? <SelectItem value="_loading_accounts" disabled>账号加载中...</SelectItem>
@@ -754,7 +822,7 @@ export default function JilingRecruit() {
                               onValueChange={(value) => setPlatformExecConfigs((prev) => ({...prev, [item.key]: {...(prev[item.key] || {}), jobId: value}}))}
                               disabled={!!activeExecution || jobsLoading}
                             >
-                              <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="选择岗位"/></SelectTrigger>
+                              <SelectTrigger className="h-7 text-xs" data-testid={`execute-job-select-${item.key}`}><SelectValue placeholder="选择岗位"/></SelectTrigger>
                               <SelectContent>
                                 {jobsLoading
                                   ? <SelectItem value="_loading_jobs" disabled>岗位加载中...</SelectItem>
@@ -778,14 +846,16 @@ export default function JilingRecruit() {
           </Card>
 
           {/* Workflow Cards */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {WORKFLOW_CARDS.map((workflow) => {
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3" data-testid="workflow-cards">
+            {workflowCards.map((workflow) => {
               const isThisActive = !!activeExecution && activeExecution.workflowId === workflow.id
               const isOtherActive = !!activeExecution && activeExecution.workflowId !== workflow.id
               const theme = WORKFLOW_THEMES[workflow.id] || WORKFLOW_THEMES.publish_job
               return (
                 <motion.div key={workflow.id} whileHover={!isOtherActive ? {y: -2} : undefined} transition={{duration: 0.2}}>
-                  <Card className={cn(
+                  <Card
+                    data-testid={`workflow-card-${workflow.id}`}
+                    className={cn(
                     'overflow-hidden transition-all duration-300',
                     isOtherActive && 'opacity-40',
                     isThisActive && 'ring-2 ring-primary shadow-lg shadow-primary/10',
@@ -795,11 +865,14 @@ export default function JilingRecruit() {
                         <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', theme.iconBg)}>
                           <workflow.icon className="h-5 w-5 text-primary"/>
                         </div>
-                        {workflow.multiPlatform && (
-                          <Badge variant="outline" className="gap-1 text-xs">
-                            <Layers className="h-3 w-3"/>多平台
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {workflow.multiPlatform && (
+                            <Badge variant="outline" className="gap-1 text-xs">
+                              <Layers className="h-3 w-3"/>多平台
+                            </Badge>
+                          )}
+                          <Badge variant="secondary" className="text-[10px]">{workflow.executionMode === 'auto_submit' ? '自动提交' : workflow.executionMode}</Badge>
+                        </div>
                       </div>
                       <CardTitle className="text-base">{workflow.title}</CardTitle>
                       <CardDescription className="text-xs leading-relaxed">{workflow.desc}</CardDescription>
@@ -814,7 +887,9 @@ export default function JilingRecruit() {
                           <span className="text-xs font-medium text-primary">执行中...</span>
                         </div>
                       )}
+                      <p className="mb-3 text-[11px] text-muted-foreground">截图策略：{workflow.screenshotMode === 'direct_url' ? '直接截图链接' : workflow.screenshotMode}</p>
                       <Button
+                        data-testid={`workflow-action-${workflow.id}`}
                         className={cn('w-full gap-2', !isThisActive && 'shadow-sm')}
                         variant={isThisActive ? 'destructive' : 'default'}
                         onClick={() => isThisActive ? cancelWorkflow() : handleStartWorkflow(workflow.id)}
@@ -831,7 +906,7 @@ export default function JilingRecruit() {
 
           {/* Execution Monitor */}
           {displayExec && (
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden" data-testid="execution-monitor">
               <CardHeader className="bg-gradient-to-r from-primary/[0.08] via-primary/[0.04] to-transparent">
                 <div className="flex items-center justify-between">
                   <div>
@@ -846,7 +921,7 @@ export default function JilingRecruit() {
               <CardContent className="pt-5">
                 <div className="grid gap-6 lg:grid-cols-3">
                   {/* Progress timeline */}
-                  <div className="space-y-4">
+                  <div className="space-y-4" data-testid="execution-steps">
                     <div className="flex items-center justify-between">
                       <Progress value={progressPercent} className="h-2 flex-1"/>
                       <span className="ml-3 text-lg font-bold tabular-nums">{progressPercent}%</span>
@@ -883,7 +958,7 @@ export default function JilingRecruit() {
                   </div>
 
                   {/* Screenshots */}
-                  <div className="space-y-3">
+                  <div className="space-y-3" data-testid="execution-screenshots">
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">截图节点</p>
                     {displayExec.actionNodes.length === 0 ? (
                       <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed bg-muted/20 text-muted-foreground">
@@ -893,10 +968,15 @@ export default function JilingRecruit() {
                     ) : (
                       <div className="space-y-3 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
                         {displayExec.actionNodes.map((node) => (
-                          <button key={node.id} type="button" className="group/shot w-full overflow-hidden rounded-lg border shadow-sm transition-shadow hover:shadow-md text-left" onClick={() => setLightboxSrc(node.screenshot || null)}>
+                          <button key={node.id} type="button" className="group/shot w-full overflow-hidden rounded-lg border shadow-sm transition-shadow hover:shadow-md text-left" onClick={() => setLightboxSrc(node.screenshot || node.contentUrl || null)}>
                             {node.screenshot ? (
                               <div className="relative">
                                 <img src={node.screenshot} alt={node.action} className="h-28 w-full object-cover object-top"/>
+                                {node.artifactId && (
+                                  <div className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+                                    {node.persisted ? '已落库' : '实时'}
+                                  </div>
+                                )}
                                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/shot:bg-black/10">
                                   <Search className="h-5 w-5 text-white opacity-0 transition-opacity group-hover/shot:opacity-80"/>
                                 </div>
@@ -911,7 +991,7 @@ export default function JilingRecruit() {
                   </div>
 
                   {/* AI Output */}
-                  <div className="space-y-3">
+                  <div className="space-y-3" data-testid="execution-output">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI 完整输出</p>
                       {displayExec.accumulatedText && (

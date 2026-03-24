@@ -1,5 +1,5 @@
 import React, {useState} from 'react'
-import {ExternalLink, Loader2, Smartphone, UserPlus} from 'lucide-react'
+import {AlertTriangle, ExternalLink, Loader2, Smartphone, UserPlus} from 'lucide-react'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
@@ -38,6 +38,18 @@ const LOGIN_METHODS: Record<string, string> = {
   lagou: '手机号登录',
 }
 
+function resetForm(
+  setPlatform: (v: PlatformKey | '') => void,
+  setName: (v: string) => void,
+  setAccountName: (v: string) => void,
+  setError: (v: string | null) => void,
+) {
+  setPlatform('')
+  setName('')
+  setAccountName('')
+  setError(null)
+}
+
 export default function AddProfileDialog({open, onOpenChange, onCreated}: AddProfileDialogProps) {
   const {t} = useI18n()
   const {createAccount} = usePlatformAccounts()
@@ -46,12 +58,22 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
   const [name, setName] = useState('')
   const [accountName, setAccountName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const selectedPlatform = platform ? PLATFORMS[platform] : null
+
+  // 关闭时重置表单（BUG-06）
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && !saving) {
+      resetForm(setPlatform, setName, setAccountName, setError)
+    }
+    onOpenChange(nextOpen)
+  }
 
   const handleSubmit = async () => {
     if (!platform || !name.trim()) return
     setSaving(true)
+    setError(null)
     try {
       await createAccount({
         platform,
@@ -59,21 +81,19 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
         account_name: accountName.trim() || undefined,
         platform_url: PLATFORMS[platform]?.loginUrl,
       })
-      setPlatform('')
-      setName('')
-      setAccountName('')
+      resetForm(setPlatform, setName, setAccountName, setError)
       await onCreated?.()
       onOpenChange(false)
     } catch (e) {
-      console.error('添加账号失败:', e)
+      setError(e instanceof Error ? e.message : '添加账号失败，请重试')
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-md" data-testid="add-account-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
@@ -89,7 +109,7 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
           <div className="space-y-2">
             <Label className="text-xs">{t('settings.profiles.add.platform')}</Label>
             <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformKey)}>
-              <SelectTrigger>
+              <SelectTrigger data-testid="add-account-platform-select">
                 <SelectValue placeholder={t('settings.profiles.add.platform')}/>
               </SelectTrigger>
               <SelectContent>
@@ -107,7 +127,7 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
 
           {/* Platform preview card */}
           {selectedPlatform && platform && (
-            <div className="rounded-xl border bg-gradient-to-br from-muted/30 to-muted/10 p-4">
+            <div className="rounded-xl border bg-gradient-to-br from-muted/30 to-muted/10 p-4" data-testid="add-account-platform-preview">
               <div className="flex items-center gap-3">
                 <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm', PLATFORM_COLORS[platform] || 'bg-zinc-500')}>
                   {selectedPlatform.name.charAt(0)}
@@ -133,6 +153,7 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
           <div className="space-y-2">
             <Label className="text-xs">{t('settings.profiles.add.name')}</Label>
             <Input
+              data-testid="add-account-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：华东招聘账号"
@@ -142,6 +163,7 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
           <div className="space-y-2">
             <Label className="text-xs">登录名（可选）</Label>
             <Input
+              data-testid="add-account-login-name"
               value={accountName}
               onChange={(e) => setAccountName(e.target.value)}
               placeholder="手机号或账号名"
@@ -149,11 +171,17 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
             <p className="text-[11px] text-muted-foreground">预填登录时使用的手机号或账号名，可后续在绑定时修改</p>
           </div>
         </div>
+        {error && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/20 dark:text-red-300">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>
+            <span>{error}</span>
+          </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
             {t('common.cancel')}
           </Button>
-          <Button className="gap-2 shadow-sm" onClick={handleSubmit} disabled={!platform || !name.trim() || saving}>
+          <Button className="gap-2 shadow-sm" onClick={handleSubmit} disabled={!platform || !name.trim() || saving} data-testid="add-account-submit">
             {saving ? <Loader2 className="h-4 w-4 animate-spin"/> : <UserPlus className="h-4 w-4"/>}
             {saving ? '保存中...' : t('settings.profiles.add.submit')}
           </Button>

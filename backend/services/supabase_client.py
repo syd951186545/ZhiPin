@@ -95,6 +95,64 @@ class TenantSettingsRow(TypedDict, total=False):
     updated_at: str
 
 
+class WorkflowRunRow(TypedDict, total=False):
+    execution_id: str
+    tenant_id: str
+    workflow_id: str
+    workflow_name: Optional[str]
+    status: str
+    multi_platform: bool
+    request_payload: dict[str, Any]
+    result_payload: Optional[dict[str, Any]]
+    steps_payload: dict[str, Any]
+    step_order: list[str]
+    events_payload: list[dict[str, Any]]
+    accumulated_output: str
+    current_platform: Optional[dict[str, Any]]
+    latest_checkpoint: Optional[dict[str, Any]]
+    handoff_required: Optional[dict[str, Any]]
+    error_message: Optional[str]
+    error_code: Optional[str]
+    task_id: Optional[str]
+    created_at: str
+    updated_at: str
+    completed_at: Optional[str]
+
+
+class WorkflowArtifactRow(TypedDict, total=False):
+    artifact_id: str
+    execution_id: str
+    tenant_id: str
+    step_id: str
+    artifact_type: str
+    source: str
+    capture_phase: str
+    mime_type: str
+    storage_key: Optional[str]
+    preview_url: Optional[str]
+    live_url: Optional[str]
+    signed_url: Optional[str]
+    width: Optional[int]
+    height: Optional[int]
+    captured_at: str
+    created_at: str
+    updated_at: str
+
+
+class WorkflowCheckpointRow(TypedDict, total=False):
+    checkpoint_id: str
+    execution_id: str
+    tenant_id: str
+    step_id: str
+    step_name: Optional[str]
+    step_index: int
+    attempt: int
+    artifact_ids: list[str]
+    payload: dict[str, Any]
+    verified_at: str
+    created_at: str
+
+
 def get_supabase(auth_token: Optional[str] = None) -> Client:
     """
     获取 Supabase 客户端。
@@ -601,3 +659,115 @@ def insert_task_log(
         "message": message,
         "metadata": metadata,
     }).execute()
+
+
+# ── Workflow Runtime Persistence ──────────────────────────
+
+
+def upsert_workflow_run(
+    row: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> WorkflowRunRow:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("workflow_runs")
+        .upsert(row, on_conflict="execution_id")
+        .execute()
+    )
+    return (result.data or [{}])[0]
+
+
+def get_workflow_run(
+    execution_id: str,
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> Optional[WorkflowRunRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("workflow_runs")
+        .select("*")
+        .eq("execution_id", execution_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def upsert_workflow_artifact(
+    row: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> WorkflowArtifactRow:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("workflow_artifacts")
+        .upsert(row, on_conflict="artifact_id")
+        .execute()
+    )
+    return (result.data or [{}])[0]
+
+
+def list_workflow_artifacts(
+    execution_id: str,
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> list[WorkflowArtifactRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("workflow_artifacts")
+        .select("*")
+        .eq("execution_id", execution_id)
+        .eq("tenant_id", tenant_id)
+        .order("captured_at", desc=False)
+        .execute()
+    )
+    return result.data or []
+
+
+def get_workflow_artifact(
+    artifact_id: str,
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> Optional[WorkflowArtifactRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("workflow_artifacts")
+        .select("*")
+        .eq("artifact_id", artifact_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def upsert_workflow_checkpoint(
+    row: dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> WorkflowCheckpointRow:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("workflow_checkpoints")
+        .upsert(row, on_conflict="checkpoint_id")
+        .execute()
+    )
+    return (result.data or [{}])[0]
+
+
+def list_workflow_checkpoints(
+    execution_id: str,
+    tenant_id: str,
+    auth_token: Optional[str] = None,
+) -> list[WorkflowCheckpointRow]:
+    sb = get_supabase(auth_token)
+    result = (
+        sb.table("workflow_checkpoints")
+        .select("*")
+        .eq("execution_id", execution_id)
+        .eq("tenant_id", tenant_id)
+        .order("verified_at", desc=False)
+        .execute()
+    )
+    return result.data or []

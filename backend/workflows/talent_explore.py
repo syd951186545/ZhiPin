@@ -8,6 +8,7 @@ login_check → search_candidates → collect_profiles → initiate_contact → 
 import logging
 
 from workflows.base import WorkflowState, StepDefinition, finalize_persisted_screenshots, run_workflow_graph
+from workflows.contracts import RetryPolicy
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
 from services.supabase_client import (
@@ -34,6 +35,7 @@ STEPS = [
         id="login_check",
         name_zh="登录平台",
         prompt_builder=build_login_check_prompt,
+        retry_policy=RetryPolicy(max_attempts=2),
     ),
     StepDefinition(
         id="search_candidates",
@@ -69,6 +71,12 @@ STEP_META = [
 
 async def run(execution_id: str, req):
     """运行市场人才探索工作流"""
+
+    await emit_event(execution_id, "run_started", {
+        "execution_id": execution_id,
+        "workflow_id": "talent_explore",
+        "workflow_name": "市场人才探索",
+    })
 
     await emit_event(execution_id, "workflow_meta", {
         "workflow_id": "talent_explore",
@@ -129,6 +137,11 @@ async def run(execution_id: str, req):
         "step_results": {},
         "accumulated_text": "",
         "all_screenshots": [],
+        "artifacts": [],
+        "checkpoints": [],
+        "latest_checkpoint": None,
+        "step_attempts": {},
+        "current_error_code": None,
         "parsed_candidates": [],
         "announcement_text": "",
         "publish_result": {},
@@ -216,6 +229,14 @@ async def run(execution_id: str, req):
         await emit_event(execution_id, "error", {
             "step_id": final_state.get("current_step", ""),
             "message": final_state["error"],
+            "error_code": final_state.get("current_error_code"),
+        })
+        await emit_event(execution_id, "run_failed", {
+            "execution_id": execution_id,
+            "workflow_id": "talent_explore",
+            "message": final_state["error"],
+            "error_code": final_state.get("current_error_code"),
+            "latest_checkpoint": final_state.get("latest_checkpoint"),
         })
         final_state = await finalize_persisted_screenshots(final_state)
         if task_record.get("id"):
@@ -239,6 +260,14 @@ async def run(execution_id: str, req):
         await emit_event(execution_id, "complete", {
             "result_summary": result_summary,
             "screenshots": all_screenshots,
+            "artifacts": final_state.get("artifacts", []),
+            "latest_checkpoint": final_state.get("latest_checkpoint"),
+        })
+        await emit_event(execution_id, "run_completed", {
+            "execution_id": execution_id,
+            "workflow_id": "talent_explore",
+            "latest_checkpoint": final_state.get("latest_checkpoint"),
+            "artifacts_count": len(final_state.get("artifacts", [])),
         })
         final_state = await finalize_persisted_screenshots(final_state)
         if task_record.get("id"):

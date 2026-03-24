@@ -9,6 +9,7 @@
 import logging
 
 from workflows.base import WorkflowState, StepDefinition, execute_step, finalize_persisted_screenshots, run_workflow_graph
+from workflows.contracts import RetryPolicy
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
 from services.supabase_client import (
@@ -59,6 +60,12 @@ PER_PLATFORM_STEPS = [
 
 async def run(execution_id: str, req):
     """运行简历筛选及AI沟通工作流（多平台串行）"""
+
+    await emit_event(execution_id, "run_started", {
+        "execution_id": execution_id,
+        "workflow_id": "resume_screen",
+        "workflow_name": "简历筛选及AI沟通",
+    })
 
     platforms = req.platforms or ([req.platform] if req.platform else [])
     if not platforms:
@@ -149,6 +156,11 @@ async def run(execution_id: str, req):
         "step_results": {},
         "accumulated_text": "",
         "all_screenshots": [],
+        "artifacts": [],
+        "checkpoints": [],
+        "latest_checkpoint": None,
+        "step_attempts": {},
+        "current_error_code": None,
         "parsed_candidates": [],
         "announcement_text": "",
         "publish_result": {},
@@ -222,6 +234,7 @@ async def run(execution_id: str, req):
                         name_zh=current_step_name,
                         prompt_builder=prompt_builder,
                         requires_openclaw=True,
+                        retry_policy=RetryPolicy(max_attempts=2) if current_step_id.startswith("login_check_") else RetryPolicy(max_attempts=1),
                     )
 
                     openclaw = OpenClawClient()
@@ -344,6 +357,13 @@ async def run(execution_id: str, req):
 
     if final_state.get("cancelled"):
         final_state = await finalize_persisted_screenshots(final_state)
+        await emit_event(execution_id, "run_failed", {
+            "execution_id": execution_id,
+            "workflow_id": "resume_screen",
+            "message": "用户取消",
+            "error_code": "USER_CANCELLED",
+            "latest_checkpoint": final_state.get("latest_checkpoint"),
+        })
         if task_record.get("id"):
             complete_automation_task(
                 task_record["id"], "cancelled",
@@ -361,6 +381,14 @@ async def run(execution_id: str, req):
     await emit_event(execution_id, "complete", {
         "result_summary": result_summary,
         "screenshots": all_screenshots,
+        "artifacts": final_state.get("artifacts", []),
+        "latest_checkpoint": final_state.get("latest_checkpoint"),
+    })
+    await emit_event(execution_id, "run_completed", {
+        "execution_id": execution_id,
+        "workflow_id": "resume_screen",
+        "latest_checkpoint": final_state.get("latest_checkpoint"),
+        "artifacts_count": len(final_state.get("artifacts", [])),
     })
 
     final_state = await finalize_persisted_screenshots(final_state)

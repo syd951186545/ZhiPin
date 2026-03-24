@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import {
-  AlertCircle, CheckCircle2, Download, ExternalLink, Link as LinkIcon, Loader2, LogIn, RefreshCw, Save, Server, ShieldCheck, Unplug, UserPlus,
+  AlertCircle, CheckCircle2, Download, Loader2, RefreshCw, Save, Server,
 } from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
@@ -13,15 +13,9 @@ import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import {Textarea} from '@/components/ui/textarea'
 import PageHeader from '@/components/shared/PageHeader'
 import {useI18n} from '@/contexts/I18nContext'
-import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
 import {useTenantSettings} from '@/hooks/useTenantSettings'
-import {PLATFORMS} from '@/lib/constants'
-import {cn} from '@/lib/utils'
 import {supabase} from '@/lib/supabase'
 import {useSettingsStore} from '@/stores/useSettingsStore'
-import AddProfileDialog from '@/components/settings/AddProfileDialog'
-import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
-import {Badge} from '@/components/ui/badge'
 
 interface ServerConfig {
   provider: string
@@ -255,13 +249,6 @@ export default function Settings() {
     updateProxy, updateAI, updateNotifications,
   } = useSettingsStore()
 
-  // Platform accounts
-  const {accounts, loading: accountsLoading, startVerify, startUnbind, load: reloadAccounts} = usePlatformAccounts()
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
-  const [bindDialogOpen, setBindDialogOpen] = useState(false)
-  const [bindAccountId, setBindAccountId] = useState<string | null>(null)
-  const [platformActionPending, setPlatformActionPending] = useState<string | null>(null)
-
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null)
   const [serverLoading, setServerLoading] = useState(false)
   const [editModel, setEditModel] = useState('')
@@ -403,7 +390,6 @@ export default function Settings() {
           <TabsTrigger value="ai">{t('settings.tab.ai')}</TabsTrigger>
           <TabsTrigger value="proxy">{t('settings.tab.proxy')}</TabsTrigger>
           <TabsTrigger value="notifications">{t('settings.tab.notifications')}</TabsTrigger>
-          <TabsTrigger value="platform">平台账号</TabsTrigger>
         </TabsList>
 
         <TabsContent value="ai">
@@ -655,125 +641,6 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="platform">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between gap-4">
-              <div>
-                <CardTitle>平台账号管理</CardTitle>
-                <CardDescription>绑定招聘平台账号，支持验证登录状态和解绑操作。</CardDescription>
-              </div>
-              <Button size="sm" className="gap-2 shadow-sm" onClick={() => setAddDialogOpen(true)}>
-                <UserPlus className="h-4 w-4"/>新增账号
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {accountsLoading ? (
-                <div className="flex items-center justify-center py-12 text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin"/>加载中...
-                </div>
-              ) : accounts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center">
-                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                    <LinkIcon className="h-5 w-5 text-muted-foreground"/>
-                  </div>
-                  <p className="text-sm font-medium text-muted-foreground">暂无平台账号</p>
-                  <p className="mt-1 text-xs text-muted-foreground/70">点击「新增账号」添加第一个招聘平台</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {accounts.map((account) => {
-                    const platformInfo = PLATFORMS[account.platform as keyof typeof PLATFORMS]
-                    const isPending = platformActionPending === account.id
-                    return (
-                      <div key={account.id} className="flex items-center justify-between gap-4 rounded-xl border p-4 transition-all hover:shadow-sm">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className={cn(
-                            'flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold text-white shrink-0',
-                            account.platform === 'boss_zhipin' ? 'bg-cyan-500' :
-                            account.platform === '58' ? 'bg-orange-500' :
-                            account.platform === 'liepin' ? 'bg-red-500' :
-                            account.platform === 'zhilian' ? 'bg-blue-600' :
-                            account.platform === '51job' ? 'bg-indigo-500' :
-                            account.platform === 'lagou' ? 'bg-emerald-500' : 'bg-zinc-500',
-                          )}>
-                            {(platformInfo?.name || account.platform).charAt(0)}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-medium truncate">{account.name}</p>
-                              <Badge
-                                className={cn(
-                                  'border-0 text-[10px]',
-                                  account.status === 'active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
-                                  account.status === 'verifying' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
-                                  account.status === 'expired' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
-                                  'bg-muted text-muted-foreground',
-                                )}
-                              >
-                                {account.status === 'active' ? '已绑定' : account.status === 'verifying' ? '处理中' : account.status === 'expired' ? '已失效' : '待绑定'}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {platformInfo?.name || account.platform} · {account.accountName || account.loginIdentifierMasked || '未设置登录名'}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="h-7 gap-1.5 px-2.5 text-xs shadow-sm"
-                            onClick={() => { setBindAccountId(account.id); setBindDialogOpen(true) }}
-                          >
-                            <LogIn className="h-3 w-3"/>绑定
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 gap-1.5 px-2.5 text-xs"
-                            disabled={isPending}
-                            onClick={async () => {
-                              setPlatformActionPending(account.id)
-                              try {
-                                await startVerify(account.id)
-                                setBindAccountId(account.id)
-                                setBindDialogOpen(true)
-                              } catch {}
-                              setPlatformActionPending(null)
-                            }}
-                          >
-                            {isPending ? <Loader2 className="h-3 w-3 animate-spin"/> : <ShieldCheck className="h-3 w-3"/>}
-                            验证
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1.5 px-2.5 text-xs text-red-600 hover:text-red-600 dark:text-red-400"
-                            disabled={isPending}
-                            onClick={async () => {
-                              setPlatformActionPending(account.id)
-                              try {
-                                await startUnbind(account.id)
-                                setBindAccountId(account.id)
-                                setBindDialogOpen(true)
-                              } catch {}
-                              setPlatformActionPending(null)
-                            }}
-                          >
-                            <Unplug className="h-3 w-3"/>解绑
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <AddProfileDialog open={addDialogOpen} onOpenChange={setAddDialogOpen} onCreated={reloadAccounts}/>
-          <PlatformLoginDialog open={bindDialogOpen} onOpenChange={setBindDialogOpen} profileId={bindAccountId} onDataChanged={reloadAccounts}/>
-        </TabsContent>
       </Tabs>
     </div>
   )

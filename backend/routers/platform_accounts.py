@@ -204,17 +204,18 @@ async def stream_binding_session(
     session_id: str,
     token: Optional[str] = None,
 ):
-    # EventSource 不支持自定义 header，通过 query param 验证
-    if token:
-        try:
-            user = await _validate_request_user(token)
-            session = get_binding_session(session_id, user["tenant_id"], auth_token=token)
-            if not session:
-                raise HTTPException(status_code=404, detail="绑定会话不存在或无权访问")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=401, detail="认证失败")
+    # EventSource 不支持自定义 header，通过 query param 传递 token 鉴权
+    if not token:
+        raise HTTPException(status_code=401, detail="缺少认证 token，请通过 ?token= 传递")
+    try:
+        user = await _validate_request_user(token)
+        session = get_binding_session(session_id, user["tenant_id"], auth_token=token)
+        if not session:
+            raise HTTPException(status_code=404, detail="绑定会话不存在或无权访问")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="认证失败")
     return EventSourceResponse(stream_binding_events(session_id))
 
 

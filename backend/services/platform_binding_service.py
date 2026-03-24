@@ -87,6 +87,17 @@ def _close_binding_stream(session_id: str) -> None:
         queue.put_nowait(None)
     except Exception:
         pass
+    # 延迟清理事件历史，避免内存持续积累（保留 60 秒供迟到的订阅者回放）
+    async def _delayed_cleanup() -> None:
+        await asyncio.sleep(60)
+        _event_history.pop(session_id, None)
+        _event_queues.pop(session_id, None)
+        _completed_sessions.discard(session_id)
+
+    try:
+        asyncio.get_event_loop().create_task(_delayed_cleanup())
+    except RuntimeError:
+        pass
 
 
 def _awaiting_schema(status: str) -> Optional[dict[str, Any]]:
@@ -108,8 +119,10 @@ def _awaiting_schema(status: str) -> Optional[dict[str, Any]]:
 
 def _normalize_status(action: str, parsed_state: str, reason: str) -> str:
     if action == "unbind":
-        # LOGGED_OUT 和 FAILED 都视为解绑完成（后端会兜底轮换 session key）
-        return "completed"
+        # 只有明确退出登录才视为完成，其余（含 FAILED）上报真实失败
+        if parsed_state in {"LOGGED_OUT", "NOT_BOUND"}:
+            return "completed"
+        return "failed"
     return {
         "LOGGED_IN": "completed",
         "AWAIT_SMS": "awaiting_sms",
@@ -170,7 +183,7 @@ def _account_patch_for_status(
                 "status": "needsLogin",
                 "is_connected": False,
                 "last_unbind_task_id": session_id,
-                "login_state": "FAILED",
+                "login_state": "NOT_BOUND",
             }
         )
     return patch

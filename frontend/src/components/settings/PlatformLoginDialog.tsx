@@ -149,7 +149,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     setPassword('')
     setLiveError(null)
     setProgressText('')
-    setSessionReason('')
+    setSessionReason(latestBindingSession?.error_message || '')
     setLatestScreenshot(latestBindingSession?.latest_screenshot_url || latestBindingSession?.qr_screenshot_url || null)
     setSessionId(latestBindingSession?.id || null)
     setSessionStatus(latestBindingSession?.status || null)
@@ -159,8 +159,12 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
 
   useEffect(() => {
     if (!open || !sessionId) return
-    let unsubscribe: (() => void) | undefined
+    // BUG-12: 用 ref 保存 unsubscribe，避免异步赋值与同步 cleanup 的竞争
+    let cancelled = false
+    let unsubscribeFn: (() => void) | undefined
+
     supabase.auth.getSession().then(({data}) => {
+      if (cancelled) return
       const token = data.session?.access_token
       const handlers: Parameters<typeof subscribePlatformBindingSession>[1] = {
         onProgress: (d) => {
@@ -201,11 +205,14 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
           await onDataChanged?.()
         },
       }
-      unsubscribe = subscribePlatformBindingSession(sessionId, handlers, token || undefined)
+      unsubscribeFn = subscribePlatformBindingSession(sessionId, handlers, token || undefined)
     }).catch(() => {})
 
     refreshSession(sessionId).catch(() => {})
-    return () => unsubscribe?.()
+    return () => {
+      cancelled = true
+      unsubscribeFn?.()
+    }
   }, [load, open, refreshSession, sessionId])
 
   const activeMethod = useMemo(
@@ -228,6 +235,8 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
       setSessionStatus(session.status)
       setSessionReason(session.error_message || '')
       setLatestScreenshot(session.latest_screenshot_url || session.qr_screenshot_url || null)
+      // 只有在非 running 状态时才立即重置 pending（running 时由 SSE onState 事件重置）
+      if (session.status !== 'running') setPending(false)
       await onDataChanged?.()
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : '启动绑定失败')
@@ -252,6 +261,8 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
       setVerificationCode('')
       setSecondaryCode('')
       setPassword('')
+      // 只有在非 running 状态时才立即重置 pending（running 时由 SSE onState 事件重置）
+      if (session.status !== 'running') setPending(false)
       await onDataChanged?.()
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : '提交验证信息失败')
@@ -261,11 +272,11 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="platform-login-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             绑定平台账号
-            <Badge variant={statusBadgeVariant(sessionStatus)} className="ml-2">
+            <Badge variant={statusBadgeVariant(sessionStatus)} className="ml-2" data-testid="bind-status-badge">
               {statusText(sessionStatus)}
             </Badge>
           </DialogTitle>
@@ -288,6 +299,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                 <motion.button
                   key={item.value}
                   type="button"
+                  data-testid={`bind-method-${item.value}`}
                   whileHover={{scale: 1.03}}
                   whileTap={{scale: 0.97}}
                   className={cn(
@@ -334,6 +346,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                       {loginMethod === 'phone' ? <Phone className="h-4 w-4"/> : <KeyRound className="h-4 w-4"/>}
                     </div>
                     <Input
+                      data-testid={loginMethod === 'phone' ? 'bind-phone-input' : 'bind-login-name-input'}
                       value={loginMethod === 'phone' ? phone : loginName}
                       onChange={(e) => loginMethod === 'phone' ? setPhone(e.target.value) : setLoginName(e.target.value)}
                       placeholder={loginMethod === 'phone' ? '请输入绑定手机号' : '请输入账号名'}
@@ -352,6 +365,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                       <Lock className="h-4 w-4"/>
                     </div>
                     <Input
+                      data-testid="bind-password-input"
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -381,6 +395,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                         <div className="space-y-2">
                           <Label className="text-xs">短信验证码</Label>
                           <Input
+                            data-testid="bind-verification-code-input"
                             value={verificationCode}
                             onChange={(e) => setVerificationCode(e.target.value)}
                             placeholder="6位验证码"
@@ -396,6 +411,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                           <div className="space-y-2">
                             <Label className="text-xs">二次验证码</Label>
                             <Input
+                              data-testid="bind-secondary-code-input"
                               value={secondaryCode}
                               onChange={(e) => setSecondaryCode(e.target.value)}
                               placeholder="若平台要求，请输入二次验证码"
@@ -406,6 +422,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                           <div className="space-y-2">
                             <Label className="text-xs">二次验证密码</Label>
                             <Input
+                              data-testid="bind-secondary-password-input"
                               type="password"
                               value={password}
                               onChange={(e) => setPassword(e.target.value)}
@@ -416,6 +433,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                         </>
                       )}
                       <Button
+                        data-testid="submit-bind-verification"
                         className="w-full gap-2 shadow-sm"
                         onClick={handleSubmitVerification}
                         disabled={pending || (sessionStatus === 'awaiting_sms' && !verificationCode.trim())}
@@ -453,7 +471,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
 
           {/* ── Right: Screenshot & Logs ── */}
           <div className="space-y-4">
-            <div className="rounded-xl border bg-gradient-to-br from-card to-muted/20 p-4">
+            <div className="rounded-xl border bg-gradient-to-br from-card to-muted/20 p-4" data-testid="bind-execution-panel">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold">后台执行面板</p>
@@ -478,7 +496,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
               </div>
 
               {/* Screenshot area */}
-              <div className="mt-4 rounded-xl border bg-muted/20 overflow-hidden shadow-inner relative">
+              <div className="mt-4 rounded-xl border bg-muted/20 overflow-hidden shadow-inner relative" data-testid="bind-screenshot-panel">
                 {latestScreenshot ? (
                   <>
                     <img src={latestScreenshot} alt="当前页面截图" className="h-56 w-full object-cover object-top"/>
@@ -486,6 +504,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                       <Button
                         size="sm"
                         variant="secondary"
+                        data-testid="refresh-qr-button"
                         className="absolute bottom-2 right-2 gap-1.5 text-xs shadow-md"
                         disabled={refreshingQr}
                         onClick={async () => {
@@ -524,7 +543,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
               </div>
 
               {/* Log output */}
-              <div className="mt-4 rounded-xl bg-zinc-950 p-3 text-xs text-zinc-100 min-h-32 max-h-52 overflow-y-auto shadow-inner scrollbar-thin">
+              <div className="mt-4 rounded-xl bg-zinc-950 p-3 text-xs text-zinc-100 min-h-32 max-h-52 overflow-y-auto shadow-inner scrollbar-thin" data-testid="bind-progress-log">
                 {progressText ? (
                   <pre className="whitespace-pre-wrap break-words leading-relaxed">{filterProgressText(progressText)}</pre>
                 ) : (
@@ -541,7 +560,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
           </div>
         </div>
 
-        <DialogFooter className="justify-between gap-4">
+        <DialogFooter className="sticky bottom-0 z-10 justify-between gap-4 border-t bg-background/95 pt-4 backdrop-blur">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="outline" className="gap-1 text-[10px]">
               {platformMeta?.name || '-'}
@@ -557,6 +576,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
             <Button
               className="gap-2 shadow-sm"
               onClick={handleStart}
+              data-testid="start-bind"
               disabled={
                 (sessionStatus === 'running' || pending)
                 || !profileId

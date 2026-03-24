@@ -9,7 +9,12 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "test": "playwright test",
-    "test:ui": "playwright test --ui"
+    "test:ui": "playwright test --ui",
+    "test:platform": "playwright test --project=platform-config",
+    "test:execute": "playwright test --project=execution",
+    "test:headed": "playwright test --headed",
+    "test:debug": "cross-env SLOW_MO=300 playwright test --headed --workers=1",
+    "test:report": "playwright show-report"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

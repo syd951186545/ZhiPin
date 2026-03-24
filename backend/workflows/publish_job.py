@@ -8,6 +8,13 @@ login_check → generate_announcement → fill_and_publish → verify_result
 import logging
 
 from workflows.base import WorkflowState, StepDefinition, finalize_persisted_screenshots, run_workflow_graph
+from workflows.contracts import (
+    ERROR_DATA_MISSING,
+    ERROR_UNKNOWN,
+    RetryPolicy,
+    StepVerificationOutcome,
+    default_step_verifier,
+)
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
 from services.supabase_client import (
@@ -26,6 +33,54 @@ from routers.workflow import emit_event, is_cancelled, register_execution_task
 
 logger = logging.getLogger(__name__)
 
+
+def _verify_announcement_step(state: WorkflowState, result) -> StepVerificationOutcome:
+    marker_outcome = default_step_verifier("generate_announcement", result.accumulated_text, result.error)
+    if not marker_outcome.success:
+        return marker_outcome
+
+    announcement = parse_announcement(result.accumulated_text or "")
+    if not announcement:
+        return StepVerificationOutcome(
+            success=False,
+            error="未提取到招聘公告内容",
+            error_code=ERROR_DATA_MISSING,
+        )
+    return StepVerificationOutcome(success=True, details={"announcement_length": len(announcement)})
+
+
+def _verify_publish_result_step(state: WorkflowState, result) -> StepVerificationOutcome:
+    marker_outcome = default_step_verifier("verify_result", result.accumulated_text, result.error)
+    if not marker_outcome.success:
+        return marker_outcome
+
+    publish_result = parse_publish_result(result.accumulated_text or "")
+    if not publish_result:
+        return StepVerificationOutcome(
+            success=False,
+            error="未提取到发布结果结构化信息",
+            error_code=ERROR_DATA_MISSING,
+        )
+
+    status_text = str(publish_result.get("status") or "").strip()
+    if not status_text:
+        return StepVerificationOutcome(
+            success=False,
+            error="发布结果缺少状态字段",
+            error_code=ERROR_DATA_MISSING,
+            details={"publish_result": publish_result},
+        )
+
+    if "失败" in status_text:
+        return StepVerificationOutcome(
+            success=False,
+            error=f"发布结果校验失败: {status_text}",
+            error_code=ERROR_UNKNOWN,
+            details={"publish_result": publish_result},
+        )
+
+    return StepVerificationOutcome(success=True, details={"publish_result": publish_result})
+
 # ── 步骤定义 ──────────────────────────────────────────────
 
 STEPS = [
@@ -33,21 +88,26 @@ STEPS = [
         id="login_check",
         name_zh="登录检查",
         prompt_builder=build_login_check_prompt,
+        retry_policy=RetryPolicy(max_attempts=2),
     ),
     StepDefinition(
         id="generate_announcement",
         name_zh="生成招聘公告",
         prompt_builder=build_generate_announcement_prompt,
+        verifier=_verify_announcement_step,
     ),
     StepDefinition(
         id="fill_and_publish",
         name_zh="填写并发布",
         prompt_builder=build_fill_and_publish_prompt,
+        retry_policy=RetryPolicy(max_attempts=2),
     ),
     StepDefinition(
         id="verify_result",
         name_zh="验证发布结果",
         prompt_builder=build_verify_result_prompt,
+        verifier=_verify_publish_result_step,
+        retry_policy=RetryPolicy(max_attempts=2),
     ),
 ]
 
@@ -63,6 +123,12 @@ STEP_META = [
 
 async def run(execution_id: str, req):
     """运行发布招聘公告工作流"""
+
+    await emit_event(execution_id, "run_started", {
+        "execution_id": execution_id,
+        "workflow_id": "publish_job",
+        "workflow_name": "发布招聘公告",
+    })
 
     # 发送工作流元数据
     await emit_event(execution_id, "workflow_meta", {
@@ -123,6 +189,11 @@ async def run(execution_id: str, req):
         "step_results": {},
         "accumulated_text": "",
         "all_screenshots": [],
+        "artifacts": [],
+        "checkpoints": [],
+        "latest_checkpoint": None,
+        "step_attempts": {},
+        "current_error_code": None,
         "parsed_candidates": [],
         "announcement_text": "",
         "publish_result": {},
@@ -154,6 +225,14 @@ async def run(execution_id: str, req):
         await emit_event(execution_id, "error", {
             "step_id": final_state.get("current_step", ""),
             "message": final_state["error"],
+            "error_code": final_state.get("current_error_code"),
+        })
+        await emit_event(execution_id, "run_failed", {
+            "execution_id": execution_id,
+            "workflow_id": "publish_job",
+            "message": final_state["error"],
+            "error_code": final_state.get("current_error_code"),
+            "latest_checkpoint": final_state.get("latest_checkpoint"),
         })
         final_state = await finalize_persisted_screenshots(final_state)
         if task_record.get("id"):
@@ -177,6 +256,14 @@ async def run(execution_id: str, req):
             "announcement": announcement,
             "publish_result": publish_result,
             "screenshots": final_state.get("all_screenshots", []),
+            "artifacts": final_state.get("artifacts", []),
+            "latest_checkpoint": final_state.get("latest_checkpoint"),
+        })
+        await emit_event(execution_id, "run_completed", {
+            "execution_id": execution_id,
+            "workflow_id": "publish_job",
+            "latest_checkpoint": final_state.get("latest_checkpoint"),
+            "artifacts_count": len(final_state.get("artifacts", [])),
         })
         final_state = await finalize_persisted_screenshots(final_state)
         if task_record.get("id"):

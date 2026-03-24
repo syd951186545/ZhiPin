@@ -15,6 +15,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+from services.workflow_runtime_store import store as runtime_store
 from services.supabase_client import (
     complete_automation_task,
     get_platform_account,
@@ -50,6 +51,7 @@ def register_execution_task(execution_id: str, task_id: str, auth_token: Optiona
 
 async def emit_event(execution_id: str, event_type: str, data: dict):
     """向指定执行的 SSE 队列推送事件"""
+    runtime_store.record_event(execution_id, event_type, data)
     queue = _event_queues.get(execution_id)
     if queue:
         await queue.put({"event": event_type, "data": data})
@@ -182,6 +184,13 @@ async def start_workflow(req: WorkflowStartRequest):
     execution_id = str(uuid4())
     _event_queues[execution_id] = asyncio.Queue()
     _cancelled[execution_id] = False
+    runtime_store.init_run(
+        execution_id,
+        req.workflow_id,
+        req.model_dump(),
+        tenant_id=req.tenant_id,
+        auth_token=req.supabase_auth_token or None,
+    )
 
     runner_map = {
         "publish_job": publish_job.run,

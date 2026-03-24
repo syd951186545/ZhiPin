@@ -84,6 +84,7 @@ export interface ScreenshotEvent {
   screenshot: string
   action: string
   timestamp: string
+  artifact_id?: string
 }
 
 export interface CompleteEvent {
@@ -91,6 +92,8 @@ export interface CompleteEvent {
   announcement?: string
   publish_result?: Record<string, unknown>
   screenshots?: string[]
+  artifacts?: Array<Record<string, unknown>>
+  latest_checkpoint?: Record<string, unknown>
 }
 
 export interface ErrorEvent {
@@ -105,6 +108,82 @@ export interface PlatformChangeEvent {
   total_platforms: number
 }
 
+export interface StepRetryingEvent {
+  step_id: string
+  step_name: string
+  attempt: number
+  previous_error?: string
+  error_code?: string
+}
+
+export interface StepVerifiedEvent {
+  step_id: string
+  step_name: string
+  verified: boolean
+  attempt: number
+  error_code?: string
+  message?: string
+  details?: Record<string, unknown>
+}
+
+export interface HandoffRequiredEvent {
+  step_id: string
+  step_name: string
+  reason: string
+  error_code?: string
+  escalation_policy?: string
+}
+
+export interface ArtifactEvent {
+  artifact_id: string
+  run_id: string
+  step_id: string
+  artifact_type: string
+  source: string
+  capture_phase: string
+  mime_type: string
+  storage_key?: string | null
+  preview_url?: string | null
+  live_url?: string | null
+  signed_url?: string | null
+  width?: number | null
+  height?: number | null
+  captured_at: string
+  content_url?: string
+}
+
+export interface WorkflowTemplateField {
+  key: string
+  label: string
+  description: string
+  required: boolean
+  scope: string
+  field_type: string
+}
+
+export interface WorkflowTemplateStep {
+  id: string
+  name_zh: string
+  requires_openclaw: boolean
+  retry_max_attempts: number
+  screenshot_policy: string
+  escalation_policy: string
+  template_id?: string | null
+  platform_scoped?: boolean
+}
+
+export interface WorkflowTemplate {
+  id: WorkflowId
+  title: string
+  description: string
+  multi_platform: boolean
+  execution_mode: string
+  screenshot_mode: string
+  handoff_triggers: string[]
+  required_fields: WorkflowTemplateField[]
+  steps: WorkflowTemplateStep[]
+}
+
 // ── SSE 事件回调 ─────────────────────────────────────────
 
 export interface WorkflowEventHandlers {
@@ -116,6 +195,11 @@ export interface WorkflowEventHandlers {
   onError?: (data: ErrorEvent) => void
   onPlatformChange?: (data: PlatformChangeEvent) => void
   onCancelled?: (data: { message: string }) => void
+  onStepRetrying?: (data: StepRetryingEvent) => void
+  onStepVerified?: (data: StepVerifiedEvent) => void
+  onHandoffRequired?: (data: HandoffRequiredEvent) => void
+  onArtifactCreated?: (data: ArtifactEvent) => void
+  onArtifactPersisted?: (data: ArtifactEvent) => void
 }
 
 // ── API 客户端 ───────────────────────────────────────────
@@ -129,6 +213,17 @@ function getApiBase(): string {
 }
 
 let backendHealthRequest: Promise<{ status: string }> | null = null
+
+async function getOptionalAuthHeaders(): Promise<Record<string, string> | undefined> {
+  try {
+    const {data: sessionData} = await supabase.auth.getSession()
+    const authToken = sessionData?.session?.access_token
+    return authToken ? {Authorization: `Bearer ${authToken}`} : undefined
+  } catch (error) {
+    console.warn('读取 Supabase 会话失败，改为匿名拉取运行态接口', error)
+    return undefined
+  }
+}
 
 /**
  * 启动工作流
@@ -179,6 +274,11 @@ export function subscribeWorkflow(
     error: 'onError',
     platform_change: 'onPlatformChange',
     cancelled: 'onCancelled',
+    step_retrying: 'onStepRetrying',
+    step_verified: 'onStepVerified',
+    handoff_required: 'onHandoffRequired',
+    artifact_created: 'onArtifactCreated',
+    artifact_persisted: 'onArtifactPersisted',
   }
 
   for (const [eventName, handlerKey] of Object.entries(eventMap)) {
@@ -222,6 +322,53 @@ export async function testBackendConnection(): Promise<{ status: string }> {
       })
   }
   return backendHealthRequest
+}
+
+export async function getWorkflowRun(executionId: string): Promise<Record<string, unknown>> {
+  const resp = await fetch(`/api/workflow-runs/${executionId}`, {
+    headers: await getOptionalAuthHeaders(),
+  })
+  if (!resp.ok) {
+    throw new Error(`加载工作流运行详情失败 (${resp.status})`)
+  }
+  return resp.json()
+}
+
+export async function getArtifact(artifactId: string): Promise<ArtifactEvent> {
+  const resp = await fetch(`/api/artifacts/${artifactId}`, {
+    headers: await getOptionalAuthHeaders(),
+  })
+  if (!resp.ok) {
+    throw new Error(`加载截图产物失败 (${resp.status})`)
+  }
+  return resp.json()
+}
+
+export async function getWorkflowTemplates(): Promise<WorkflowTemplate[]> {
+  const resp = await fetch('/api/workflow-templates')
+  if (!resp.ok) {
+    throw new Error(`加载工作流模板失败 (${resp.status})`)
+  }
+  const data = await resp.json()
+  return (data.items || []) as WorkflowTemplate[]
+}
+
+export async function validateWorkflowTemplate(
+  workflowId: WorkflowId,
+  payload: Record<string, unknown>,
+): Promise<{valid: boolean; errors: string[]; normalized: Record<string, unknown>; template?: WorkflowTemplate}> {
+  const resp = await fetch('/api/workflow-templates/validate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      workflow_id: workflowId,
+      payload,
+    }),
+  })
+  if (!resp.ok) {
+    throw new Error(`校验工作流模板失败 (${resp.status})`)
+  }
+  return resp.json()
 }
 
 /**

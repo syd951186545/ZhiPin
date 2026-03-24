@@ -24,7 +24,7 @@ import {cn} from '@/lib/utils';
 import {useTenantSettings} from '@/hooks/useTenantSettings';
 
 export default function MainLayout() {
-  const { isAuthenticated, logout, user } = useAuth();
+  const { isAuthenticated, loading, logout, user } = useAuth();
 
   // 登录后立即从 Supabase 加载企业信息和平台账号（同步到 localStorage store）
   useTenantSettings();
@@ -32,6 +32,14 @@ export default function MainLayout() {
   const { lang, setLang, t } = useI18n();
   const location = useLocation();
   const [digitalExpanded, setDigitalExpanded] = useState(true);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        正在恢复登录状态...
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;

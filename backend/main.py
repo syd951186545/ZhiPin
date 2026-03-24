@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
 from routers.workflow import router as workflow_router
+from routers.runtime_artifacts import router as runtime_artifacts_router
+from routers.workflow_templates import router as workflow_templates_router
 from routers.openclaw_proxy import router as openclaw_proxy_router
 from routers.settings import router as settings_router
 from routers.platforms import router as platforms_router
@@ -60,6 +62,8 @@ app.add_middleware(
 
 # 路由
 app.include_router(workflow_router)
+app.include_router(runtime_artifacts_router)
+app.include_router(workflow_templates_router)
 app.include_router(openclaw_proxy_router)
 app.include_router(settings_router)
 app.include_router(platforms_router)

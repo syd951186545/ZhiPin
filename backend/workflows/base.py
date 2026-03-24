@@ -6,14 +6,24 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional, TypedDict
+from uuid import uuid4
 
 from langgraph.graph import END, StateGraph
 
 from services.openclaw_client import OpenClawClient, StepResult
 from services.supabase_client import make_screenshot_uploader, insert_task_log, update_automation_task
+from workflows.contracts import (
+    ArtifactRef,
+    ERROR_AUTH_REQUIRED,
+    RetryPolicy,
+    StepVerificationOutcome,
+    default_step_verifier,
+    extract_storage_key,
+    infer_error_code,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +82,11 @@ class WorkflowState(TypedDict, total=False):
     announcement_text: str
     publish_result: dict
     result_summary: dict
+    artifacts: list[dict]
+    checkpoints: list[dict]
+    latest_checkpoint: Optional[dict]
+    step_attempts: dict[str, int]
+    current_error_code: Optional[str]
 
     # 状态控制
     error: Optional[str]
@@ -105,6 +120,15 @@ class StepDefinition:
     executor: Optional[StepExecutor] = None
     visible: bool = True
     graph_id: Optional[str] = None
+    preconditions: list[str] = field(default_factory=list)
+    success_assertions: list[str] = field(default_factory=list)
+    failure_assertions: list[str] = field(default_factory=list)
+    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
+    timeout_seconds: float = 300.0
+    screenshot_policy: str = "after_action"
+    escalation_policy: str = "handoff_on_failure"
+    verifier: Optional[Callable[[WorkflowState, StepResult], StepVerificationOutcome]] = None
+    template_id: Optional[str] = None
 
     def node_id(self) -> str:
         return self.graph_id or self.id
@@ -119,22 +143,14 @@ async def execute_step(
     openclaw: OpenClawClient,
     emit_event,
 ) -> WorkflowState:
-    """
-    执行单个工作流步骤。
-
-    1. 发送 step_change 事件
-    2. 构建 prompt
-    3. 调用 OpenClaw
-    4. 处理结果
-    5. 更新状态
-    """
+    """执行单个工作流步骤，并做标准化校验、重试、产物登记与 checkpoint。"""
     step_id = step.id
     execution_id = state["execution_id"]
     task_id = state.get("_task_id") or ""
     tenant_id = state.get("_tenant_id") or ""
     auth_token = state.get("_auth_token") or None
+    retry_policy = step.retry_policy or RetryPolicy()
 
-    # 通知前端步骤开始
     await emit_event(execution_id, "step_change", {
         "step_id": step_id,
         "step_name": step.name_zh,
@@ -142,6 +158,7 @@ async def execute_step(
         "step_index": state.get("step_index", 0),
         "total_steps": state.get("total_steps", 1),
         "platform": state.get("platform", ""),
+        "attempt": 1,
     })
 
     logger.info(f"[{execution_id}] 执行步骤: {step_id} ({step.name_zh})")
@@ -165,7 +182,12 @@ async def execute_step(
             logger.debug(f"[{execution_id}] 写入步骤开始日志失败: {e}")
 
     if not step.requires_openclaw:
-        # 纯后端步骤（如 save_results），直接标记成功
+        await emit_event(execution_id, "step_verified", {
+            "step_id": step_id,
+            "step_name": step.name_zh,
+            "verified": True,
+            "attempt": 1,
+        })
         await emit_event(execution_id, "step_change", {
             "step_id": step_id,
             "step_name": step.name_zh,
@@ -173,71 +195,158 @@ async def execute_step(
         })
         return state
 
-    # 构建 prompt
     prompt = step.prompt_builder(state)
-
-    # 定义进度回调 - 将 OpenClaw SSE 数据转发给前端
-    async def on_progress(delta: str, accumulated: str, screenshots: list[str]):
-        await emit_event(execution_id, "progress", {
-            "step_id": step_id,
-            "delta": delta,
-            "accumulated_text": accumulated,
-            "screenshots": screenshots,
-        })
-
-    async def on_screenshot(screenshot: str):
-        await emit_event(execution_id, "screenshot", {
-            "step_id": step_id,
-            "screenshot": screenshot,
-            "action": step.name_zh,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-
-    # 截图上传器：优先上传到 Supabase Storage（持久化），无认证时回退 base64
-    # _auth_token 存于 state（由各工作流的 run() 函数注入）
     uploader = make_screenshot_uploader(execution_id, auth_token)
 
-    # 调用 OpenClaw
-    result: StepResult = await openclaw.execute_step(
-        prompt=prompt,
-        session_id=state["session_id"],
-        step_id=step_id,
-        on_progress=on_progress,
-        on_screenshot=on_screenshot,
-        screenshot_uploader=uploader,
-    )
+    all_step_artifacts: list[ArtifactRef] = []
+    step_live_screenshots: list[str] = []
+    persisted_urls: list[str] = []
+    pending_uploads: list[asyncio.Task] = []
+    attempts = dict(state.get("step_attempts", {}))
+    last_result: Optional[StepResult] = None
+    verification = StepVerificationOutcome(success=False, error="步骤未执行", error_code=infer_error_code(step_id=step_id))
 
-    # 更新状态
+    for attempt in range(1, retry_policy.max_attempts + 1):
+        attempts[step_id] = attempt
+        current_attempt_artifacts: list[ArtifactRef] = []
+
+        async def on_progress(delta: str, accumulated: str, screenshots: list[str]):
+            await emit_event(execution_id, "progress", {
+                "step_id": step_id,
+                "delta": delta,
+                "accumulated_text": accumulated,
+                "screenshots": screenshots,
+                "attempt": attempt,
+            })
+
+        async def on_screenshot(screenshot: str):
+            artifact = ArtifactRef.create(
+                run_id=execution_id,
+                step_id=step_id,
+                capture_phase=step.screenshot_policy,
+                preview_url=screenshot,
+                live_url=screenshot,
+            )
+            current_attempt_artifacts.append(artifact)
+            step_live_screenshots.append(screenshot)
+            await emit_event(execution_id, "artifact_created", artifact.to_event())
+            await emit_event(execution_id, "screenshot", {
+                "step_id": step_id,
+                "screenshot": screenshot,
+                "action": step.name_zh,
+                "timestamp": artifact.captured_at,
+                "artifact_id": artifact.artifact_id,
+            })
+
+        last_result = await openclaw.execute_step(
+            prompt=prompt,
+            session_id=state["session_id"],
+            step_id=step_id,
+            on_progress=on_progress,
+            on_screenshot=on_screenshot,
+            screenshot_uploader=uploader,
+        )
+        all_step_artifacts.extend(current_attempt_artifacts)
+        persisted_urls.extend(last_result.persisted_screenshots or [])
+        pending_uploads.extend(last_result.pending_uploads or [])
+
+        for artifact, persisted_url in zip(current_attempt_artifacts, last_result.persisted_screenshots or []):
+            artifact.signed_url = persisted_url
+            artifact.storage_key = extract_storage_key(persisted_url)
+            await emit_event(execution_id, "artifact_persisted", artifact.to_event())
+
+        verification = _verify_step_result(state, step, last_result)
+        await emit_event(execution_id, "step_verified", {
+            "step_id": step_id,
+            "step_name": step.name_zh,
+            "verified": verification.success,
+            "attempt": attempt,
+            "error_code": verification.error_code,
+            "message": verification.error,
+            "details": verification.details,
+        })
+
+        if verification.success:
+            break
+
+        if (
+            attempt < retry_policy.max_attempts
+            and (verification.error_code or infer_error_code(step_id=step_id)) in retry_policy.retriable_codes
+        ):
+            await emit_event(execution_id, "step_retrying", {
+                "step_id": step_id,
+                "step_name": step.name_zh,
+                "attempt": attempt + 1,
+                "previous_error": verification.error,
+                "error_code": verification.error_code,
+            })
+            await asyncio.sleep(retry_policy.backoff_seconds * attempt)
+            continue
+
+        break
+
+    result = last_result or StepResult(success=False, accumulated_text="", screenshots=[], error="步骤未执行")
+    verified_success = verification.success
+    error_message = verification.error or result.error
+    error_code = verification.error_code or infer_error_code(error_message or "", result.accumulated_text, step_id)
+
     new_state = dict(state)
     step_results = dict(state.get("step_results", {}))
     step_results[step_id] = {
         "text": result.accumulated_text,
-        "screenshots": result.screenshots,
-        "persisted_screenshots": result.persisted_screenshots,
-        "success": result.success,
-        "error": result.error,
+        "screenshots": step_live_screenshots,
+        "persisted_screenshots": persisted_urls,
+        "success": verified_success,
+        "error": error_message,
+        "error_code": error_code,
+        "attempts": attempts.get(step_id, 1),
+        "verified": verified_success,
+        "artifacts": [artifact.to_event() for artifact in all_step_artifacts],
     }
     new_state["step_results"] = step_results
+    new_state["step_attempts"] = attempts
+    new_state["artifacts"] = state.get("artifacts", []) + [artifact.to_event() for artifact in all_step_artifacts]
     new_state["accumulated_text"] = state.get("accumulated_text", "") + "\n" + result.accumulated_text
-    new_state["all_screenshots"] = state.get("all_screenshots", []) + result.screenshots
-    new_state["_persisted_screenshots"] = _dedupe_urls(
-        state.get("_persisted_screenshots", []) + result.persisted_screenshots
-    )
-    new_state["_pending_screenshot_uploads"] = state.get("_pending_screenshot_uploads", []) + result.pending_uploads
+    new_state["all_screenshots"] = state.get("all_screenshots", []) + step_live_screenshots
+    new_state["_persisted_screenshots"] = _dedupe_urls(state.get("_persisted_screenshots", []) + persisted_urls)
+    new_state["_pending_screenshot_uploads"] = state.get("_pending_screenshot_uploads", []) + pending_uploads
 
-    status_label = "完成" if result.success else "失败"
+    status_label = "完成" if verified_success else "失败"
 
-    # 立即通知前端步骤已完成/失败（不等截图补充与持久化，避免 UI 卡顿）
-    if not result.success:
-        new_state["error"] = result.error
+    if not verified_success:
+        new_state["error"] = error_message
+        new_state["current_error_code"] = error_code
         await emit_event(execution_id, "step_change", {
             "step_id": step_id,
             "step_name": step.name_zh,
             "status": "failed",
-            "error": result.error,
+            "error": error_message,
+            "error_code": error_code,
         })
-        logger.error(f"[{execution_id}] 步骤失败: {step_id} - {result.error}")
+        logger.error(f"[{execution_id}] 步骤失败: {step_id} - {error_message} ({error_code})")
+        if error_code == ERROR_AUTH_REQUIRED:
+            await emit_event(execution_id, "handoff_required", {
+                "step_id": step_id,
+                "step_name": step.name_zh,
+                "reason": error_message or "登录态失效，需要人工介入",
+                "error_code": error_code,
+                "escalation_policy": step.escalation_policy,
+            })
     else:
+        checkpoint = {
+            "checkpoint_id": f"checkpoint_{uuid4().hex}",
+            "execution_id": execution_id,
+            "step_id": step_id,
+            "step_name": step.name_zh,
+            "step_index": state.get("step_index", 0),
+            "attempt": attempts.get(step_id, 1),
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+            "artifact_ids": [artifact.artifact_id for artifact in all_step_artifacts],
+        }
+        new_state["checkpoints"] = state.get("checkpoints", []) + [checkpoint]
+        new_state["latest_checkpoint"] = checkpoint
+        new_state["current_error_code"] = None
+        await emit_event(execution_id, "checkpoint_saved", checkpoint)
         await emit_event(execution_id, "step_change", {
             "step_id": step_id,
             "step_name": step.name_zh,
@@ -269,14 +378,16 @@ async def execute_step(
             insert_task_log(
                 task_id=task_id,
                 tenant_id=tenant_id,
-                level="success" if result.success else "error",
+                level="success" if verified_success else "error",
                 message=f"步骤{status_label}：{step.name_zh}",
                 metadata={
                     "step_id": step_id,
                     "step_name": step.name_zh,
-                    "success": result.success,
-                    "error": result.error,
-                    "screenshots_count": len(result.screenshots),
+                    "success": verified_success,
+                    "error": error_message,
+                    "error_code": error_code,
+                    "attempts": attempts.get(step_id, 1),
+                    "screenshots_count": len(step_live_screenshots),
                     "text_preview": (result.accumulated_text or "")[:1000],
                 },
                 auth_token=auth_token,
@@ -284,28 +395,48 @@ async def execute_step(
         except Exception as e:
             logger.debug(f"[{execution_id}] 写入步骤结果日志失败: {e}")
 
-    # 若步骤无截图，后台异步补抓一张停留页面截图，避免阻塞主流程
-    if not result.screenshots:
+    if not step_live_screenshots:
         async def capture_after_step() -> None:
             try:
+                extra_artifacts: list[ArtifactRef] = []
+
+                async def emit_capture_screenshot(screenshot: str):
+                    artifact = ArtifactRef.create(
+                        run_id=execution_id,
+                        step_id=step_id,
+                        capture_phase="after_action",
+                        preview_url=screenshot,
+                        live_url=screenshot,
+                    )
+                    extra_artifacts.append(artifact)
+                    await emit_event(execution_id, "artifact_created", artifact.to_event())
+                    await emit_event(execution_id, "screenshot", {
+                        "step_id": step_id,
+                        "screenshot": screenshot,
+                        "action": f"{step.name_zh}（{status_label}）",
+                        "timestamp": artifact.captured_at,
+                        "artifact_id": artifact.artifact_id,
+                    })
+
                 capture_result = await asyncio.wait_for(
                     openclaw.capture_screenshot(
                         session_id=state["session_id"],
-                        on_screenshot=lambda screenshot: emit_event(execution_id, "screenshot", {
-                            "step_id": step_id,
-                            "screenshot": screenshot,
-                            "action": f"{step.name_zh}（{status_label}）",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        }),
+                        on_screenshot=emit_capture_screenshot,
                         screenshot_uploader=uploader,
                     ),
                     timeout=45.0,
                 )
-                pending = new_state.get("_pending_screenshot_uploads", []) + capture_result.pending_uploads
-                new_state["_pending_screenshot_uploads"] = pending
+
+                for artifact, persisted_url in zip(extra_artifacts, capture_result.persisted_screenshots or []):
+                    artifact.signed_url = persisted_url
+                    artifact.storage_key = extract_storage_key(persisted_url)
+                    await emit_event(execution_id, "artifact_persisted", artifact.to_event())
+
+                new_state["_pending_screenshot_uploads"] = new_state.get("_pending_screenshot_uploads", []) + capture_result.pending_uploads
                 new_state["all_screenshots"] = new_state.get("all_screenshots", []) + capture_result.screenshots
+                new_state["artifacts"] = new_state.get("artifacts", []) + [artifact.to_event() for artifact in extra_artifacts]
                 new_state["_persisted_screenshots"] = _dedupe_urls(
-                    new_state.get("_persisted_screenshots", []) + capture_result.persisted_screenshots
+                    new_state.get("_persisted_screenshots", []) + (capture_result.persisted_screenshots or [])
                 )
                 logger.info(f"[{execution_id}] 步骤 {step_id} 补充截图完成")
             except asyncio.TimeoutError:
@@ -333,6 +464,42 @@ async def finalize_persisted_screenshots(state: WorkflowState) -> WorkflowState:
     new_state["_persisted_screenshots"] = persisted
     new_state["_pending_screenshot_uploads"] = []
     return new_state
+
+
+def _verify_step_result(
+    state: WorkflowState,
+    step: StepDefinition,
+    result: StepResult,
+) -> StepVerificationOutcome:
+    if step.verifier is not None:
+        outcome = step.verifier(state, result)
+    else:
+        outcome = default_step_verifier(step.id, result.accumulated_text, result.error)
+
+    text = result.accumulated_text or ""
+    if outcome.success and step.success_assertions:
+        missing = [item for item in step.success_assertions if item not in text]
+        if missing:
+            return StepVerificationOutcome(
+                success=False,
+                error=f"步骤 {step.id} 未满足成功断言: {', '.join(missing)}",
+                error_code=infer_error_code(",".join(missing), text, step.id),
+                details={"missing_success_assertions": missing},
+            )
+
+    if step.failure_assertions:
+        hit = [item for item in step.failure_assertions if item in text]
+        if hit:
+            return StepVerificationOutcome(
+                success=False,
+                error=f"步骤 {step.id} 命中失败断言: {', '.join(hit)}",
+                error_code=infer_error_code(",".join(hit), text, step.id),
+                details={"hit_failure_assertions": hit},
+            )
+
+    if not outcome.error_code and not outcome.success:
+        outcome.error_code = infer_error_code(outcome.error or result.error or "", text, step.id)
+    return outcome
 
 
 def _dedupe_urls(urls: list[str]) -> list[str]:
