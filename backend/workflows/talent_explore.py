@@ -134,6 +134,8 @@ async def run(execution_id: str, req):
         "company_overview": req.company_overview,
         "min_match_score": req.min_match_score,
         "max_results": req.max_results,
+        "message_send_limit": req.message_send_limit,
+        "custom_message": req.custom_message,
         "step_results": {},
         "accumulated_text": "",
         "all_screenshots": [],

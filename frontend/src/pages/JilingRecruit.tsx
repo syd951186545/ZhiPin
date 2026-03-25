@@ -11,11 +11,13 @@ import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/compo
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Progress} from '@/components/ui/progress'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Skeleton} from '@/components/ui/skeleton'
 import {Slider} from '@/components/ui/slider'
+import {Textarea} from '@/components/ui/textarea'
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import AddProfileDialog from '@/components/settings/AddProfileDialog'
 import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
@@ -147,6 +149,8 @@ export default function JilingRecruit() {
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [platformExecConfigs, setPlatformExecConfigs] = useState<Record<string, {accountId: string; jobId: string}>>({})
   const [matchThreshold, setMatchThreshold] = useState(60)
+  const [messageSendLimit, setMessageSendLimit] = useState(10)
+  const [customMessage, setCustomMessage] = useState('')
   const [addAccountOpen, setAddAccountOpen] = useState(false)
   const [bindDialogOpen, setBindDialogOpen] = useState(false)
   const [bindAccountId, setBindAccountId] = useState<string | null>(null)
@@ -360,6 +364,8 @@ export default function JilingRecruit() {
       company_overview: safeCompanyProfile.overview,
       min_match_score: matchThreshold,
       max_results: 30,
+      message_send_limit: messageSendLimit,
+      custom_message: customMessage,
     }
 
     const validation = await validateWorkflowTemplate(workflowId, workflowPayload)
@@ -369,7 +375,7 @@ export default function JilingRecruit() {
     }
 
     await startWorkflow(workflowPayload)
-  }, [accounts, matchThreshold, platformConfigs, platformExecConfigs, safeCompanyProfile, selectedPlatforms, startWorkflow, user])
+  }, [accounts, customMessage, matchThreshold, messageSendLimit, platformConfigs, platformExecConfigs, safeCompanyProfile, selectedPlatforms, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
     setActionPendingAccountId(accountId)
@@ -888,6 +894,55 @@ export default function JilingRecruit() {
                         </div>
                       )}
                       <p className="mb-3 text-[11px] text-muted-foreground">截图策略：{workflow.screenshotMode === 'direct_url' ? '直接截图链接' : workflow.screenshotMode}</p>
+                      {workflow.id === 'talent_explore' && (
+                        <div className="mb-3 grid gap-3 sm:grid-cols-2 border-t pt-3">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="custom-message" className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                              主动沟通话术
+                            </Label>
+                            <Textarea
+                              id="custom-message"
+                              placeholder={`（留空使用默认）例：您好！我是XX公司的招聘负责人，正在招聘前台/服务员，薪资X-XK，想了解一下您是否有意向？`}
+                              value={customMessage}
+                              onChange={(e) => setCustomMessage(e.target.value)}
+                              disabled={!!activeExecution}
+                              rows={3}
+                              maxLength={500}
+                              className="text-xs resize-none"
+                            />
+                            <p className={cn('text-[11px]', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>{customMessage.length}/500 字符</p>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                              每次发送上限 <span className="ml-1 text-foreground font-bold">{messageSendLimit} 条</span>
+                            </Label>
+                            <div className="flex items-center gap-2">
+                              <Slider
+                                value={[messageSendLimit]}
+                                onValueChange={([v]) => setMessageSendLimit(v)}
+                                min={1}
+                                max={50}
+                                step={1}
+                                disabled={!!activeExecution}
+                                className="flex-1"
+                              />
+                              <Input
+                                type="number"
+                                min={1}
+                                max={50}
+                                value={messageSendLimit}
+                                onChange={(e) => {
+                                  const v = Math.max(1, Math.min(50, Number(e.target.value) || 10))
+                                  setMessageSendLimit(v)
+                                }}
+                                disabled={!!activeExecution}
+                                className="w-16 text-xs text-center"
+                              />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">每次运行最多向候选人发送消息数（1-50），超出立即停止。</p>
+                          </div>
+                        </div>
+                      )}
                       <Button
                         data-testid={`workflow-action-${workflow.id}`}
                         className={cn('w-full gap-2', !isThisActive && 'shadow-sm')}

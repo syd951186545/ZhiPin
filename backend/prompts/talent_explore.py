@@ -2,7 +2,17 @@
 工作流 2：市场人才探索 - Prompt 模板
 """
 
+import re
+
+from parsers.result_parser import parse_candidate_list
 from prompts import screenshot_instruction
+
+
+def _sanitize_custom_message(raw: str) -> str:
+    """清理用户自定义话术：过滤 prompt injection token，截断至 500 字符。"""
+    # 过滤可能干扰工作流的控制 token
+    cleaned = re.sub(r'\[STEP_(DONE|FAILED):[^\]]*\]', '', raw or "")
+    return cleaned.strip()[:500]
 
 
 def build_login_check_prompt(state: dict) -> str:
@@ -123,27 +133,64 @@ def build_collect_profiles_prompt(state: dict) -> str:
 
 def build_initiate_contact_prompt(state: dict) -> str:
     shot = screenshot_instruction()
+    company_name = state.get("company_name", "我们公司")
+    job_title = state.get("job_title", "")
+    salary_min = state.get("job_salary_min", "")
+    salary_max = state.get("job_salary_max", "")
+    limit = state.get("message_send_limit", 10)
+    min_score = state.get("min_match_score", 60)
+
+    # 使用用户自定义话术（如有），否则使用默认模板
+    raw_custom = state.get("custom_message") or ""
+    sanitized = _sanitize_custom_message(raw_custom)
+    if sanitized:
+        message_template = sanitized
+    else:
+        message_template = (
+            f"您好！我是{company_name}的招聘负责人。\n"
+            f"我们正在招聘{job_title}岗位，薪资范围{salary_min}K-{salary_max}K。\n"
+            f"看到您的背景和我们的岗位非常匹配，想了解一下您是否有兴趣进一步沟通？"
+        )
+
+    # 应用层截断：从已采集的候选人中取 top-N（按匹配度降序），防止 LLM 超限发送
+    accumulated = state.get("accumulated_text", "")
+    all_candidates = parse_candidate_list(accumulated, source="", job_id=None)
+    qualified = [c for c in all_candidates if (c.get("ai_match_score") or 0) >= min_score]
+    qualified.sort(key=lambda c: c.get("ai_match_score") or 0, reverse=True)
+    target_candidates = qualified[:limit]
+
+    if target_candidates:
+        candidate_lines = "\n".join([
+            f"{i + 1}. {c.get('name', '?')}（匹配度 {c.get('ai_match_score', '?')}分，"
+            f"{c.get('position', '')}{'@ ' + c.get('company', '') if c.get('company') else ''}）"
+            for i, c in enumerate(target_candidates)
+        ])
+        candidate_section = f"【本次发送目标 — 共 {len(target_candidates)} 人，按匹配度排序】\n{candidate_lines}\n\n仅向以上名单中的候选人发送消息，不得扩展范围。"
+    else:
+        candidate_section = f"【本次发送目标】搜索结果中匹配度≥{min_score}分的候选人（最多 {limit} 人）"
+
     return f"""你是一个专业的招聘助手，请执行第4步：主动沟通。
 
 【目标平台】{state.get("platform", "")}
-【企业名称】{state.get("company_name", "我们公司")}
+【企业名称】{company_name}
 
 【职位信息】
-- 职位名称：{state.get("job_title", "")}
+- 职位名称：{job_title}
 - 工作地点：{state.get("job_location", "不限")}
-- 薪资范围：{state.get("job_salary_min", "")}K - {state.get("job_salary_max", "")}K
+- 薪资范围：{salary_min}K - {salary_max}K
+
+{candidate_section}
 
 【本步骤要求】
-1. 对之前采集的候选人中匹配度较高者（≥{state.get("min_match_score", 60)}分）发起沟通
-2. 发送专业的招聘问候消息
-3. 简要介绍职位亮点和企业优势
-4. 邀请候选人进一步了解和沟通
-5. {shot}
+1. 按上方名单逐一向候选人发送消息
+2. 发送招聘问候消息
+3. 邀请候选人进一步了解和沟通
+4. {shot}
 
-【沟通模板参考】
-您好！我是{state.get("company_name", "我们公司")}的招聘负责人。
-我们正在招聘{state.get("job_title", "")}岗位，薪资范围{state.get("job_salary_min", "")}K-{state.get("job_salary_max", "")}K。
-看到您的背景和我们的岗位非常匹配，想了解一下您是否有兴趣进一步沟通？
+【消息话术】
+{message_template}
+
+【消息发送上限】本次最多发送 {limit} 条消息，达到上限后立即停止，不再继续发送。
 
 【注意事项】
 - 每条消息发送间隔 5-10 秒，避免触发风控

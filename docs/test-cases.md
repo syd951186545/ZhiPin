@@ -168,13 +168,14 @@ pytest -x                       # 遇到第一个失败即停
 
 ---
 
-## 二、后端 API 测试（55 个）
+## 二、后端 API 测试（57 个）
 
-### 2.1 健康检查 `test_health.py`（1 个）
+### 2.1 健康检查 `test_health.py`（2 个）
 
 | # | 用例名 | 分类 | 验证要点 |
 |---|--------|------|---------|
-| 1 | test_health_returns_ok | 正常 | GET /api/health → 200, status="ok" |
+| 1 | test_health_returns_ok | 正常 | GET /api/health → 200，返回 backend/openclaw 聚合状态 |
+| 2 | test_health_returns_degraded_when_openclaw_unreachable | 异常 | OpenClaw 不可达 → 503, status="degraded" |
 
 ### 2.2 平台目录 `test_platforms_catalog.py`（2 个）
 
@@ -247,13 +248,14 @@ pytest -x                       # 遇到第一个失败即停
 | 17 | test_status_returns_cancelled_true | 正常 | 预设 cancelled → cancelled=true |
 | 18 | test_stream_nonexistent | 异常 | 不在 event_queues → 404 |
 
-### 2.6 OpenClaw 健康检查 `test_workflow_check_openclaw.py`（3 个）
+### 2.6 OpenClaw 健康检查 `test_workflow_check_openclaw.py`（4 个）
 
 | # | 用例名 | 分类 | 验证要点 |
 |---|--------|------|---------|
 | 1 | test_openclaw_healthy | 正常 | httpx 200 → status="ok" |
 | 2 | test_openclaw_unreachable | 异常 | 连接错误 → 503 |
 | 3 | test_openclaw_http_error | 异常 | httpx 500 → 503 |
+| 4 | test_openclaw_healthz_404_falls_back_to_api_health | 兼容 | `/healthz` 404 时回退 `/api/health` |
 
 ---
 
@@ -263,8 +265,8 @@ pytest -x                       # 遇到第一个失败即停
 |------|------|------|------|
 | 前端 - 平台配置 | 9 | 32 | 41 |
 | 前端 - 招聘执行 | 8 | 24 | 32 |
-| 后端 API | 0 | 55 | 55 |
-| **总计** | **17** | **111** | **128** |
+| 后端 API | 0 | 57 | 57 |
+| **总计** | **17** | **113** | **130** |
 
 ### 测试分类分布
 
@@ -312,10 +314,10 @@ backend/
 └── tests/
     ├── __init__.py                               # [新建]
     ├── conftest.py                               # 共享 fixtures [新建]
-    ├── test_health.py                            # 健康检查 (1) [新建]
+    ├── test_health.py                            # 健康检查 (2) [新建]
     ├── test_platforms_catalog.py                  # 平台目录 (2) [新建]
     ├── test_platform_accounts.py                  # 平台账号 CRUD (19) [新建]
     ├── test_platform_binding_sessions.py          # 绑定会话 (12) [新建]
     ├── test_workflow.py                           # 工作流 (18) [新建]
-    └── test_workflow_check_openclaw.py            # OpenClaw 检查 (3) [新建]
+    └── test_workflow_check_openclaw.py            # OpenClaw 检查 (4) [新建]
 ```

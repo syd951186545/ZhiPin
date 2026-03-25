@@ -22,11 +22,11 @@ class Settings(BaseSettings):
         return v.strip() if isinstance(v, str) else v
 
     # OpenClaw
-    openclaw_base_url: str
+    openclaw_base_url: str = "http://127.0.0.1:18789"
     openclaw_auth_token: str
     openclaw_agent_id: str
-    openclaw_media_mount: str
-    openclaw_home_mount: str = "/openclaw-home"
+    openclaw_media_mount: str = "/opt/openclaw-home/.openclaw/media"
+    openclaw_home_mount: str = "/opt/openclaw-home"
 
     # Server
     host: str

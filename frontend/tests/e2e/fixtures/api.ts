@@ -87,6 +87,12 @@ interface MockApp {
   queueJobDetailError(detail: string, status?: number): void
   queueBindStartError(detail: string, status?: number): void
   queueWorkflowStartError(detail: string, status?: number): void
+  /** SSE 流中途截断（模拟服务器关闭连接）。afterNEvents 默认 2。 */
+  abortWorkflowStream(executionId: string, afterNEvents?: number): void
+  /** 在第 afterNEvents 个事件后注入一条格式错误的 JSON 数据（默认位置 1）。 */
+  injectMalformedSSEEvent(executionId: string, afterNEvents?: number): void
+  /** 工作流启动 API 人为延迟 ms 毫秒（测试 loading 状态用）。 */
+  setWorkflowStartDelay(ms: number): void
   gotoRecruit(tab?: 'execute' | 'platform-config'): Promise<void>
   workflowStarts: WorkflowStartPayload[]
   bindStarts: Record<string, unknown>[]
@@ -237,6 +243,10 @@ function createMockApp(page: Page): MockApp {
   const bindStarts: Record<string, unknown>[] = []
   const bindSubmits: Record<string, unknown>[] = []
   const cancelRequests: string[] = []
+
+  const abortedWorkflowStreams = new Map<string, number>() // executionId -> cutAfterN
+  const malformedSSEInjections = new Map<string, number>() // executionId -> afterN
+  let workflowStartDelay = 0
 
   const upsertAccountFromSession = (session: BindingSession) => {
     platformAccounts = platformAccounts.map((account) =>
@@ -449,6 +459,9 @@ function createMockApp(page: Page): MockApp {
       await fulfillJson(route, { detail: error.detail }, error.status)
       return
     }
+    if (workflowStartDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, workflowStartDelay))
+    }
     const response =
       nextWorkflowStartResponses.shift() || {
         execution_id: 'exec-default',
@@ -466,7 +479,19 @@ function createMockApp(page: Page): MockApp {
 
   page.route(/.*\/api\/workflow\/stream\/.+$/, async (route) => {
     const executionId = route.request().url().split('/').pop() || ''
-    const events = workflowStreams.get(executionId) || []
+    let events = workflowStreams.get(executionId) || []
+
+    const cutAfter = abortedWorkflowStreams.get(executionId)
+    if (cutAfter !== undefined) {
+      events = events.slice(0, cutAfter)
+    }
+
+    const malformedAfter = malformedSSEInjections.get(executionId)
+    if (malformedAfter !== undefined) {
+      const malformed: SseEvent = { event: 'progress', data: '{{broken_json_for_test' as unknown }
+      events = [...events.slice(0, malformedAfter), malformed, ...events.slice(malformedAfter)]
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -618,6 +643,15 @@ function createMockApp(page: Page): MockApp {
     },
     queueWorkflowStartError(detail, status = 500) {
       nextWorkflowStartError = { detail, status }
+    },
+    abortWorkflowStream(executionId, afterNEvents = 2) {
+      abortedWorkflowStreams.set(executionId, afterNEvents)
+    },
+    injectMalformedSSEEvent(executionId, afterNEvents = 1) {
+      malformedSSEInjections.set(executionId, afterNEvents)
+    },
+    setWorkflowStartDelay(ms) {
+      workflowStartDelay = ms
     },
     async gotoRecruit(tab = 'execute') {
       await page.goto('/jiling-recruit')

@@ -541,11 +541,14 @@ def create_candidates_batch(
     auth_token: Optional[str] = None,
 ) -> list[dict]:
     """
-    批量写入候选人记录（全部新建，不去重）。
+    批量写入候选人记录（upsert，DB 层去重）。
+    去重键：(tenant_id, source, name, job_id)
 
     每个 candidate dict 应包含:
         name, source, stage, job_id,
         ai_match_score?, ai_analysis?, email?, phone?, notes?, tags?, metadata?
+
+    注意：phone/email 仅存储平台公开展示的信息（PIPL 合规）。
     """
     sb = get_supabase(auth_token)
     rows = []
@@ -568,7 +571,11 @@ def create_candidates_batch(
     if not rows:
         return []
 
-    result = sb.table("candidates").insert(rows).execute()
+    result = (
+        sb.table("candidates")
+        .upsert(rows, on_conflict="tenant_id,source,name,job_id")
+        .execute()
+    )
     return result.data or []
 
 

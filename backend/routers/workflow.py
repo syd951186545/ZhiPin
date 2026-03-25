@@ -11,10 +11,10 @@ import logging
 from uuid import uuid4
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+from services.openclaw_health import probe_openclaw
 from services.workflow_runtime_store import store as runtime_store
 from services.supabase_client import (
     complete_automation_task,
@@ -113,6 +113,8 @@ class WorkflowStartRequest(BaseModel):
     # 工作流特有参数
     min_match_score: int = 60
     max_results: int = 30
+    message_send_limit: int = 10   # 每次运行最多发送消息数（1-50）
+    custom_message: str = ""       # 自定义消息话术（空 = 使用默认）
 
 
 class WorkflowStartResponse(BaseModel):
@@ -151,6 +153,10 @@ async def start_workflow(req: WorkflowStartRequest):
     # 仅信任后端校验过的用户身份，覆盖前端透传值
     req.user_id = validated_user["user_id"]
     req.tenant_id = validated_user["tenant_id"]
+
+    # 验证 message_send_limit 范围（防止封号或异常行为）
+    if not (1 <= req.message_send_limit <= 50):
+        raise HTTPException(status_code=400, detail="message_send_limit 必须在 1-50 之间")
 
     if req.workflow_id in {"publish_job", "talent_explore"}:
         if not req.account_id:
@@ -273,37 +279,10 @@ async def stream_progress(execution_id: str):
 @router.get("/check-openclaw")
 async def check_openclaw_connection():
     """检查 OpenClaw Gateway 连通性（账号验证时调用）"""
-    from config import get_settings
-    settings = get_settings()
-    base_url = settings.openclaw_base_url.rstrip("/")
-    if not base_url:
-        raise HTTPException(status_code=503, detail="OpenClaw 网关地址未配置")
-    headers = {"Authorization": f"Bearer {settings.openclaw_auth_token}"}
-    health_endpoints = (
-        "/healthz",
-        "/api/health",
-    )
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            last_status_error: httpx.HTTPStatusError | None = None
-            for endpoint in health_endpoints:
-                try:
-                    resp = await client.get(f"{base_url}{endpoint}", headers=headers)
-                    resp.raise_for_status()
-                    return {"status": "ok", "endpoint": endpoint}
-                except httpx.HTTPStatusError as exc:
-                    last_status_error = exc
-                    # 404 代表该版本没有这个健康检查端点，继续尝试下一个。
-                    if exc.response.status_code == 404:
-                        continue
-                    raise
-        if last_status_error:
-            raise last_status_error
-        raise HTTPException(status_code=503, detail="OpenClaw 未返回任何可用健康检查端点")
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=503, detail=f"OpenClaw 返回错误: {e.response.status_code}") from e
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"OpenClaw 不可达: {str(e)}") from e
+    status = await probe_openclaw()
+    if status["status"] != "ok":
+        raise HTTPException(status_code=503, detail=status["detail"])
+    return {"status": "ok", "endpoint": status["endpoint"]}
 
 
 @router.get("/status/{execution_id}", response_model=WorkflowStatusResponse)
@@ -354,4 +333,5 @@ async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartReques
         _cancelled.pop(execution_id, None)
         _running_tasks.pop(execution_id, None)
         _task_records.pop(execution_id, None)
+        _event_queues.pop(execution_id, None)
         _emit_done_sync(execution_id)

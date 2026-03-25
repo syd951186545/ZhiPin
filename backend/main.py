@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from config import get_settings
 from routers.workflow import router as workflow_router
@@ -18,6 +19,7 @@ from routers.openclaw_proxy import router as openclaw_proxy_router
 from routers.settings import router as settings_router
 from routers.platforms import router as platforms_router
 from routers.platform_accounts import router as platform_accounts_router
+from services.openclaw_health import probe_openclaw
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,7 +74,16 @@ app.include_router(platform_accounts_router)
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "jiling-platform-workflow"}
+    openclaw_status = await probe_openclaw()
+    payload = {
+        "status": "ok" if openclaw_status["status"] == "ok" else "degraded",
+        "service": "jiling-platform-workflow",
+        "backend": {"status": "ok"},
+        "openclaw": openclaw_status,
+    }
+    if openclaw_status["status"] != "ok":
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 if __name__ == "__main__":

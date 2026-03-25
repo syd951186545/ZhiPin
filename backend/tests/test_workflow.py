@@ -268,3 +268,30 @@ async def test_stream_returns_sse(client):
     # 但验证存在的执行不返回 404 已在 test_stream_nonexistent 中覆盖。
     # 这里验证 queue 注册后端点可识别该 execution_id。
     assert "exec-sse-1" in _event_queues
+
+
+# ── message_send_limit 范围校验 ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_start_message_send_limit_too_low(client):
+    """message_send_limit=0 低于允许范围，返回 400。"""
+    with patch("routers.workflow.get_platform_account", return_value=_active_account()):
+        resp = await client.post(
+            "/api/workflow/start",
+            json=_start_body(workflow_id="talent_explore", message_send_limit=0),
+        )
+    assert resp.status_code == 400
+    assert "message_send_limit" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_start_message_send_limit_too_high(client):
+    """message_send_limit=51 超过允许范围，返回 400。"""
+    with patch("routers.workflow.get_platform_account", return_value=_active_account()):
+        resp = await client.post(
+            "/api/workflow/start",
+            json=_start_body(workflow_id="talent_explore", message_send_limit=51),
+        )
+    assert resp.status_code == 400
+    assert "message_send_limit" in resp.json()["detail"]

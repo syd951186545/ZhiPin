@@ -8,8 +8,6 @@ frontend/dist/
 .env.local
 deploy/.env.production
 backend/.env
-backend/.env.production
-backend/openclaw/
 
 # Frontend build-time env must be included
 !frontend/.env.production

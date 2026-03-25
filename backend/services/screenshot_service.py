@@ -122,12 +122,12 @@ class ScreenshotService:
         candidates: list[Path] = []
         home_mount = Path(self._settings.openclaw_home_mount.rstrip("/"))
 
-        # Docker Compose 中 openclaw 把宿主卷挂到 /home/node，backend 挂到 /openclaw-home。
+        # 兼容 OpenClaw 仍返回 /home/node 路径的情况，统一映射到当前运行态挂载目录。
         if normalized.startswith("/home/node/"):
             suffix = normalized[len("/home/node/"):]
             candidates.append(home_mount / Path(suffix))
 
-        # 如果 backend 与 openclaw 运行在同一宿主机命名空间，可直接尝试原始路径。
+        # 当前 backopenclaw 单容器部署下，/opt/openclaw-home 可直接读取。
         candidates.append(Path(normalized))
 
         allowed_roots = [home_mount.resolve(strict=False)]

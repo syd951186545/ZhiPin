@@ -1,6 +1,6 @@
 # 机灵-企业数字员工、机器灵智平台
 
-一个面向企业数字员工与机器灵智场景的自动化平台：`frontend/` 提供管理台，`backend/` 负责编排工作流与代理 OpenClaw，`deploy/` 保存 Docker 与部署脚本。此 README 只保留后续接手最需要的信息。
+一个面向企业数字员工与机器灵智场景的自动化平台：`frontend/` 提供管理台，`backend/` 提供 FastAPI 工作流调度与数据落库逻辑，生产部署时由单一 `backopenclaw` 镜像同时承载 FastAPI 与 OpenClaw。此 README 只保留后续接手最需要的信息。
 
 ## 项目结构
 ```text
@@ -33,21 +33,21 @@
 - `requirements.txt`：后端依赖。
 
 ### `deploy/`
-- `docker-compose.yml`：生产部署入口，串联 frontend / backend / openclaw 三个服务。
+- `docker-compose.yml`：生产部署入口，仅保留 `frontend` / `backopenclaw` 两个服务。
 - `docker/frontend.Dockerfile`：构建前端镜像。
-- `docker/backend.Dockerfile`：构建后端镜像。
-- `docker/openclaw.Dockerfile`：基于官方 OpenClaw 镜像重建，预装 Chromium 与 Playwright Browser Skill。
-- `deploy.sh`：完整重部署脚本，会删除旧的自构建镜像并重新构建；可选拉取 OpenClaw/基础镜像。
-- `deploy_update.sh`：同步脚本，把代码或 OpenClaw 模板配置直接同步到运行中的容器；遇到依赖、Dockerfile、Compose、环境变量改动时提示改用 `deploy.sh`。
+- `docker/backopenclaw.Dockerfile`：构建单一 `backopenclaw` 镜像，内含 FastAPI、OpenClaw、Chromium 与 Playwright Browser Skill。
+- `docker/backopenclaw-entrypoint.sh`：容器入口，负责 seed OpenClaw 运行态数据并拉起 OpenClaw + FastAPI。
+- `deploy.sh`：唯一部署入口，支持 `prepare` / `build` / `recreate` / `all` 四种模式。
 - `.env.example`：生产环境变量模板。
 
 ## 架构说明
 ```text
 Browser
   -> frontend/ (React SPA)
-  -> /api/workflow/* -> backend/routers/workflow.py -> backend/workflows/* -> OpenClaw
+  -> /api/* -> backopenclaw:8000
+  -> /api/workflow/* -> backend/routers/workflow.py -> backend/workflows/* -> OpenClaw (容器内 127.0.0.1:18789)
   -> /api/openclaw/* -> backend/routers/openclaw_proxy.py -> OpenClaw
-  -> /api/settings/* -> backend/routers/settings.py -> deploy/docker/openclaw.json
+  -> /api/settings/* -> backend/routers/settings.py -> OpenClaw Gateway /tools/invoke
 
 Supabase <- frontend 认证 / backend 截图上传与数据持久化
 ```
@@ -62,28 +62,58 @@ Supabase <- frontend 认证 / backend 截图上传与数据持久化
 ## 常用命令
 - 前端开发：`cd frontend && npm run dev`
 - 前端构建检查：`cd frontend && npm run build`
-- 后端启动：`python backend/main.py`
-- 同步全部代码/配置到运行中容器：`cd deploy && ./deploy_update.sh`
+- 后端启动：`cd backend && python main.py`
+- 只生成部署配置：`cd deploy && ./deploy.sh prepare`
+- 只构建镜像：`cd deploy && ./deploy.sh build`
+- 只重建服务：`cd deploy && ./deploy.sh recreate`
 - 完整重部署：`cd deploy && ./deploy.sh`
-- 完整重部署并更新外部镜像：`cd deploy && ./deploy.sh --pull-all`
 
-## 部署脚本说明
-- `deploy_update.sh`
-  - 目标：把你改完的项目代码或 OpenClaw 模板配置，直接同步到已经在运行的容器。不会自动检查 git 改动。
-  - 默认行为：不带参数时，同步 `frontend + backend + OpenClaw`；也可以用 `-f`、`-b`、`-o` 只同步指定部分。
-  - 前端：使用临时 `node:20-alpine` 容器重新构建 `dist/`，再覆盖到运行中的 nginx 容器，并同步 nginx 配置。
-  - 后端：直接把 `backend/` 覆盖到运行中的 backend 容器，再重启 backend。
-  - OpenClaw：重新渲染 `openclaw.json`，覆盖到 OpenClaw 状态卷后重启容器。
-  - 限制：如果你改的是 Dockerfile、`docker-compose.yml`、`.env.production` 等基础部署内容，应改用 `deploy.sh`。
-- `deploy.sh`
-  - 目标：执行完整重部署，适合环境初始化、Compose 调整、镜像彻底重建。
-  - 默认会删除旧的自构建 `frontend` / `backend` / `openclaw` 镜像并重新构建。
-  - `openclaw` 镜像会基于 `OPENCLAW_IMAGE` 重建，内置系统 `chromium`、社区 `playwright-skill`，并在容器启动时把预装内容 seed 到持久化的 `/home/node`。
-  - `--pull-openclaw`：构建 openclaw 前拉取最新 OpenClaw 源镜像。
-  - `--pull-base`：拉取最新基础镜像（例如 `node` / `python` / `nginx`）后重建自构建镜像。
-  - `--pull-all`：同时更新 OpenClaw 与基础镜像。
+## 部署运维
+唯一入口是 `deploy/deploy.sh`。
+
+### 1. 首次部署 / 日常发版
+```bash
+cd deploy
+cp .env.example .env.production   # 首次部署时
+./deploy.sh
+```
+
+执行内容：
+- 读取 `deploy/.env.production`
+- 生成 `frontend/.env.production`、`backend/.env.production`、`deploy/generated/openclaw.generated.json`
+- 构建 `frontend` 与 `backopenclaw` 镜像
+- 重建 `frontend` 与 `backopenclaw` 服务
+
+### 2. 常用模式
+- `./deploy.sh prepare`
+  - 只生成镜像构建所需配置，不构建、不重启。
+- `./deploy.sh build`
+  - 先生成配置，再只构建 `frontend` 与 `backopenclaw` 镜像。
+- `./deploy.sh recreate`
+  - 不重新构建，直接使用两张镜像的最新共同 tag 重建服务。
+- `./deploy.sh recreate --image-tag <tag>`
+  - 使用指定 tag 重建，适合回滚或复用已构建镜像。
+
+### 3. 拉取基础镜像
+- `./deploy.sh --pull-openclaw`
+  - 构建 `backopenclaw` 时拉取最新 OpenClaw 源镜像。
+- `./deploy.sh --pull-base`
+  - 构建 `frontend` 和 `backopenclaw` 时拉取最新基础镜像。
+
+### 4. 运维排障
+- 查看容器状态：`docker compose --env-file deploy/.env.production -f deploy/docker-compose.yml ps`
+- 查看后端日志：`docker compose --env-file deploy/.env.production -f deploy/docker-compose.yml logs -f backopenclaw`
+- 查看前端日志：`docker compose --env-file deploy/.env.production -f deploy/docker-compose.yml logs -f frontend`
+- 进入后端容器：`docker exec -it <backopenclaw-container> sh`
+- 健康检查：访问 `/api/health`，确认 `openclaw.status=ok`
+
+### 5. 配置与持久化
+- `deploy/.env.production` 是部署事实源，内容会写入镜像构建产物。
+- OpenClaw 运行态配置通过 Docker volume `/opt/openclaw-home` 持久化。
+- 设置页修改的 OpenClaw 模型配置写入 volume，容器重建后保留。
 
 ## 维护提示
 - 新增自动化场景时，优先复用 `backend/workflows/base.py` 的状态与步骤执行模式。
-- 排查“任务无响应”时，优先看前端 SSE 订阅、`backend/routers/workflow.py`、OpenClaw 连通性与 Supabase 凭据。
+- 排查“任务无响应”时，优先看前端 SSE 订阅、`backend/routers/workflow.py`、`/api/health` 的 OpenClaw 子状态与 Supabase 凭据。
+- 生产环境不暴露 OpenClaw 端口；如需调试，SSH 到服务器后使用 `docker exec -it <backopenclaw-container> sh` 进入容器。
 - 现在顶层目录只保留 `frontend/`、`backend/`、`deploy/` 三个主入口，默认按此分层继续扩展。

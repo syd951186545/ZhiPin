@@ -49,3 +49,35 @@ export async function installAuthenticatedSession(page: Page, user: MockUser = d
     },
   )
 }
+
+/**
+ * 将真实的 Supabase JWT 注入到 localStorage，供 smoke-real 测试使用。
+ * 使前端使用真实 token 调用后端，后端可用其验证 Supabase RLS。
+ */
+export async function installRealSession(page: Page, realToken: string): Promise<void> {
+  const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60
+  const session = {
+    access_token: realToken,
+    refresh_token: '',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: expiresAt,
+    user: {
+      id: 'real-test-user',
+      email: process.env.INTEGRATION_TEST_EMAIL || 'test@example.com',
+      role: 'authenticated',
+      aud: 'authenticated',
+      app_metadata: { provider: 'email' },
+      user_metadata: { full_name: '集成测试用户' },
+    },
+  }
+  await page.addInitScript(
+    ({ storageKey, serializedSession }) => {
+      window.localStorage.setItem(storageKey, serializedSession)
+    },
+    {
+      storageKey: STORAGE_KEY,
+      serializedSession: JSON.stringify(session),
+    },
+  )
+}

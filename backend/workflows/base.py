@@ -73,6 +73,8 @@ class WorkflowState(TypedDict, total=False):
     # 执行参数
     min_match_score: int
     max_results: int
+    message_send_limit: int
+    custom_message: str
 
     # 执行结果
     step_results: dict[str, dict]  # step_id -> {text, screenshots, success}

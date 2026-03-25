@@ -6,7 +6,8 @@ ARG APT_MIRROR_HOST=mirrors.tuna.tsinghua.edu.cn
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 ARG PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
 
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/openclaw-home-seed/.cache/ms-playwright \
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/openclaw-home-seed/.cache/ms-playwright \
     PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
 
 USER root
@@ -33,30 +34,42 @@ RUN set -eux; \
         chromium \
         curl \
         git \
+        gosu \
+        python3 \
+        python3-pip \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/openclaw-home-seed/.openclaw/skills /opt/openclaw-home-seed/.cache
+RUN mkdir -p /opt/openclaw-home-seed/.openclaw/skills /opt/openclaw-home-seed/.cache /app/backend
+
+COPY backend/requirements.txt /tmp/backend-requirements.txt
+RUN python3 -m pip install --break-system-packages -r /tmp/backend-requirements.txt
 
 RUN git clone --depth 1 --branch "${PLAYWRIGHT_SKILL_REF}" https://github.com/lackeyjb/playwright-skill.git /tmp/playwright-skill \
     && cp -R /tmp/playwright-skill/skills/playwright-skill /opt/openclaw-home-seed/.openclaw/skills/playwright-skill \
     && rm -rf /tmp/playwright-skill
 
-COPY --chown=node:node deploy/openclaw-skills/browser-guardrails-skill /opt/openclaw-home-seed/.openclaw/skills/browser-guardrails-skill
+COPY deploy/openclaw-skills/browser-guardrails-skill /opt/openclaw-home-seed/.openclaw/skills/browser-guardrails-skill
+COPY deploy/generated/openclaw.generated.json /opt/openclaw-home-seed/.openclaw/openclaw.json
+COPY backend/.env.production /app/backend/.env.production
+COPY backend /app/backend
+COPY deploy/docker/backopenclaw-entrypoint.sh /usr/local/bin/backopenclaw-entrypoint.sh
 
-RUN chown -R node:node /opt/openclaw-home-seed
+RUN chown -R node:node /opt/openclaw-home-seed /app/backend \
+    && chmod +x /usr/local/bin/backopenclaw-entrypoint.sh
 
 USER node
 
 RUN cd /opt/openclaw-home-seed/.openclaw/skills/playwright-skill \
     && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm_config_registry="${NPM_REGISTRY}" npm install --omit=dev
 
-COPY --chown=node:node backend/openclaw/openclaw.generated.json /opt/openclaw-home-seed/.openclaw/openclaw.json
-COPY --chown=node:node deploy/docker/openclaw-entrypoint.sh /usr/local/bin/openclaw-entrypoint.sh
+USER root
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \
     PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST} \
     CHROME_BIN=/usr/bin/chromium \
     CHROMIUM_BIN=/usr/bin/chromium
 
-ENTRYPOINT ["/usr/local/bin/openclaw-entrypoint.sh"]
-CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
+EXPOSE 8000
+
+ENTRYPOINT ["/usr/local/bin/backopenclaw-entrypoint.sh"]

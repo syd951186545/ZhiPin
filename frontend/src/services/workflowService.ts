@@ -44,6 +44,8 @@ export interface WorkflowStartRequest {
   // 工作流参数
   min_match_score?: number
   max_results?: number
+  message_send_limit?: number  // 每次运行最多发送消息数（1-50，默认 10）
+  custom_message?: string      // 自定义消息话术（空 = 使用默认）
 }
 
 export interface StepMeta {

@@ -402,17 +402,23 @@ function bindWorkflowSubscription(
     onHandoffRequired: (data) => {
       setAndPersist(set, get, (state) => {
         if (!state.activeExecution) return state
+        const handoffError = `登录态已失效，请前往「设置」重新绑定账号后重试。（步骤：${data.step_name}）`
+        const handoffExecution: WorkflowExecution = {
+          ...state.activeExecution,
+          status: 'failed',
+          error: handoffError,
+          accumulatedText:
+            state.activeExecution.accumulatedText
+            + `\n[需要重新登录] ${data.step_name} -> ${data.reason}`
+            + (data.error_code ? ` (${data.error_code})` : '')
+            + '\n',
+        }
         return {
-          activeExecution: {
-            ...state.activeExecution,
-            accumulatedText:
-              state.activeExecution.accumulatedText
-              + `\n[人工接管] ${data.step_name} -> ${data.reason}`
-              + (data.error_code ? ` (${data.error_code})` : '')
-              + '\n',
-          },
+          activeExecution: null,
+          lastExecution: handoffExecution,
         }
       })
+      cleanupSSE()
     },
 
     onArtifactCreated: (data) => {

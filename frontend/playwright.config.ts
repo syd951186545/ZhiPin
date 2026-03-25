@@ -36,8 +36,18 @@ export default defineConfig({
       },
     },
     {
+      // smoke: Mock E2E 完整用户旅程测试（快速，上线前必须通过）
+      name: 'smoke',
+      grep: /@smoke/,
+      grepInvert: /@smoke-real/,
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
       name: 'smoke-real',
       grep: /@smoke-real/,
+      timeout: 300_000, // 5 分钟 - 真实工作流执行时间
       use: {
         ...devices['Desktop Chrome'],
       },
