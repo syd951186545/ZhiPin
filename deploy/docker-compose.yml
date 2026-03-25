@@ -39,6 +39,10 @@ services:
     cap_add:
       - NET_RAW
       - SYS_ADMIN
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
     security_opt:
       - no-new-privileges:true
     healthcheck:
