@@ -47,6 +47,20 @@ type SaveStatus = 'idle' | 'loading' | 'success' | 'error'
 type ModelOption = {value: string; label: string}
 type ModelGroup = {provider: string; models: ModelOption[]}
 
+async function readApiPayload(res: Response): Promise<Record<string, unknown>> {
+  const raw = await res.text()
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    if (res.ok) {
+      throw new Error('服务返回了无法解析的响应内容')
+    }
+    const snippet = raw.replace(/\s+/g, ' ').trim().slice(0, 120)
+    throw new Error(`${res.status} ${res.statusText || '请求失败'}${snippet ? `: ${snippet}` : ''}`)
+  }
+}
+
 const OFFICIAL_OPENCLAW_MODEL_CATALOG: ModelGroup[] = [
   {
     provider: 'anthropic',
@@ -273,8 +287,8 @@ export default function Settings() {
     try {
       const headers = await getAuthHeaders()
       const res = await fetch('/api/settings/openclaw', {headers})
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || '加载 AI 配置失败')
+      const data = await readApiPayload(res)
+      if (!res.ok) throw new Error(String(data.detail || `加载 AI 配置失败（${res.status}）`))
       _openclawConfigCache = data as ServerConfig
       _openclawConfigCacheTime = Date.now()
       setServerConfig(data as ServerConfig)
@@ -314,8 +328,10 @@ export default function Settings() {
         headers,
         body: JSON.stringify(body),
       })
-      const data = await res.json()
-      if (!res.ok || !data.success) throw new Error(data.detail || data.validationMessage || data.message || '保存失败')
+      const data = await readApiPayload(res)
+      if (!res.ok || !data.success) {
+        throw new Error(String(data.detail || data.validationMessage || data.message || `保存失败（${res.status}）`))
+      }
 
       const result = data as SaveServerResponse
       setSaveStatus('success')
