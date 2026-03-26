@@ -42,6 +42,14 @@ export default function Login() {
         transition={{ duration: 0.4 }}
         className="w-full max-w-md"
       >
+        {/* Brand header — only visible when the dark left panel is hidden (< lg) */}
+        <div className="flex items-center justify-center gap-2 mb-8 lg:hidden">
+          <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center font-bold text-white text-lg select-none">
+            J
+          </div>
+          <span className="text-lg font-bold tracking-tight">机灵平台</span>
+        </div>
+
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold tracking-tight">{t('login.title')}</h2>
           <p className="text-muted-foreground mt-2">{t('login.desc')}</p>
