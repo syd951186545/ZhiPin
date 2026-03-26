@@ -226,7 +226,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                 src={liveSession?.ws_url || ''}
                 title="远程桌面登录"
                 className="w-full border-0"
-                style={{height: '520px'}}
+                style={{height: 'clamp(320px, 55vh, 520px)'}}
                 allow="clipboard-read; clipboard-write"
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               />
