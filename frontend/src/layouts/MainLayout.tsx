@@ -13,12 +13,14 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
+  Menu,
   Moon,
   Settings,
   Sun,
 } from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
+import {Sheet, SheetContent} from '@/components/ui/sheet';
 import ConnectionIndicator from '@/components/shared/ConnectionIndicator';
 import {cn} from '@/lib/utils';
 import {useTenantSettings} from '@/hooks/useTenantSettings';
@@ -32,6 +34,7 @@ export default function MainLayout() {
   const { lang, setLang, t } = useI18n();
   const location = useLocation();
   const [digitalExpanded, setDigitalExpanded] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   if (loading) {
     return (
@@ -52,8 +55,134 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-[88vw] max-w-none p-0 md:hidden">
+          <aside className="h-full border-r bg-card flex flex-col">
+            <div className="h-16 flex items-center px-5 border-b gap-3 shrink-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center font-bold text-white text-xl shadow-sm">
+                J
+              </div>
+              <span className="font-bold text-sm leading-tight tracking-tight">机灵平台</span>
+            </div>
+            <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+              <NavLink
+                to="/"
+                end
+                onClick={() => setMobileNavOpen(false)}
+                className={({ isActive }) => cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+                  isActive
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                )}
+              >
+                <LayoutDashboard className="w-4 h-4 shrink-0" />
+                {t('nav.dashboard')}
+              </NavLink>
+              <NavLink
+                to="/enterprise"
+                onClick={() => setMobileNavOpen(false)}
+                className={({ isActive }) => cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+                  isActive
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                )}
+              >
+                <Briefcase className="w-4 h-4 shrink-0" />
+                {t('nav.enterpriseInfo')}
+              </NavLink>
+              <div className={cn(
+                'mt-2 rounded-xl overflow-hidden transition-all duration-200',
+                isDigitalActive
+                  ? 'bg-primary/5 ring-1 ring-primary/15'
+                  : 'bg-muted/40 hover:bg-muted/60',
+              )}>
+                <button
+                  onClick={() => setDigitalExpanded(v => !v)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold transition-colors"
+                >
+                  <div className={cn(
+                    'w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors',
+                    isDigitalActive
+                      ? 'bg-primary/15 text-primary'
+                      : 'bg-muted text-muted-foreground',
+                  )}>
+                    <Bot className="w-4 h-4" />
+                  </div>
+                  <span className={cn(
+                    'flex-1 text-left transition-colors',
+                    isDigitalActive ? 'text-primary' : 'text-foreground/80',
+                  )}>
+                    {t('nav.digitalEmployee')}
+                  </span>
+                  {digitalExpanded
+                    ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                    : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                  }
+                </button>
+                {digitalExpanded && (
+                  <div className="pb-1.5 px-2 space-y-0.5">
+                    <NavLink
+                      to="/jiling-recruit"
+                      onClick={() => setMobileNavOpen(false)}
+                      className={({ isActive }) => cn(
+                        'flex items-center gap-2.5 pl-4 pr-3 py-2 rounded-lg text-sm transition-all duration-150 border-l-2',
+                        isActive
+                          ? 'border-primary bg-primary/10 text-primary font-medium'
+                          : 'border-transparent text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground hover:border-primary/30',
+                      )}
+                    >
+                      <Cpu className="w-3.5 h-3.5 shrink-0" />
+                      {t('nav.jilingRecruit')}
+                    </NavLink>
+                    <ComingSoonNavItem label={t('nav.jilingService')} name="机灵客服" t={t} />
+                    <ComingSoonNavItem label={t('nav.jilingFinance')} name="机灵财务" t={t} />
+                    <ComingSoonNavItem label={t('nav.jilingOps')} name="机灵运营" t={t} />
+                  </div>
+                )}
+              </div>
+              <NavLink
+                to="/settings"
+                onClick={() => setMobileNavOpen(false)}
+                className={({ isActive }) => cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 mt-0.5',
+                  isActive
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                )}
+              >
+                <Settings className="w-4 h-4 shrink-0" />
+                {t('nav.settings')}
+              </NavLink>
+            </nav>
+            <div className="p-3 border-t">
+              <div className="flex items-center gap-3 px-2 py-1.5 mb-1">
+                <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                  {user?.name?.charAt(0)?.toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-muted-foreground hover:text-destructive text-sm"
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  logout();
+                }}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                {t('nav.logout')}
+              </Button>
+            </div>
+          </aside>
+        </SheetContent>
+      </Sheet>
       {/* Sidebar */}
-      <aside className="w-64 border-r bg-card flex flex-col shrink-0">
+      <aside className="hidden w-64 border-r bg-card md:flex flex-col shrink-0">
         {/* Logo */}
         <div className="h-16 flex items-center px-5 border-b gap-3 shrink-0">
           <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center font-bold text-white text-xl shadow-sm">
@@ -194,8 +323,16 @@ export default function MainLayout() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header */}
-        <header className="h-16 border-b bg-card flex items-center justify-between px-6 shrink-0">
+        <header className="h-16 border-b bg-card flex items-center justify-between px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
             <ConnectionIndicator />
           </div>
 
