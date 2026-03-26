@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ZhiPinYun Dev Server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--host=0.0.0.0", "--port=5173", "--mode=production"],
+      "cwd": "D:\\_WorkSpaceWebStorm\\ZhiPin_CC\\frontend",
+      "port": 5173
+    }
+  ]
+}
