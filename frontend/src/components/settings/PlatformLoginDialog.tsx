@@ -117,13 +117,12 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     const poll = async () => {
       try {
         const status: LiveLoginStatus = await getLiveLoginSessionStatus(liveSession.session_id)
-        setRemaining(status.remaining_seconds)
-        if (status.status === 'expired') {
+        if (status.time_remaining != null) {
+          setRemaining(Math.floor(status.time_remaining))
+        }
+        if (!status.active) {
           setPhase('expired')
           setError('登录会话已超时，请重新开始')
-          cleanup()
-        } else if (status.status === 'stopped') {
-          setPhase('stopped')
           cleanup()
         }
       } catch {
@@ -158,7 +157,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     setError(null)
     try {
       const result = await confirmLiveLoginSession(liveSession.session_id)
-      if (result.success) {
+      if (result.is_logged_in) {
         setPhase('confirmed')
         setConfirmMessage(result.message || '登录状态已保存')
         cleanup()

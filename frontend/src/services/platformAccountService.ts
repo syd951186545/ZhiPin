@@ -91,6 +91,8 @@ export async function createPlatformAccount(payload: {
 
 export interface LiveLoginSession {
   session_id: string
+  ws_port: number
+  vnc_token: string
   ws_url: string
   login_url: string
   timeout_seconds: number
@@ -98,8 +100,8 @@ export interface LiveLoginSession {
 
 export interface LiveLoginStatus {
   session_id: string
-  status: 'running' | 'confirmed' | 'stopped' | 'expired'
-  remaining_seconds: number
+  active: boolean
+  time_remaining: number | null
 }
 
 export async function startLiveLogin(
@@ -119,7 +121,7 @@ export async function startLiveLogin(
   return resp.json()
 }
 
-export async function confirmLiveLogin(sessionId: string): Promise<{success: boolean; message: string}> {
+export async function confirmLiveLogin(sessionId: string): Promise<{is_logged_in: boolean; message: string}> {
   const authHeaders = await getAuthHeaders()
   const resp = await fetch(`/api/live-login/${sessionId}/confirm`, {
     method: 'POST',
@@ -153,7 +155,7 @@ export async function getLiveLoginStatus(sessionId: string): Promise<LiveLoginSt
     const text = await resp.text().catch(() => '')
     throw new Error(`获取登录状态失败 (${resp.status}): ${text}`)
   }
-  return (await resp.json()).item
+  return resp.json()
 }
 
 export async function fetchBindingSession(sessionId: string): Promise<PlatformBindingSession> {

@@ -293,16 +293,12 @@ async def _start_process_chain(session: LiveSession) -> None:
     session.pids["x11vnc"] = x11vnc.pid
     await asyncio.sleep(0.3)
 
-    # 4. websockify（使用 token 认证）
-    token_file = Path(f"/tmp/vnc-token-{session.session_id}.cfg")
-    token_file.write_text(f"{session.vnc_token}: 127.0.0.1:{vnc_port}\n")
-
+    # 4. websockify（直连模式，无需 token 认证，安全由 session_id UUID + nginx 保障）
     websockify = await asyncio.create_subprocess_exec(
         "websockify",
         f"--web=/usr/share/novnc",
-        f"--token-plugin=TokenFile",
-        f"--token-source={token_file}",
         str(session.ws_port),
+        f"127.0.0.1:{vnc_port}",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )

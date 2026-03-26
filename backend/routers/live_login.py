@@ -44,6 +44,7 @@ class StartResponse(BaseModel):
     session_id: str
     ws_port: int
     vnc_token: str
+    ws_url: str
     login_url: str
     timeout_seconds: int
 
@@ -95,7 +96,7 @@ async def api_start_live_login(
     user_info = await _validate_request_user(auth_token)
     tenant_id = user_info["tenant_id"]
 
-    account = get_platform_account(body.account_id, tenant_id)
+    account = get_platform_account(body.account_id, tenant_id, auth_token=auth_token)
     if not account:
         raise HTTPException(status_code=404, detail="平台账号不存在")
 
@@ -116,17 +117,19 @@ async def api_start_live_login(
         raise HTTPException(status_code=status, detail=str(e)) from e
 
     # 更新账号状态
-    await update_platform_account(body.account_id, {
+    update_platform_account(body.account_id, tenant_id, {
         "status": "verifying",
         "login_state": "LIVE_SESSION_ACTIVE",
         "browser_session_key": browser_session_key,
-    })
+    }, auth_token=auth_token)
 
     from services.live_login_service import SESSION_TIMEOUT
+    ws_url = f"/novnc/{session.ws_port}/vnc.html?autoconnect=true&resize=scale"
     return StartResponse(
         session_id=session.session_id,
         ws_port=session.ws_port,
         vnc_token=session.vnc_token,
+        ws_url=ws_url,
         login_url=session.login_url,
         timeout_seconds=SESSION_TIMEOUT,
     )
@@ -139,19 +142,20 @@ async def api_confirm_live_login(
 ):
     """用户确认登录完成，提取并持久化 cookies。"""
     auth_token = _read_bearer(authorization)
-    await _validate_request_user(auth_token)
+    user_info = await _validate_request_user(auth_token)
+    tenant_id = user_info["tenant_id"]
 
     session = get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在或已关闭")
 
     async def supabase_updater(account_id: str, encrypted: bytes, login_state: str):
-        await update_platform_account(account_id, {
+        update_platform_account(account_id, tenant_id, {
             "encrypted_session_state": base64.b64encode(encrypted).decode(),
             "login_state": login_state,
             "status": "active",
             "is_connected": True,
-        })
+        }, auth_token=auth_token)
 
     try:
         result = await confirm_login(session_id, supabase_updater=supabase_updater)
@@ -177,14 +181,15 @@ async def api_stop_live_login(
 ):
     """取消/停止 noVNC 会话。"""
     auth_token = _read_bearer(authorization)
-    await _validate_request_user(auth_token)
+    user_info = await _validate_request_user(auth_token)
+    tenant_id = user_info["tenant_id"]
 
     session = get_session(session_id)
     if session:
-        await update_platform_account(session.account_id, {
+        update_platform_account(session.account_id, tenant_id, {
             "status": "needsLogin",
             "login_state": "NOT_BOUND",
-        })
+        }, auth_token=auth_token)
     await stop_live_session(session_id)
     return {"status": "stopped"}
 
