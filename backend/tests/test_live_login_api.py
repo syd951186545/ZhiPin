@@ -52,9 +52,9 @@ SAMPLE_ACCOUNT = {
 async def test_start_success(client):
     """正常启动返回会话信息。"""
     with (
-        patch("routers.live_login.get_platform_account", new_callable=AsyncMock, return_value=SAMPLE_ACCOUNT),
+        patch("routers.live_login.get_platform_account", return_value=SAMPLE_ACCOUNT),
         patch("routers.live_login.start_live_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-        patch("routers.live_login.update_platform_account", new_callable=AsyncMock),
+        patch("routers.live_login.update_platform_account"),
     ):
         resp = await client.post(
             "/api/live-login/start",
@@ -71,7 +71,7 @@ async def test_start_success(client):
 @pytest.mark.asyncio
 async def test_start_account_not_found(client):
     """账号不存在返回 404。"""
-    with patch("routers.live_login.get_platform_account", new_callable=AsyncMock, return_value=None):
+    with patch("routers.live_login.get_platform_account", return_value=None):
         resp = await client.post(
             "/api/live-login/start",
             json={"account_id": "nonexist"},
@@ -84,7 +84,7 @@ async def test_start_account_not_found(client):
 async def test_start_pool_exhausted(client):
     """通道满时返回 429。"""
     with (
-        patch("routers.live_login.get_platform_account", new_callable=AsyncMock, return_value=SAMPLE_ACCOUNT),
+        patch("routers.live_login.get_platform_account", return_value=SAMPLE_ACCOUNT),
         patch(
             "routers.live_login.start_live_session",
             new_callable=AsyncMock,
@@ -120,7 +120,16 @@ async def test_confirm_success(client):
         patch(
             "routers.live_login.confirm_login",
             new_callable=AsyncMock,
-            return_value={"is_logged_in": True, "storage_state": {"cookies": []}},
+            return_value={
+                "is_logged_in": True,
+                "storage_state": {"cookies": []},
+                "persistence": {
+                    "workspace_saved": True,
+                    "db_saved": True,
+                    "workspace_detail": "ok",
+                    "db_detail": "ok",
+                },
+            },
         ),
     ):
         resp = await client.post(
@@ -128,7 +137,11 @@ async def test_confirm_success(client):
             headers=auth_header(),
         )
     assert resp.status_code == 200
-    assert resp.json()["is_logged_in"] is True
+    body = resp.json()
+    assert body["success"] is True
+    assert body["is_logged_in"] is True
+    assert body["workspace_saved"] is True
+    assert body["db_saved"] is True
 
 
 @pytest.mark.asyncio
@@ -150,7 +163,7 @@ async def test_stop_success(client):
     """正常停止会话。"""
     with (
         patch("routers.live_login.get_session", return_value=MOCK_SESSION),
-        patch("routers.live_login.update_platform_account", new_callable=AsyncMock),
+        patch("routers.live_login.update_platform_account"),
         patch("routers.live_login.stop_live_session", new_callable=AsyncMock),
     ):
         resp = await client.post(

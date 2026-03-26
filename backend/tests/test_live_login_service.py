@@ -159,12 +159,17 @@ async def test_confirm_logged_in(mock_deps, monkeypatch):
             return_value=(mock_state, True),
         ),
         patch("services.live_login_service._write_storage_state_to_workspace"),
+        patch(
+            "services.live_login_service._verify_storage_state_persisted",
+            return_value=(True, "ok"),
+        ),
     ):
         updater = AsyncMock()
         result = await confirm_login(session.session_id, supabase_updater=updater)
 
     assert result["is_logged_in"] is True
     assert result["storage_state"] == mock_state
+    assert result["persistence"]["workspace_saved"] is True
     updater.assert_awaited_once()
 
 
@@ -186,6 +191,40 @@ async def test_confirm_not_logged_in(mock_deps):
         result = await confirm_login(session.session_id)
 
     assert result["is_logged_in"] is False
+
+
+@pytest.mark.asyncio
+async def test_confirm_logged_in_but_persistence_failed(mock_deps, monkeypatch):
+    """检测到登录态但持久化回读失败时，应返回未登录。"""
+    monkeypatch.setenv("SESSION_ENCRYPTION_KEY", "a" * 64)
+    from services.live_login_service import start_live_session, confirm_login
+
+    session = await start_live_session(
+        account_id="acc-1", tenant_id="t-1",
+        platform="boss_zhipin", browser_session_key="key-1",
+    )
+
+    mock_state = {
+        "cookies": [{"name": "wt2", "value": "abc", "domain": ".zhipin.com"}],
+        "origins": [],
+    }
+
+    with (
+        patch(
+            "services.live_login_service._extract_and_verify_storage_state",
+            new_callable=AsyncMock,
+            return_value=(mock_state, True),
+        ),
+        patch("services.live_login_service._write_storage_state_to_workspace"),
+        patch(
+            "services.live_login_service._verify_storage_state_persisted",
+            return_value=(False, "file missing"),
+        ),
+    ):
+        result = await confirm_login(session.session_id, supabase_updater=AsyncMock())
+
+    assert result["is_logged_in"] is False
+    assert result["persistence"]["workspace_saved"] is False
 
 
 @pytest.mark.asyncio
@@ -256,3 +295,19 @@ class TestCheckLoginCookies:
         from services.live_login_service import _check_login_cookies
         state = {"cookies": []}
         assert _check_login_cookies(state, "unknown_platform") is True
+
+    def test_58_logged_in_by_auth_cookie_and_non_login_url(self):
+        from services.live_login_service import _check_login_cookies
+        state = {
+            "cookies": [{"name": "PPU", "value": "x", "domain": ".58.com"}],
+        }
+        signals = {"urls": ["https://vip.58.com/index"], "titles": []}
+        assert _check_login_cookies(state, "58", signals) is True
+
+    def test_58_not_logged_in_when_only_tracking_cookie(self):
+        from services.live_login_service import _check_login_cookies
+        state = {
+            "cookies": [{"name": "58tj_uuid", "value": "x", "domain": ".58.com"}],
+        }
+        signals = {"urls": ["https://passport.58.com/login/?path=http%3A%2F%2Fvip.58.com"], "titles": []}
+        assert _check_login_cookies(state, "58", signals) is False

@@ -145,10 +145,18 @@ async def confirm_login(
         session.cdp_port, session.platform,
     )
 
-    result: dict = {"is_logged_in": is_logged_in, "storage_state": None}
+    result: dict = {
+        "is_logged_in": is_logged_in,
+        "storage_state": None,
+        "persistence": {
+            "workspace_saved": False,
+            "db_saved": False,
+            "workspace_detail": "",
+            "db_detail": "",
+        },
+    }
 
     if is_logged_in and state:
-        result["storage_state"] = state
         state_json = json.dumps(state, ensure_ascii=False)
 
         # 加密存储
@@ -156,14 +164,40 @@ async def confirm_login(
 
         # 写入 OpenClaw 可读的文件系统（原子写入）
         _write_storage_state_to_workspace(session.browser_session_key, state)
+        workspace_ok, workspace_detail = _verify_storage_state_persisted(
+            session.browser_session_key, state
+        )
+        result["persistence"]["workspace_saved"] = workspace_ok
+        result["persistence"]["workspace_detail"] = workspace_detail
 
         # 通知上层持久化到 Supabase
+        db_ok = False
+        db_detail = ""
         if supabase_updater:
-            await supabase_updater(
+            update_result = await supabase_updater(
                 session.account_id,
                 encrypted=encrypted,
                 login_state="LOGGED_IN",
             )
+            if isinstance(update_result, dict):
+                db_ok = bool(update_result.get("saved", False))
+                db_detail = str(update_result.get("detail", ""))
+            elif isinstance(update_result, bool):
+                db_ok = update_result
+            else:
+                db_ok = True
+        else:
+            db_ok = True
+            db_detail = "未提供数据库持久化回调，跳过校验"
+
+        result["persistence"]["db_saved"] = db_ok
+        result["persistence"]["db_detail"] = db_detail
+
+        if workspace_ok and db_ok:
+            result["storage_state"] = state
+            result["is_logged_in"] = True
+        else:
+            result["is_logged_in"] = False
 
     # 无论是否成功都关闭 VNC 会话
     await stop_live_session(session_id)
@@ -352,9 +386,10 @@ async def _extract_and_verify_storage_state(
                     return None, False
 
                 state = await context.storage_state()
+                page_signals = _collect_page_signals(context)
                 await browser.close()
 
-                is_logged_in = _check_login_cookies(state, platform)
+                is_logged_in = _check_login_cookies(state, platform, page_signals)
                 return state, is_logged_in
 
         except Exception as e:
@@ -376,7 +411,11 @@ _PLATFORM_LOGIN_COOKIES: dict[str, dict[str, list[str]]] = {
         "zhipin.com": ["wt2"],
     },
     "58": {
-        "58.com": ["58tj_uuid"],
+        # 注意：58tj_uuid 仅是追踪类 cookie，不能单独作为登录态依据。
+        # 这里优先使用更接近认证语义的 cookie 名称。
+        "58.com": ["PPU", "58uname", "58name", "58cooper", "id58"],
+        "vip.58.com": ["PPU", "58uname", "58cooper", "id58"],
+        "passport.58.com": ["PPU", "58uname", "58cooper", "id58"],
     },
     "liepin": {
         "liepin.com": ["__session_id"],
@@ -384,18 +423,52 @@ _PLATFORM_LOGIN_COOKIES: dict[str, dict[str, list[str]]] = {
 }
 
 
-def _check_login_cookies(state: dict, platform: str) -> bool:
+def _collect_page_signals(context) -> dict[str, list[str]]:
+    return {
+        "urls": [str((page.url or "")) for page in context.pages],
+        "titles": [],
+    }
+
+
+def _check_login_cookies(
+    state: dict,
+    platform: str,
+    page_signals: dict[str, list[str]] | None = None,
+) -> bool:
     """检查 storageState 中是否包含目标平台的登录 cookies。"""
+    page_signals = page_signals or {"urls": [], "titles": []}
     expected = _PLATFORM_LOGIN_COOKIES.get(platform, {})
     if not expected:
         # 未配置的平台，默认信任用户确认
         return True
 
     cookies = state.get("cookies", [])
+    if platform == "58":
+        auth_cookie_hit = any(
+            c.get("name") in {"PPU", "58uname", "58name", "58cooper", "id58"}
+            and (
+                "58.com" in str(c.get("domain", ""))
+                or "ganji.com" in str(c.get("domain", ""))
+            )
+            for c in cookies
+        )
+        urls = [u.lower() for u in page_signals.get("urls", []) if u]
+        login_page_hit = any(
+            "passport.58.com/login" in u or "/login" in u and "58.com" in u
+            for u in urls
+        )
+        vip_dashboard_hit = any(
+            "vip.58.com" in u and "login" not in u and "passport.58.com" not in u
+            for u in urls
+        )
+        # 58 平台使用多信号判定，避免仅靠单一追踪 cookie 误判。
+        return (auth_cookie_hit and not login_page_hit) or (vip_dashboard_hit and not login_page_hit)
+
+    # 其他平台保持“关键 cookie 全命中”的严格策略。
     for domain, cookie_names in expected.items():
         for name in cookie_names:
             found = any(
-                c.get("name") == name and domain in c.get("domain", "")
+                c.get("name") == name and domain in str(c.get("domain", ""))
                 for c in cookies
             )
             if not found:
@@ -411,6 +484,28 @@ def _write_storage_state_to_workspace(session_key: str, state: dict) -> None:
     tmp_path = target / "storage_state.json.tmp"
     tmp_path.write_text(json.dumps(state, ensure_ascii=False))
     os.replace(str(tmp_path), str(final_path))
+
+
+def _verify_storage_state_persisted(session_key: str, expected_state: dict) -> tuple[bool, str]:
+    target = _OPENCLAW_WORKSPACE / session_key / "storage_state.json"
+    if not target.exists():
+        return False, f"storage_state.json 不存在: {target}"
+
+    try:
+        raw = target.read_text()
+        persisted = json.loads(raw)
+    except Exception as exc:
+        return False, f"storage_state.json 读取失败: {exc}"
+
+    expected_cookies = expected_state.get("cookies", []) or []
+    persisted_cookies = persisted.get("cookies", []) or []
+    if len(persisted_cookies) < len(expected_cookies):
+        return (
+            False,
+            f"cookie 数量异常，期望>={len(expected_cookies)}，实际={len(persisted_cookies)}",
+        )
+
+    return True, f"已持久化到 {target}"
 
 
 async def _cleanup_session(session: LiveSession) -> None:

@@ -185,7 +185,10 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     setLiveSession(null)
   }
 
-  const handleClose = () => {
+  const handleClose = (nextOpen?: boolean) => {
+    if (nextOpen === true) {
+      return
+    }
     if (phase === 'running' && liveSession) {
       handleStop()
     }
