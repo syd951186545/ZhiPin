@@ -106,25 +106,25 @@ export async function startLiveLogin(
   accountId: string,
   platform: string,
 ): Promise<LiveLoginSession> {
-  const token = await getAuthToken()
+  const authHeaders = await getAuthHeaders()
   const resp = await fetch('/api/live-login/start', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({account_id: accountId, platform, supabase_auth_token: token}),
+    headers: {'Content-Type': 'application/json', ...authHeaders},
+    body: JSON.stringify({account_id: accountId, platform}),
   })
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     throw new Error(`启动远程登录失败 (${resp.status}): ${text}`)
   }
-  return (await resp.json()).item
+  return resp.json()
 }
 
 export async function confirmLiveLogin(sessionId: string): Promise<{success: boolean; message: string}> {
-  const token = await getAuthToken()
+  const authHeaders = await getAuthHeaders()
   const resp = await fetch(`/api/live-login/${sessionId}/confirm`, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({supabase_auth_token: token}),
+    headers: {'Content-Type': 'application/json', ...authHeaders},
+    body: JSON.stringify({}),
   })
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
@@ -134,11 +134,11 @@ export async function confirmLiveLogin(sessionId: string): Promise<{success: boo
 }
 
 export async function stopLiveLogin(sessionId: string): Promise<void> {
-  const token = await getAuthToken()
+  const authHeaders = await getAuthHeaders()
   const resp = await fetch(`/api/live-login/${sessionId}/stop`, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({supabase_auth_token: token}),
+    headers: {'Content-Type': 'application/json', ...authHeaders},
+    body: JSON.stringify({}),
   })
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
