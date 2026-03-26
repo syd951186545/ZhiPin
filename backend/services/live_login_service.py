@@ -271,6 +271,15 @@ async def _start_process_chain(session: LiveSession) -> None:
         "--remote-debugging-address=127.0.0.1",
         "--disable-blink-features=AutomationControlled",
         f"--user-data-dir={data_dir}",
+        # ── 用户操作限制 ──────────────────────────────────────────────────────
+        # kiosk 模式：隐藏地址栏/标签栏/窗口控件，禁用 Ctrl+T/W/N 等快捷键，
+        # 用户无法关闭浏览器窗口、新开标签页或导航到其他 URL。
+        # 注意：若登录流程依赖弹出窗口（OAuth popup），需改用 --app= 模式。
+        "--kiosk",
+        "--no-first-run",     # 跳过首次运行向导
+        "--disable-infobars", # 隐藏「由自动化测试软件控制」提示条
+        "--disable-translate", # 禁用翻译弹窗
+        # ─────────────────────────────────────────────────────────────────────
         session.login_url,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,

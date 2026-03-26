@@ -90,6 +90,17 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
   const [confirmMessage, setConfirmMessage] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // 会话活跃时阻止浏览器标签页被意外关闭
+  useEffect(() => {
+    if (phase !== 'running' && phase !== 'confirming') return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [phase])
+
   const cleanup = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current)
