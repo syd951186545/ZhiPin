@@ -95,11 +95,9 @@ async def api_start_live_login(
     user_info = await _validate_request_user(auth_token)
     tenant_id = user_info["tenant_id"]
 
-    account = await get_platform_account(body.account_id)
+    account = get_platform_account(body.account_id, tenant_id)
     if not account:
         raise HTTPException(status_code=404, detail="平台账号不存在")
-    if account.get("tenant_id") != tenant_id:
-        raise HTTPException(status_code=403, detail="无权操作该账号")
 
     browser_session_key = account.get("browser_session_key") or build_browser_session_key(
         tenant_id, account["platform"], body.account_id,
