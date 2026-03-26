@@ -165,8 +165,9 @@ async def confirm_login(
                 login_state="LOGGED_IN",
             )
 
-    # 无论是否成功都关闭 VNC 会话
-    await stop_live_session(session_id)
+    # 登录成功后关闭 VNC 会话；失败则保留会话供用户继续操作
+    if is_logged_in:
+        await stop_live_session(session_id)
 
     return result
 

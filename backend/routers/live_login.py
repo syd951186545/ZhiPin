@@ -124,7 +124,7 @@ async def api_start_live_login(
     }, auth_token=auth_token)
 
     from services.live_login_service import SESSION_TIMEOUT
-    ws_url = f"/novnc/{session.ws_port}/vnc.html?autoconnect=true&resize=scale"
+    ws_url = f"/novnc/{session.ws_port}/vnc.html?autoconnect=true&resize=scale&path=novnc/{session.ws_port}/websockify"
     return StartResponse(
         session_id=session.session_id,
         ws_port=session.ws_port,
