@@ -41,6 +41,10 @@ RUN set -eux; \
         x11vnc \
         websockify \
         novnc \
+        fonts-noto-cjk \
+        locales \
+    && sed -i 's/^# *\(zh_CN.UTF-8\)/\1/' /etc/locale.gen \
+    && locale-gen zh_CN.UTF-8 \
     && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
@@ -72,7 +76,10 @@ USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \
     PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST} \
     CHROME_BIN=/usr/bin/chromium \
-    CHROMIUM_BIN=/usr/bin/chromium
+    CHROMIUM_BIN=/usr/bin/chromium \
+    LANG=zh_CN.UTF-8 \
+    LANGUAGE=zh_CN:zh \
+    LC_ALL=zh_CN.UTF-8
 
 EXPOSE 8000
 # noVNC websockify ports for live login (configurable via LIVE_LOGIN_MAX_CONCURRENT)
