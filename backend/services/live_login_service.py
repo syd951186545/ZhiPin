@@ -199,8 +199,9 @@ async def confirm_login(
         else:
             result["is_logged_in"] = False
 
-    # 无论是否成功都关闭 VNC 会话
-    await stop_live_session(session_id)
+    # 登录成功后关闭 VNC 会话；失败则保留会话供用户继续操作
+    if is_logged_in:
+        await stop_live_session(session_id)
 
     return result
 
@@ -304,6 +305,15 @@ async def _start_process_chain(session: LiveSession) -> None:
         "--remote-debugging-address=127.0.0.1",
         "--disable-blink-features=AutomationControlled",
         f"--user-data-dir={data_dir}",
+        # ── 用户操作限制 ──────────────────────────────────────────────────────
+        # kiosk 模式：隐藏地址栏/标签栏/窗口控件，禁用 Ctrl+T/W/N 等快捷键，
+        # 用户无法关闭浏览器窗口、新开标签页或导航到其他 URL。
+        # 注意：若登录流程依赖弹出窗口（OAuth popup），需改用 --app= 模式。
+        "--kiosk",
+        "--no-first-run",     # 跳过首次运行向导
+        "--disable-infobars", # 隐藏「由自动化测试软件控制」提示条
+        "--disable-translate", # 禁用翻译弹窗
+        # ─────────────────────────────────────────────────────────────────────
         session.login_url,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -327,16 +337,12 @@ async def _start_process_chain(session: LiveSession) -> None:
     session.pids["x11vnc"] = x11vnc.pid
     await asyncio.sleep(0.3)
 
-    # 4. websockify（使用 token 认证）
-    token_file = Path(f"/tmp/vnc-token-{session.session_id}.cfg")
-    token_file.write_text(f"{session.vnc_token}: 127.0.0.1:{vnc_port}\n")
-
+    # 4. websockify（直连模式，无需 token 认证，安全由 session_id UUID + nginx 保障）
     websockify = await asyncio.create_subprocess_exec(
         "websockify",
         f"--web=/usr/share/novnc",
-        f"--token-plugin=TokenFile",
-        f"--token-source={token_file}",
         str(session.ws_port),
+        f"127.0.0.1:{vnc_port}",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )

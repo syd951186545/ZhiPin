@@ -46,6 +46,7 @@ class StartResponse(BaseModel):
     session_id: str
     ws_port: int
     vnc_token: str
+    ws_url: str
     login_url: str
     timeout_seconds: int
 
@@ -134,10 +135,12 @@ async def api_start_live_login(
     )
 
     from services.live_login_service import SESSION_TIMEOUT
+    ws_url = f"/novnc/{session.ws_port}/vnc.html?autoconnect=true&resize=scale&path=novnc/{session.ws_port}/websockify"
     return StartResponse(
         session_id=session.session_id,
         ws_port=session.ws_port,
         vnc_token=session.vnc_token,
+        ws_url=ws_url,
         login_url=session.login_url,
         timeout_seconds=SESSION_TIMEOUT,
     )

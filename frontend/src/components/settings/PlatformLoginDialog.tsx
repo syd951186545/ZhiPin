@@ -54,7 +54,7 @@ function StepIndicator({currentStep}: {currentStep: number}) {
               )}>
                 {isDone ? <Check className="h-3.5 w-3.5"/> : idx + 1}
               </div>
-              <span className={cn('text-[10px] whitespace-nowrap', isActive ? 'font-medium text-foreground' : 'text-muted-foreground')}>{label}</span>
+              <span className={cn('text-xs whitespace-nowrap', isActive ? 'font-medium text-foreground' : 'text-muted-foreground')}>{label}</span>
             </div>
           </React.Fragment>
         )
@@ -72,6 +72,7 @@ function formatRemaining(seconds: number): string {
 export default function PlatformLoginDialog({open, onOpenChange, profileId, onDataChanged}: PlatformLoginDialogProps) {
   const {
     accounts,
+    loading: accountsLoading,
     load,
     startLiveLoginSession,
     confirmLiveLoginSession,
@@ -88,6 +89,17 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
   const [error, setError] = useState<string | null>(null)
   const [confirmMessage, setConfirmMessage] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 会话活跃时阻止浏览器标签页被意外关闭
+  useEffect(() => {
+    if (phase !== 'running' && phase !== 'confirming') return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [phase])
 
   const cleanup = useCallback(() => {
     if (pollRef.current) {
@@ -116,13 +128,12 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     const poll = async () => {
       try {
         const status: LiveLoginStatus = await getLiveLoginSessionStatus(liveSession.session_id)
-        setRemaining(status.remaining_seconds)
-        if (status.status === 'expired') {
+        if (status.time_remaining != null) {
+          setRemaining(Math.floor(status.time_remaining))
+        }
+        if (!status.active) {
           setPhase('expired')
           setError('登录会话已超时，请重新开始')
-          cleanup()
-        } else if (status.status === 'stopped') {
-          setPhase('stopped')
           cleanup()
         }
       } catch {
@@ -157,7 +168,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     setError(null)
     try {
       const result = await confirmLiveLoginSession(liveSession.session_id)
-      if (result.success) {
+      if (result.is_logged_in) {
         setPhase('confirmed')
         setConfirmMessage(result.message || '登录状态已保存')
         cleanup()
@@ -229,7 +240,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                 src={liveSession?.ws_url || ''}
                 title="远程桌面登录"
                 className="w-full border-0"
-                style={{height: '520px'}}
+                style={{height: 'clamp(320px, 55vh, 520px)'}}
                 allow="clipboard-read; clipboard-write"
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               />
@@ -301,7 +312,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
 
         <DialogFooter className="sticky bottom-0 z-10 justify-between gap-4 border-t bg-background/95 pt-4 backdrop-blur">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline" className="gap-1 text-[10px]">
+            <Badge variant="outline" className="gap-1 text-xs">
               {platformMeta?.name || '-'}
             </Badge>
           </div>
@@ -342,7 +353,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                 <Button
                   className="gap-2 shadow-sm"
                   onClick={handleStart}
-                  disabled={!profileId}
+                  disabled={!profileId || !profile || accountsLoading}
                   data-testid="start-live-login"
                 >
                   <Monitor className="h-4 w-4"/>

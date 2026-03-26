@@ -91,6 +91,8 @@ export async function createPlatformAccount(payload: {
 
 export interface LiveLoginSession {
   session_id: string
+  ws_port: number
+  vnc_token: string
   ws_url: string
   login_url: string
   timeout_seconds: number
@@ -98,58 +100,32 @@ export interface LiveLoginSession {
 
 export interface LiveLoginStatus {
   session_id: string
-  status: 'running' | 'confirmed' | 'stopped' | 'expired'
-  remaining_seconds: number
-}
-
-interface LiveLoginStartApiResponse {
-  session_id: string
-  ws_port: number
-  vnc_token: string
-  login_url: string
-  timeout_seconds: number
-}
-
-interface LiveLoginStatusApiResponse {
-  session_id: string
   active: boolean
-  time_remaining?: number | null
-}
-
-function buildNoVncUrl(wsPort: number, vncToken: string): string {
-  const protocol = window.location.protocol
-  const host = window.location.hostname
-  return `${protocol}//${host}:${wsPort}/vnc.html?autoconnect=1&resize=remote&show_dot=true&reconnect=true&reconnect_delay=2000&path=?token=${encodeURIComponent(vncToken)}`
+  time_remaining: number | null
 }
 
 export async function startLiveLogin(
   accountId: string,
   platform: string,
 ): Promise<LiveLoginSession> {
-  const headers = await getAuthHeaders()
+  const authHeaders = await getAuthHeaders()
   const resp = await fetch('/api/live-login/start', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', ...headers},
+    headers: {'Content-Type': 'application/json', ...authHeaders},
     body: JSON.stringify({account_id: accountId, platform}),
   })
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     throw new Error(`启动远程登录失败 (${resp.status}): ${text}`)
   }
-  const data = await resp.json() as LiveLoginStartApiResponse
-  return {
-    session_id: data.session_id,
-    ws_url: buildNoVncUrl(data.ws_port, data.vnc_token),
-    login_url: data.login_url,
-    timeout_seconds: data.timeout_seconds,
-  }
+  return resp.json()
 }
 
-export async function confirmLiveLogin(sessionId: string): Promise<{success: boolean; message: string}> {
-  const headers = await getAuthHeaders()
+export async function confirmLiveLogin(sessionId: string): Promise<{is_logged_in: boolean; message: string}> {
+  const authHeaders = await getAuthHeaders()
   const resp = await fetch(`/api/live-login/${sessionId}/confirm`, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', ...headers},
+    headers: {'Content-Type': 'application/json', ...authHeaders},
     body: JSON.stringify({}),
   })
   if (!resp.ok) {
@@ -160,10 +136,10 @@ export async function confirmLiveLogin(sessionId: string): Promise<{success: boo
 }
 
 export async function stopLiveLogin(sessionId: string): Promise<void> {
-  const headers = await getAuthHeaders()
+  const authHeaders = await getAuthHeaders()
   const resp = await fetch(`/api/live-login/${sessionId}/stop`, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', ...headers},
+    headers: {'Content-Type': 'application/json', ...authHeaders},
     body: JSON.stringify({}),
   })
   if (!resp.ok) {
@@ -179,12 +155,7 @@ export async function getLiveLoginStatus(sessionId: string): Promise<LiveLoginSt
     const text = await resp.text().catch(() => '')
     throw new Error(`获取登录状态失败 (${resp.status}): ${text}`)
   }
-  const data = await resp.json() as LiveLoginStatusApiResponse
-  return {
-    session_id: data.session_id,
-    status: data.active ? 'running' : 'stopped',
-    remaining_seconds: Math.max(0, Math.floor(data.time_remaining || 0)),
-  }
+  return resp.json()
 }
 
 export async function fetchBindingSession(sessionId: string): Promise<PlatformBindingSession> {

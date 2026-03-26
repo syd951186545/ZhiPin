@@ -42,8 +42,16 @@ export default function Login() {
         transition={{ duration: 0.4 }}
         className="w-full max-w-md"
       >
+        {/* Brand header — only visible when the dark left panel is hidden (< lg) */}
+        <div className="flex items-center justify-center gap-2 mb-8 lg:hidden">
+          <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center font-bold text-white text-lg select-none">
+            J
+          </div>
+          <span className="text-lg font-bold tracking-tight">机灵平台</span>
+        </div>
+
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">{t('login.title')}</h1>
+          <h2 className="text-3xl font-bold tracking-tight">{t('login.title')}</h2>
           <p className="text-muted-foreground mt-2">{t('login.desc')}</p>
         </div>
 
@@ -83,7 +91,10 @@ export default function Login() {
                   autoComplete="current-password"
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <label
+                htmlFor="remember"
+                className="flex items-center gap-2 cursor-pointer py-1 -mx-1 px-1 rounded select-none"
+              >
                 <input
                   id="remember"
                   type="checkbox"
@@ -91,10 +102,10 @@ export default function Login() {
                   onChange={(e) => setRemember(e.target.checked)}
                   className="h-4 w-4 rounded border-border"
                 />
-                <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
+                <span className="text-sm text-foreground font-normal">
                   {t('login.remember')}
-                </Label>
-              </div>
+                </span>
+              </label>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
               <Button type="submit" className="w-full" disabled={submitting}>
@@ -109,7 +120,7 @@ export default function Login() {
               </Button>
               <p className="text-sm text-muted-foreground text-center">
                 {t('login.noAccount')}{' '}
-                <Link to="/register" className="text-primary hover:underline font-medium">
+                <Link to="/register" className="text-primary hover:underline font-medium inline-block py-2">
                   {t('login.register')}
                 </Link>
               </p>
