@@ -37,6 +37,10 @@ RUN set -eux; \
         gosu \
         python3 \
         python3-pip \
+        xvfb \
+        x11vnc \
+        websockify \
+        novnc \
     && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
@@ -71,5 +75,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \
     CHROMIUM_BIN=/usr/bin/chromium
 
 EXPOSE 8000
+# noVNC websockify ports for live login (configurable via LIVE_LOGIN_MAX_CONCURRENT)
+EXPOSE 6800-6804
 
 ENTRYPOINT ["/usr/local/bin/backopenclaw-entrypoint.sh"]

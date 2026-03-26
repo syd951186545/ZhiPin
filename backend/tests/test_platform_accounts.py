@@ -201,46 +201,6 @@ async def test_delete_no_session_key_skips_clear(client, sample_account):
     mock_clear.assert_not_called()
 
 
-# ── POST /api/platform-accounts/{id}/bind/start ──────────────
-
-
-@pytest.mark.asyncio
-async def test_bind_start_success(client, sample_account, sample_binding_session):
-    """启动绑定返回 session。"""
-    with (
-        patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
-        patch("routers.platform_accounts.start_bind_session", return_value=sample_binding_session),
-    ):
-        resp = await client.post("/api/platform-accounts/acc-001/bind/start", json={
-            "login_method": "phone",
-            "phone": "13800000000",
-            **auth_body(),
-        })
-    assert resp.status_code == 200
-    assert resp.json()["item"]["id"] == "sess-001"
-
-
-@pytest.mark.asyncio
-async def test_bind_start_account_not_found(client):
-    """账号不存在返回 404。"""
-    with patch("routers.platform_accounts.get_platform_account", return_value=None):
-        resp = await client.post("/api/platform-accounts/nonexist/bind/start", json={
-            "login_method": "phone",
-            **auth_body(),
-        })
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_bind_start_no_auth(client):
-    """无 token 返回 401。"""
-    resp = await client.post("/api/platform-accounts/acc-001/bind/start", json={
-        "login_method": "phone",
-        "supabase_auth_token": "",
-    })
-    assert resp.status_code == 401
-
-
 # ── POST /api/platform-accounts/{id}/verify ──────────────────
 
 

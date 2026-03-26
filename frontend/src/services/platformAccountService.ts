@@ -87,49 +87,73 @@ export async function createPlatformAccount(payload: {
   return mapAccount(data.item || {})
 }
 
-export async function startPlatformBind(
-  accountId: string,
-  payload: {
-    login_method: PlatformLoginMethod
-    phone?: string
-    login_name?: string
-    password?: string
-  },
-): Promise<PlatformBindingSession> {
-  const token = await getAuthToken()
-  const resp = await fetch(`/api/platform-accounts/${accountId}/bind/start`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({...payload, supabase_auth_token: token}),
-  })
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`启动绑定失败 (${resp.status}): ${text}`)
-  }
-  const data = await resp.json()
-  return data.item
+// ── Live Login (noVNC) ────────────────────────────────────────
+
+export interface LiveLoginSession {
+  session_id: string
+  ws_url: string
+  login_url: string
+  timeout_seconds: number
 }
 
-export async function submitPlatformBind(
-  sessionId: string,
-  payload: {
-    verification_code?: string
-    secondary_code?: string
-    password?: string
-  },
-): Promise<PlatformBindingSession> {
+export interface LiveLoginStatus {
+  session_id: string
+  status: 'running' | 'confirmed' | 'stopped' | 'expired'
+  remaining_seconds: number
+}
+
+export async function startLiveLogin(
+  accountId: string,
+  platform: string,
+): Promise<LiveLoginSession> {
   const token = await getAuthToken()
-  const resp = await fetch(`/api/platform-binding-sessions/${sessionId}/submit`, {
+  const resp = await fetch('/api/live-login/start', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({...payload, supabase_auth_token: token}),
+    body: JSON.stringify({account_id: accountId, platform, supabase_auth_token: token}),
   })
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
-    throw new Error(`提交绑定信息失败 (${resp.status}): ${text}`)
+    throw new Error(`启动远程登录失败 (${resp.status}): ${text}`)
   }
-  const data = await resp.json()
-  return data.item
+  return (await resp.json()).item
+}
+
+export async function confirmLiveLogin(sessionId: string): Promise<{success: boolean; message: string}> {
+  const token = await getAuthToken()
+  const resp = await fetch(`/api/live-login/${sessionId}/confirm`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({supabase_auth_token: token}),
+  })
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`确认登录失败 (${resp.status}): ${text}`)
+  }
+  return resp.json()
+}
+
+export async function stopLiveLogin(sessionId: string): Promise<void> {
+  const token = await getAuthToken()
+  const resp = await fetch(`/api/live-login/${sessionId}/stop`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({supabase_auth_token: token}),
+  })
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`停止登录会话失败 (${resp.status}): ${text}`)
+  }
+}
+
+export async function getLiveLoginStatus(sessionId: string): Promise<LiveLoginStatus> {
+  const headers = await getAuthHeaders()
+  const resp = await fetch(`/api/live-login/${sessionId}/status`, {headers})
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`获取登录状态失败 (${resp.status}): ${text}`)
+  }
+  return (await resp.json()).item
 }
 
 export async function fetchBindingSession(sessionId: string): Promise<PlatformBindingSession> {

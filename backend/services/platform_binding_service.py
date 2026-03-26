@@ -13,8 +13,6 @@ from uuid import uuid4
 
 from parsers.platform_binding_parser import parse_platform_binding_output
 from prompts.platform_binding import (
-    build_bind_start_prompt,
-    build_bind_submit_prompt,
     build_correction_prompt,
     build_unbind_prompt,
     build_verify_prompt,
@@ -482,53 +480,6 @@ def create_action_session(
     )
     _running_tasks[session_row["id"]] = task
     return session_row
-
-
-def start_bind_session(
-    *,
-    account: PlatformAccountRow,
-    tenant_id: str,
-    auth_token: Optional[str],
-    payload: dict[str, Any],
-) -> PlatformBindingSessionRow:
-    prompt = build_bind_start_prompt(account, payload)
-    update_platform_account(
-        account["id"],
-        tenant_id,
-        {
-            "status": "verifying",
-            "is_connected": False,
-            "login_method": payload.get("login_method"),
-            "account_name": payload.get("login_name") or account.get("account_name"),
-            "last_error": None,
-        },
-        auth_token=auth_token,
-    )
-    return create_action_session(
-        account=account,
-        tenant_id=tenant_id,
-        action="bind",
-        auth_token=auth_token,
-        prompt=prompt,
-    )
-
-
-def submit_bind_session(
-    *,
-    account: PlatformAccountRow,
-    binding_session: PlatformBindingSessionRow,
-    tenant_id: str,
-    auth_token: Optional[str],
-    payload: dict[str, Any],
-) -> PlatformBindingSessionRow:
-    prompt = build_bind_submit_prompt(account, binding_session, payload)
-    return create_action_session(
-        account=account,
-        tenant_id=tenant_id,
-        action="bind",
-        auth_token=auth_token,
-        prompt=prompt,
-    )
 
 
 def start_verify_session(

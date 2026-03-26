@@ -45,6 +45,12 @@ services:
       - SETGID
     security_opt:
       - no-new-privileges:true
+    ports:
+      - "${LIVE_LOGIN_WS_PORT_START:-6800}:6800"
+      - "${LIVE_LOGIN_WS_PORT_1:-6801}:6801"
+      - "${LIVE_LOGIN_WS_PORT_2:-6802}:6802"
+      - "${LIVE_LOGIN_WS_PORT_3:-6803}:6803"
+      - "${LIVE_LOGIN_WS_PORT_4:-6804}:6804"
     healthcheck:
       test: ["CMD", "python", "-c", "import json, urllib.request; resp = urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5); data = json.load(resp); assert data.get('status') == 'ok'"]
       interval: 10s

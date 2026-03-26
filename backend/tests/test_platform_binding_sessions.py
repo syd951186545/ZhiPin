@@ -13,61 +13,6 @@ import pytest
 from tests.conftest import FAKE_TOKEN, auth_body, auth_header
 
 
-# ── POST /api/platform-binding-sessions/{id}/submit ──────────
-
-
-@pytest.mark.asyncio
-async def test_submit_verification_success(client, sample_account, sample_binding_session):
-    """提交验证码成功返回更新后 session。"""
-    updated = {**sample_binding_session, "status": "completed"}
-    with (
-        patch("routers.platform_accounts.get_binding_session", return_value=sample_binding_session),
-        patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
-        patch("routers.platform_accounts.submit_bind_session", return_value=updated),
-    ):
-        resp = await client.post("/api/platform-binding-sessions/sess-001/submit", json={
-            "verification_code": "123456",
-            **auth_body(),
-        })
-    assert resp.status_code == 200
-    assert resp.json()["item"]["status"] == "completed"
-
-
-@pytest.mark.asyncio
-async def test_submit_session_not_found(client):
-    """绑定会话不存在返回 404。"""
-    with patch("routers.platform_accounts.get_binding_session", return_value=None):
-        resp = await client.post("/api/platform-binding-sessions/nonexist/submit", json={
-            "verification_code": "123456",
-            **auth_body(),
-        })
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_submit_account_not_found(client, sample_binding_session):
-    """会话存在但关联账号不存在返回 404。"""
-    with (
-        patch("routers.platform_accounts.get_binding_session", return_value=sample_binding_session),
-        patch("routers.platform_accounts.get_platform_account", return_value=None),
-    ):
-        resp = await client.post("/api/platform-binding-sessions/sess-001/submit", json={
-            "verification_code": "123456",
-            **auth_body(),
-        })
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_submit_no_auth(client):
-    """无 token 返回 401。"""
-    resp = await client.post("/api/platform-binding-sessions/sess-001/submit", json={
-        "verification_code": "123456",
-        "supabase_auth_token": "",
-    })
-    assert resp.status_code == 401
-
-
 # ── GET /api/platform-binding-sessions/{id} ──────────────────
 
 

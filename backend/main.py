@@ -19,6 +19,7 @@ from routers.openclaw_proxy import router as openclaw_proxy_router
 from routers.settings import router as settings_router
 from routers.platforms import router as platforms_router
 from routers.platform_accounts import router as platform_accounts_router
+from routers.live_login import router as live_login_router
 from services.openclaw_health import probe_openclaw
 
 logging.basicConfig(
@@ -34,11 +35,22 @@ async def lifespan(app: FastAPI):
     logger.info(f"OpenClaw: {settings.openclaw_base_url}")
     logger.info(f"Supabase: {settings.supabase_url[:40]}...")
     from services.platform_binding_service import expire_stale_sessions_loop, cleanup_orphaned_running_sessions
+    from services.live_login_service import cleanup_orphaned_sessions as cleanup_orphaned_live_sessions
+    from services.live_login_service import cleanup_expired_sessions as cleanup_expired_live_sessions
     import asyncio
     cleanup_orphaned_running_sessions()
+    cleanup_orphaned_live_sessions()
     expire_task = asyncio.create_task(expire_stale_sessions_loop())
+
+    async def _live_login_cleanup_loop():
+        while True:
+            await asyncio.sleep(60)
+            await cleanup_expired_live_sessions()
+
+    live_cleanup_task = asyncio.create_task(_live_login_cleanup_loop())
     yield
     expire_task.cancel()
+    live_cleanup_task.cancel()
     logger.info("Server shutting down")
 
 
@@ -70,6 +82,7 @@ app.include_router(openclaw_proxy_router)
 app.include_router(settings_router)
 app.include_router(platforms_router)
 app.include_router(platform_accounts_router)
+app.include_router(live_login_router)
 
 
 @app.get("/api/health")

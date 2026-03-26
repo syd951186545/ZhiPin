@@ -79,6 +79,15 @@ async def client():
             "services.platform_binding_service.expire_stale_sessions_loop",
             new_callable=AsyncMock,
         ),
+        patch(
+            "services.live_login_service.cleanup_orphaned_sessions",
+            return_value=0,
+        ),
+        patch(
+            "services.live_login_service.cleanup_expired_sessions",
+            new_callable=AsyncMock,
+            return_value=0,
+        ),
     ):
         from main import app
 
