@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     openclaw_media_mount: str = "/opt/openclaw-home/.openclaw/media"
     openclaw_home_mount: str = "/opt/openclaw-home"
 
+    # Live Login (noVNC)
+    live_login_max_concurrent: int = 2
+    session_encryption_key: str = ""
+
     # Server
     host: str
     port: int

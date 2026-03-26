@@ -1,15 +1,19 @@
 import {useCallback, useEffect, useState} from 'react'
-import type {PlatformBindingSession, PlatformCatalogItem, PlatformLoginMethod} from '@/types/openclaw'
+import type {PlatformBindingSession, PlatformCatalogItem} from '@/types/openclaw'
 import {
+  confirmLiveLogin,
   createPlatformAccount,
   deletePlatformAccount,
   fetchBindingSession,
   fetchPlatformAccounts,
   fetchPlatformCatalog,
-  startPlatformBind,
-  submitPlatformBind,
+  getLiveLoginStatus,
+  startLiveLogin,
+  stopLiveLogin,
   unbindPlatformAccount,
   verifyPlatformAccount,
+  type LiveLoginSession,
+  type LiveLoginStatus,
   type PlatformAccountApiRow,
 } from '@/services/platformAccountService'
 
@@ -90,23 +94,28 @@ export function usePlatformAccounts() {
     return session
   }, [load])
 
-  const startBind = useCallback(async (
+  const startLiveLoginSession = useCallback(async (
     accountId: string,
-    payload: {login_method: PlatformLoginMethod; phone?: string; login_name?: string; password?: string},
-  ) => {
-    const session = await startPlatformBind(accountId, payload)
-    await load()
+    platform: string,
+  ): Promise<LiveLoginSession> => {
+    const session = await startLiveLogin(accountId, platform)
     return session
+  }, [])
+
+  const confirmLiveLoginSession = useCallback(async (sessionId: string) => {
+    const result = await confirmLiveLogin(sessionId)
+    await load()
+    return result
   }, [load])
 
-  const submitBind = useCallback(async (
-    sessionId: string,
-    payload: {verification_code?: string; secondary_code?: string; password?: string},
-  ) => {
-    const session = await submitPlatformBind(sessionId, payload)
+  const stopLiveLoginSession = useCallback(async (sessionId: string) => {
+    await stopLiveLogin(sessionId)
     await load()
-    return session
   }, [load])
+
+  const getLiveLoginSessionStatus = useCallback(async (sessionId: string): Promise<LiveLoginStatus> => {
+    return getLiveLoginStatus(sessionId)
+  }, [])
 
   const startVerify = useCallback(async (accountId: string) => {
     const session = await verifyPlatformAccount(accountId)
@@ -133,8 +142,10 @@ export function usePlatformAccounts() {
     load,
     createAccount,
     refreshSession,
-    startBind,
-    submitBind,
+    startLiveLoginSession,
+    confirmLiveLoginSession,
+    stopLiveLoginSession,
+    getLiveLoginSessionStatus,
     startVerify,
     startUnbind,
     deleteAccount,

@@ -13,11 +13,9 @@ from sse_starlette.sse import EventSourceResponse
 from services.platform_binding_service import (
     get_binding_session_snapshot,
     refresh_qr_session,
-    start_bind_session,
     start_unbind_session,
     start_verify_session,
     stream_binding_events,
-    submit_bind_session,
 )
 from services.platform_catalog import get_platform_catalog_item
 from services.platform_session_store import build_browser_session_key, clear_session_artifacts
@@ -63,19 +61,6 @@ class PlatformAccountCreateRequest(BaseModel):
     supabase_auth_token: str = ""
 
 
-class PlatformBindStartRequest(BaseModel):
-    login_method: str
-    phone: str = ""
-    login_name: str = ""
-    password: str = ""
-    supabase_auth_token: str = ""
-
-
-class PlatformBindingSubmitRequest(BaseModel):
-    verification_code: str = ""
-    secondary_code: str = ""
-    password: str = ""
-    supabase_auth_token: str = ""
 
 
 class PlatformAccountActionRequest(BaseModel):
@@ -127,43 +112,6 @@ async def create_platform_account_route(req: PlatformAccountCreateRequest):
         auth_token=req.supabase_auth_token,
     )
     return {"item": account}
-
-
-@router.post("/api/platform-accounts/{account_id}/bind/start")
-async def start_account_bind(account_id: str, req: PlatformBindStartRequest):
-    user = await _validate_request_user(req.supabase_auth_token)
-    account = get_platform_account(account_id, user["tenant_id"], auth_token=req.supabase_auth_token)
-    if not account:
-        raise HTTPException(status_code=404, detail="平台账号不存在")
-
-    session = start_bind_session(
-        account=account,
-        tenant_id=user["tenant_id"],
-        auth_token=req.supabase_auth_token,
-        payload=req.model_dump(exclude={"supabase_auth_token"}),
-    )
-    return {"item": session}
-
-
-@router.post("/api/platform-binding-sessions/{session_id}/submit")
-async def submit_account_bind(session_id: str, req: PlatformBindingSubmitRequest):
-    user = await _validate_request_user(req.supabase_auth_token)
-    binding_session = get_binding_session(session_id, user["tenant_id"], auth_token=req.supabase_auth_token)
-    if not binding_session:
-        raise HTTPException(status_code=404, detail="绑定会话不存在")
-
-    account = get_platform_account(binding_session["account_id"], user["tenant_id"], auth_token=req.supabase_auth_token)
-    if not account:
-        raise HTTPException(status_code=404, detail="平台账号不存在")
-
-    new_session = submit_bind_session(
-        account=account,
-        binding_session=binding_session,
-        tenant_id=user["tenant_id"],
-        auth_token=req.supabase_auth_token,
-        payload=req.model_dump(exclude={"supabase_auth_token"}),
-    )
-    return {"item": new_session}
 
 
 @router.get("/api/platform-binding-sessions/{session_id}")
