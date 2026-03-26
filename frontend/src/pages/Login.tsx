@@ -43,7 +43,7 @@ export default function Login() {
         className="w-full max-w-md"
       >
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">{t('login.title')}</h1>
+          <h2 className="text-3xl font-bold tracking-tight">{t('login.title')}</h2>
           <p className="text-muted-foreground mt-2">{t('login.desc')}</p>
         </div>
 
