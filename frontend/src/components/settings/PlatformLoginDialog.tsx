@@ -72,6 +72,7 @@ function formatRemaining(seconds: number): string {
 export default function PlatformLoginDialog({open, onOpenChange, profileId, onDataChanged}: PlatformLoginDialogProps) {
   const {
     accounts,
+    loading: accountsLoading,
     load,
     startLiveLoginSession,
     confirmLiveLoginSession,
@@ -339,7 +340,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                 <Button
                   className="gap-2 shadow-sm"
                   onClick={handleStart}
-                  disabled={!profileId}
+                  disabled={!profileId || !profile || accountsLoading}
                   data-testid="start-live-login"
                 >
                   <Monitor className="h-4 w-4"/>
