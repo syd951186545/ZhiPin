@@ -20,6 +20,18 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   }
 }
 
+async function readErrorDetail(resp: Response): Promise<string> {
+  try {
+    const data = await resp.json()
+    if (typeof data?.detail === 'string' && data.detail.trim()) {
+      return data.detail
+    }
+    return JSON.stringify(data)
+  } catch {
+    return await resp.text().catch(() => '')
+  }
+}
+
 export interface PlatformAccountApiRow extends PlatformProfile {
   platformUrl?: string
   loginMethod?: PlatformLoginMethod
@@ -104,6 +116,14 @@ export interface LiveLoginStatus {
   time_remaining: number | null
 }
 
+export interface ConfirmLiveLoginResult {
+  is_logged_in: boolean
+  message: string
+  workspace_saved?: boolean
+  db_saved?: boolean
+  persistence_detail?: string
+}
+
 export async function startLiveLogin(
   accountId: string,
   platform: string,
@@ -121,7 +141,7 @@ export async function startLiveLogin(
   return resp.json()
 }
 
-export async function confirmLiveLogin(sessionId: string): Promise<{is_logged_in: boolean; message: string}> {
+export async function confirmLiveLogin(sessionId: string): Promise<ConfirmLiveLoginResult> {
   const authHeaders = await getAuthHeaders()
   const resp = await fetch(`/api/live-login/${sessionId}/confirm`, {
     method: 'POST',
@@ -177,7 +197,7 @@ async function startSimpleAction(accountId: string, action: 'verify' | 'unbind')
     body: JSON.stringify({supabase_auth_token: token}),
   })
   if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
+    const text = await readErrorDetail(resp)
     throw new Error(`${action === 'verify' ? '验证' : '解绑'}失败 (${resp.status}): ${text}`)
   }
   const data = await resp.json()

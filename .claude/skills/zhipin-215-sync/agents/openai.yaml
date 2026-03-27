@@ -1,0 +1,4 @@
+interface:
+  display_name: "ZhiPin 215 Sync"
+  short_description: "Sync this repo to 192.168.3.215 and run deploy or health-check workflows."
+  default_prompt: "Sync the current ZhiPin repository changes to 192.168.3.215 and choose the correct deploy or health-check flow."

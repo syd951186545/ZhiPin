@@ -73,6 +73,21 @@ async def client():
             return_value=FAKE_USER,
         ),
         patch(
+            "routers.workflow.validate_supabase_user",
+            new_callable=AsyncMock,
+            return_value=FAKE_USER,
+        ),
+        patch(
+            "routers.platform_accounts.validate_supabase_user",
+            new_callable=AsyncMock,
+            return_value=FAKE_USER,
+        ),
+        patch(
+            "routers.live_login.validate_supabase_user",
+            new_callable=AsyncMock,
+            return_value=FAKE_USER,
+        ),
+        patch(
             "services.platform_binding_service.cleanup_orphaned_running_sessions",
         ),
         patch(
@@ -184,6 +199,7 @@ def sample_binding_session() -> dict[str, Any]:
         "awaiting_payload_schema": None,
         "retry_count": 0,
         "error_message": None,
+        "output_text": None,
         "expires_at": None,
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",

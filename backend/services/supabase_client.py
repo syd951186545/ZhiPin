@@ -45,6 +45,7 @@ class PlatformAccountRow(TypedDict, total=False):
     last_error: Optional[str]
     last_bind_task_id: Optional[str]
     last_unbind_task_id: Optional[str]
+    encrypted_session_state: Optional[str]
     config: dict[str, Any]
     is_connected: bool
     status: str
@@ -67,6 +68,7 @@ class PlatformBindingSessionRow(TypedDict, total=False):
     awaiting_payload_schema: Optional[dict[str, Any]]
     retry_count: int
     error_message: Optional[str]
+    output_text: Optional[str]
     expires_at: Optional[str]
     created_at: str
     updated_at: str

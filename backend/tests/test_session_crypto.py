@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from services.session_crypto import (
@@ -102,9 +100,27 @@ class TestKeyResolution:
 
     def test_missing_env_key(self, monkeypatch):
         monkeypatch.delenv("SESSION_ENCRYPTION_KEY", raising=False)
-        with pytest.raises(ValueError, match="环境变量未设置"):
+
+        class _Settings:
+            session_encryption_key = ""
+
+        monkeypatch.setattr("config.get_settings", lambda: _Settings())
+
+        with pytest.raises(ValueError, match="未配置"):
             encrypt_storage_state("test")
 
     def test_invalid_key_length(self):
         with pytest.raises(ValueError, match="密钥长度错误"):
             encrypt_storage_state("test", key=b"tooshort")
+
+    def test_fallback_to_settings_key(self, monkeypatch):
+        monkeypatch.delenv("SESSION_ENCRYPTION_KEY", raising=False)
+
+        class _Settings:
+            session_encryption_key = TEST_KEY_HEX
+
+        monkeypatch.setattr("config.get_settings", lambda: _Settings())
+
+        encrypted = encrypt_storage_state("fallback settings key")
+        decrypted = decrypt_storage_state(encrypted, key=TEST_KEY_HEX)
+        assert decrypted == "fallback settings key"

@@ -163,32 +163,36 @@ async def api_confirm_live_login(
         raise HTTPException(status_code=403, detail="无权访问该登录会话")
 
     async def supabase_updater(account_id: str, encrypted: bytes, login_state: str):
-        encoded = base64.b64encode(encrypted).decode()
-        update_platform_account(
-            account_id,
-            tenant_id,
-            {
-                "encrypted_session_state": encoded,
-                "login_state": login_state,
-                "status": "active",
-                "is_connected": True,
-            },
-            auth_token=auth_token,
-        )
-        saved_row = get_platform_account(account_id, tenant_id, auth_token=auth_token) or {}
-        db_saved = (
-            bool(saved_row.get("encrypted_session_state"))
-            and saved_row.get("login_state") == "LOGGED_IN"
-            and saved_row.get("status") == "active"
-        )
-        detail = (
-            "数据库字段已回读确认"
-            if db_saved
-            else "数据库回读失败：encrypted_session_state/login_state/status 未全部生效"
-        )
-        if not db_saved:
-            logger.warning("live_login DB 持久化校验失败: account_id=%s", account_id)
-        return {"saved": db_saved, "detail": detail}
+        try:
+            encoded = base64.b64encode(encrypted).decode()
+            update_platform_account(
+                account_id,
+                tenant_id,
+                {
+                    "encrypted_session_state": encoded,
+                    "login_state": login_state,
+                    "status": "active",
+                    "is_connected": True,
+                },
+                auth_token=auth_token,
+            )
+            saved_row = get_platform_account(account_id, tenant_id, auth_token=auth_token) or {}
+            db_saved = (
+                bool(saved_row.get("encrypted_session_state"))
+                and saved_row.get("login_state") == "LOGGED_IN"
+                and saved_row.get("status") == "active"
+            )
+            detail = (
+                "数据库字段已回读确认"
+                if db_saved
+                else "数据库回读失败：encrypted_session_state/login_state/status 未全部生效"
+            )
+            if not db_saved:
+                logger.warning("live_login DB 持久化校验失败: account_id=%s", account_id)
+            return {"saved": db_saved, "detail": detail}
+        except Exception as exc:
+            logger.exception("live_login DB 持久化异常: account_id=%s", account_id)
+            return {"saved": False, "detail": f"数据库持久化异常：{exc}"}
 
     try:
         result = await confirm_login(session_id, supabase_updater=supabase_updater)
@@ -213,15 +217,26 @@ async def api_confirm_live_login(
             db_saved=True,
             persistence_detail=persistence_detail,
         )
+    if persistence_detail:
+        if not workspace_saved and not db_saved:
+            message = "登录态已识别，但工作区和数据库持久化都失败"
+        elif not db_saved:
+            message = "登录态已识别，但数据库持久化失败"
+        elif not workspace_saved:
+            message = "登录态已识别，但工作区持久化失败"
+        else:
+            message = "登录态未通过持久化校验，请确认登录后重试"
     else:
-        return ConfirmResponse(
-            success=False,
-            is_logged_in=False,
-            message="登录态未通过持久化校验，请确认登录后重试",
-            workspace_saved=workspace_saved,
-            db_saved=db_saved,
-            persistence_detail=persistence_detail,
-        )
+        message = "未检测到有效登录状态，请继续在远程桌面中完成登录"
+
+    return ConfirmResponse(
+        success=False,
+        is_logged_in=False,
+        message=message,
+        workspace_saved=workspace_saved,
+        db_saved=db_saved,
+        persistence_detail=persistence_detail,
+    )
 
 
 @router.post("/{session_id}/stop")

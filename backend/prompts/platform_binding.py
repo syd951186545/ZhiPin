@@ -8,6 +8,16 @@ from config import get_settings
 from services.platform_catalog import get_platform_catalog_item, get_platform_name
 
 
+def _browser_rules(profile: str) -> str:
+    normalized = "openclaw"
+    return (
+        "【浏览器工具强制要求】\n"
+        f"- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"{normalized}\"`\n"
+        "- 禁止使用默认 sandbox browser\n"
+        "- 优先使用 browser snapshot / browser act / browser screenshot 完成检查"
+    )
+
+
 def _structured_output_contract() -> str:
     media_mount = get_settings().openclaw_media_mount.rstrip("/")
     return f"""【结构化输出要求】
@@ -44,6 +54,7 @@ def _platform_hints(platform: str) -> str:
 
 def build_verify_prompt(account: dict) -> str:
     platform_name = get_platform_name(account.get("platform", ""))
+    browser_profile = account.get("browser_session_key", "") or "openclaw"
     return f"""你是招聘平台企业端登录验证助手。
 
 【任务类型】验证账号登录状态
@@ -64,6 +75,8 @@ def build_verify_prompt(account: dict) -> str:
 4. 若登录有效且能确认企业身份，输出 LOGGED_IN。
 5. 若会话失效、跳回登录页或需要重新认证，输出 FAILED。
 
+{_browser_rules(browser_profile)}
+
 {_platform_hints(account.get("platform", ""))}
 
 {_structured_output_contract()}
@@ -75,6 +88,7 @@ def build_correction_prompt(
     attempt: int,
     last_error: str,
     last_state: str,
+    browser_profile: str = "openclaw",
 ) -> str:
     return f"""{original_prompt}
 
@@ -88,7 +102,8 @@ def build_correction_prompt(
 3. 若页面有弹窗、遮罩层或滑块验证，先处理弹窗再继续主流程。
 4. 重新选择目标元素，不要复用上次的选择器。
 5. 务必在输出末尾包含结构化标记。
-6. 若需要截图，优先返回截图工具生成的 image_url，不要输出本地路径。
+6. 所有 browser 工具调用都必须显式使用 `target="host"` 和 `profile="openclaw"`，禁止使用默认 sandbox browser。
+7. 若需要截图，优先返回截图工具生成的 image_url，不要输出本地路径。
 
 {_structured_output_contract()}
 """
@@ -96,6 +111,7 @@ def build_correction_prompt(
 
 def build_unbind_prompt(account: dict) -> str:
     platform_name = get_platform_name(account.get("platform", ""))
+    browser_profile = account.get("browser_session_key", "") or "openclaw"
     return f"""你是招聘平台企业端登出助手。
 
 【任务类型】解绑账号
@@ -115,6 +131,8 @@ def build_unbind_prompt(account: dict) -> str:
    c. 刷新页面并确认回到登录/游客态。
 4. 若以上所有方式都无法确认已登出，输出 FAILED 并写明原因。
 5. 如需截图，优先返回截图工具生成的 image_url；只有工具无法提供 URL 时才允许稳定媒体路径。
+
+{_browser_rules(browser_profile)}
 
 【输出规则】
 - 成功登出后输出 [LOGIN_STATE:LOGGED_OUT]，原因写”已登出，等待重新绑定”。

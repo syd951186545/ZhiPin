@@ -32,6 +32,7 @@ services:
     environment:
       - TZ=${OPENCLAW_TZ:-Asia/Shanghai}
       - PLAYWRIGHT_DOWNLOAD_HOST=${OPENCLAW_PLAYWRIGHT_DOWNLOAD_HOST:-https://npmmirror.com/mirrors/playwright}
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY}
     volumes:
       - backopenclaw_data:/opt/openclaw-home
     cap_drop:

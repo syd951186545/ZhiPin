@@ -176,7 +176,8 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
         await onDataChanged?.()
       } else {
         setPhase('running')
-        setError(result.message || '未检测到有效登录状态，请继续在远程桌面中完成登录')
+        const detail = [result.message, result.persistence_detail].filter(Boolean).join('：')
+        setError(detail || '未检测到有效登录状态，请继续在远程桌面中完成登录')
       }
     } catch (err) {
       setPhase('running')

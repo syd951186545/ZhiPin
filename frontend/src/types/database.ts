@@ -147,6 +147,7 @@ export interface Database {
           last_error: string | null
           last_bind_task_id: string | null
           last_unbind_task_id: string | null
+          encrypted_session_state: string | null
           config: Record<string, unknown>
           is_connected: boolean
           status: 'active' | 'needsLogin' | 'verifying' | 'expired'
@@ -172,6 +173,7 @@ export interface Database {
           awaiting_payload_schema: Record<string, unknown> | null
           retry_count: number
           error_message: string | null
+          output_text: string | null
           expires_at: string | null
           created_at: string
           updated_at: string

@@ -71,6 +71,80 @@ async def test_list_accounts_empty(client):
     assert resp.json()["items"] == []
 
 
+@pytest.mark.asyncio
+async def test_list_accounts_repairs_orphaned_running_session_with_saved_session(client, sample_account, sample_binding_session):
+    """孤儿 running 会话若账号已有持久化 session，应自动修复为已绑定。"""
+    account = {
+        **sample_account,
+        "status": "verifying",
+        "login_state": "FAILED",
+        "is_connected": False,
+        "encrypted_session_state": "ciphertext",
+    }
+    running_session = {**sample_binding_session, "action": "verify", "status": "running"}
+    repaired_session = {**running_session, "status": "failed", "error_message": "后端任务已中断，系统已自动修复状态，请按需重新发起验证"}
+    repaired_account = {
+        **account,
+        "status": "active",
+        "login_state": "LOGGED_IN",
+        "is_connected": True,
+        "last_error": None,
+    }
+    with (
+        patch("routers.platform_accounts.list_platform_accounts", return_value=[account]),
+        patch(
+            "routers.platform_accounts.attach_latest_binding_session",
+            return_value=[{**account, "latest_binding_session": running_session}],
+        ),
+        patch("routers.platform_accounts.is_binding_session_running", return_value=False),
+        patch("routers.platform_accounts.update_binding_session", return_value=repaired_session),
+        patch("routers.platform_accounts.update_platform_account", return_value=repaired_account),
+    ):
+        resp = await client.get("/api/platform-accounts", headers=auth_header())
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["status"] == "active"
+    assert item["login_state"] == "LOGGED_IN"
+    assert item["is_connected"] is True
+    assert item["latest_binding_session"]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_list_accounts_repairs_orphaned_running_session_without_saved_session(client, sample_account, sample_binding_session):
+    """孤儿 running 会话若账号无持久化 session，应回退为待绑定。"""
+    account = {
+        **sample_account,
+        "status": "verifying",
+        "login_state": "FAILED",
+        "is_connected": False,
+        "encrypted_session_state": None,
+    }
+    running_session = {**sample_binding_session, "action": "verify", "status": "running"}
+    repaired_session = {**running_session, "status": "failed", "error_message": "后端任务已中断，系统已自动修复状态，请按需重新发起验证"}
+    repaired_account = {
+        **account,
+        "status": "needsLogin",
+        "is_connected": False,
+        "last_error": "后端任务已中断，系统已自动修复状态，请按需重新发起验证",
+    }
+    with (
+        patch("routers.platform_accounts.list_platform_accounts", return_value=[account]),
+        patch(
+            "routers.platform_accounts.attach_latest_binding_session",
+            return_value=[{**account, "latest_binding_session": running_session}],
+        ),
+        patch("routers.platform_accounts.is_binding_session_running", return_value=False),
+        patch("routers.platform_accounts.update_binding_session", return_value=repaired_session),
+        patch("routers.platform_accounts.update_platform_account", return_value=repaired_account),
+    ):
+        resp = await client.get("/api/platform-accounts", headers=auth_header())
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["status"] == "needsLogin"
+    assert item["is_connected"] is False
+    assert item["latest_binding_session"]["status"] == "failed"
+
+
 # ── POST /api/platform-accounts ──────────────────────────────
 
 
@@ -210,11 +284,71 @@ async def test_verify_success(client, sample_account, sample_binding_session):
     verify_session = {**sample_binding_session, "action": "verify", "status": "completed"}
     with (
         patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
+        patch("routers.platform_accounts.list_binding_sessions", return_value=[]),
+        patch(
+            "routers.platform_accounts.ensure_verify_session_ready",
+            new_callable=AsyncMock,
+            return_value={"ready": True, "detail": "", "http_status": 200, "status_snapshot": {}},
+        ),
         patch("routers.platform_accounts.start_verify_session", return_value=verify_session),
     ):
         resp = await client.post("/api/platform-accounts/acc-001/verify", json=auth_body())
     assert resp.status_code == 200
     assert resp.json()["item"]["action"] == "verify"
+    assert resp.json()["reused_existing"] is False
+
+
+@pytest.mark.asyncio
+async def test_verify_reuses_running_session(client, sample_account, sample_binding_session):
+    """同账号已有运行中的验证任务时，应直接返回原会话而不是再次创建。"""
+    running_session = {
+        **sample_binding_session,
+        "action": "verify",
+        "status": "running",
+        "output_text": "[LOGIN_STATE:CHECKING]",
+    }
+    with (
+        patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
+        patch("routers.platform_accounts.list_binding_sessions", return_value=[running_session]),
+        patch("routers.platform_accounts.is_binding_session_running", return_value=True),
+        patch(
+            "routers.platform_accounts.ensure_verify_session_ready",
+            new_callable=AsyncMock,
+        ) as mock_ready,
+        patch("routers.platform_accounts.start_verify_session") as mock_start_verify,
+    ):
+        resp = await client.post("/api/platform-accounts/acc-001/verify", json=auth_body())
+
+    assert resp.status_code == 200
+    assert resp.json()["item"]["id"] == "sess-001"
+    assert resp.json()["reused_existing"] is True
+    mock_ready.assert_not_called()
+    mock_start_verify.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verify_returns_503_when_browser_not_ready(client, sample_account):
+    """browser-ready 预检失败时，应直接返回明确错误，不创建验证会话。"""
+    with (
+        patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
+        patch("routers.platform_accounts.list_binding_sessions", return_value=[]),
+        patch(
+            "routers.platform_accounts.ensure_verify_session_ready",
+            new_callable=AsyncMock,
+            return_value={
+                "ready": False,
+                "detail": "OpenClaw 未允许沙箱会话切换到 host browser",
+                "http_status": 503,
+                "status_snapshot": {},
+            },
+        ),
+        patch("routers.platform_accounts.start_verify_session") as mock_start_verify,
+    ):
+        resp = await client.post("/api/platform-accounts/acc-001/verify", json=auth_body())
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "OpenClaw 未允许沙箱会话切换到 host browser"
+    mock_start_verify.assert_not_called()
 
 
 # ── POST /api/platform-accounts/{id}/unbind ──────────────────

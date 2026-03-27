@@ -127,6 +127,45 @@ async def test_start_account_no_session_key(client):
 
 
 @pytest.mark.asyncio
+async def test_start_publish_job_checks_browser_ready_when_persisted_session_exists(client):
+    account = _active_account(encrypted_session_state="ciphertext")
+    with (
+        patch("routers.workflow.get_platform_account", return_value=account),
+        patch(
+            "routers.workflow.ensure_verify_session_ready",
+            new_callable=AsyncMock,
+            return_value={"ready": True, "detail": "", "http_status": 200, "status_snapshot": {}},
+        ) as mock_ready,
+    ):
+        resp = await client.post("/api/workflow/start", json=_start_body())
+
+    assert resp.status_code == 200
+    mock_ready.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_publish_job_returns_503_when_persisted_session_browser_not_ready(client):
+    account = _active_account(encrypted_session_state="ciphertext")
+    with (
+        patch("routers.workflow.get_platform_account", return_value=account),
+        patch(
+            "routers.workflow.ensure_verify_session_ready",
+            new_callable=AsyncMock,
+            return_value={
+                "ready": False,
+                "detail": "恢复持久登录态失败",
+                "http_status": 503,
+                "status_snapshot": {},
+            },
+        ),
+    ):
+        resp = await client.post("/api/workflow/start", json=_start_body())
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "恢复持久登录态失败"
+
+
+@pytest.mark.asyncio
 async def test_start_overrides_tenant_id(client):
     """body 中伪造的 tenant_id 应被服务端校验值覆盖。"""
     captured = {}
