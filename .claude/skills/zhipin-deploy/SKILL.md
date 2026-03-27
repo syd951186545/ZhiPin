@@ -172,10 +172,7 @@ docker exec deploy-backopenclaw-1 ps aux | grep -E '(uvicorn|openclaw|node)' | g
 
 | 现象 | 原因 | 修复 |
 |------|------|------|
-| `failed to fetch metadata: fork/exec ... docker-buildx: no such file` | docker-buildx 软链接损坏 | 见 2-A |
-| `error getting credentials - docker-credential-desktop not found` | config.json 有 credsStore:desktop | 见 2-B |
 | `chown: Operation not permitted` + 容器 unhealthy | cap_drop ALL 未补 CHOWN 等 | 见第 4 节 |
-| `backopenclaw-entrypoint.sh: no such file` 镜像构建失败 | 文件未提交 git | 见 2-C |
 | `frontend` 等待 backopenclaw healthy 超时 | backopenclaw 启动慢（首次拷贝 playwright 缓存）| 增大 `start_period` 或等待 |
 
 ---
