@@ -2,13 +2,7 @@
 
 本手册用于让 Codex / Claude Code 在当前仓库里稳定完成运行、调测、排障与部署相关任务。
 
-## 1. 项目结构
-- `frontend/`：React 19 + Vite 管理台，开发端口 `3000`
-- `backend/`：FastAPI + LangGraph 后端，开发端口 `8000`
-- `supabase/`：远端 Supabase 对应的迁移记录
-- `deploy/`：Docker Compose、镜像构建与远程部署脚本
-
-关键事实：
+## 1. 开发和测试
 - 本地环境为开发环境，测试环境在局域网192.168.3.215服务器，supabase为云端环境、openclaw随fastapi服务同步部署在测试服务器。
 - 测试环境只有两个服务：`frontend` 与 `backopenclaw`，暂不考虑生产环境，最终由镜像确保生产环境与测试环境一致。
 - `backopenclaw` 单镜像内同时运行 FastAPI 与 OpenClaw
@@ -16,7 +10,6 @@
 - OpenClaw 运行态数据保存在 Docker volume `/opt/openclaw-home`
 - 部署统一入口是 `deploy/deploy.sh`，支持 `prepare` / `build` / `recreate` / `all`
 
-## 2. 开发与集成测试
 关键事实：
   - 仅在本地开发代码和单元测试，仅在服务器中执行启动和集成测试。
   - 服务器中不对外暴露 OpenClaw 端口；如需调试，SSH 到服务器后 `docker exec` 进入 `backopenclaw` 容器
@@ -35,6 +28,8 @@
 - OpenClaw 运行在局域网主机上，详细地址、SSH 用户、密码、token 统一保存在 `docs/AI_AGENT_SECRETS.local.md`
 - 如果需要登录远端 Docker 主机排查容器，先读取该本地 secrets 文件，再 `docker exec` 到 `backopenclaw` 容器内部
 - 远端项目同路径说明也记录在该文件中
+## 2. 生产部署
+  暂不涉及，当前项目处于开发调测中。
 
 ## 3. 常见联调入口
 
@@ -74,16 +69,4 @@
 3. 检查后端 `validate_supabase_user` 是否通过
 4. 再检查对应表结构与 RLS / 迁移是否匹配
 
-## 4. gstack 工作区
-- 项目计划 / 文档 / 讨论上下文位于：
 
-```text
-C:\Users\SunYD\.gstack\projects\syd951186545-ZhiPin
-```
-
-遇到“按既有计划实现”“查看项目文档”“继续上次方案”之类任务，优先读取该目录。
-
-## 5. Agent 行为约束
-- 始终使用中文答复
-- 非必要不要在最终回复中回显明文密钥或密码
-- 如需修改运行配置，优先复用现有 `.env.production`、`deploy/docker-compose.yml`、`supabase/migrations/`，不要另起一套并行配置
