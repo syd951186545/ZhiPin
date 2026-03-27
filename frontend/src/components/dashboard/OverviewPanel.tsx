@@ -9,6 +9,9 @@ import {useDashboardStats} from '@/hooks/useDashboardStats';
 import {useActivityLogs} from '@/hooks/useActivityLogs';
 import {TASK_TYPE} from '@/lib/constants';
 
+const SUCCESS_COLOR = '#177B5C';
+const WARNING_COLOR = '#D89B2B';
+
 const funnelData = [
   { date: '03/08', views: 120, applicants: 8 },
   { date: '03/09', views: 145, applicants: 12 },
@@ -69,10 +72,10 @@ export default function OverviewPanel() {
   const { activities, loading: activitiesLoading } = useActivityLogs(6);
 
   const kpiCards = [
-    { key: 'activeJobs', label: t('dashboard.activeJobs'), value: stats.activeJobs, icon: Briefcase, color: 'text-blue-600' },
-    { key: 'totalCandidates', label: t('dashboard.totalCandidates'), value: stats.totalCandidates, icon: Users, color: 'text-green-600' },
-    { key: 'interviewsScheduled', label: t('dashboard.interviewsScheduled'), value: stats.interviewsScheduled, icon: Calendar, color: 'text-purple-600' },
-    { key: 'automatedActions', label: t('dashboard.automatedActions'), value: stats.automatedActions, icon: Zap, color: 'text-orange-600' },
+    { key: 'activeJobs', label: t('dashboard.activeJobs'), value: stats.activeJobs, icon: Briefcase, color: 'text-[#155E63]', surface: 'bg-[rgba(21,94,99,0.1)]' },
+    { key: 'totalCandidates', label: t('dashboard.totalCandidates'), value: stats.totalCandidates, icon: Users, color: 'text-[#8B6417]', surface: 'bg-[rgba(216,155,43,0.16)]' },
+    { key: 'interviewsScheduled', label: t('dashboard.interviewsScheduled'), value: stats.interviewsScheduled, icon: Calendar, color: 'text-[#155E63]', surface: 'bg-[rgba(21,94,99,0.1)]' },
+    { key: 'automatedActions', label: t('dashboard.automatedActions'), value: stats.automatedActions, icon: Zap, color: 'text-[#8B6417]', surface: 'bg-[rgba(216,155,43,0.16)]' },
   ];
 
   if (loading) {
@@ -103,7 +106,7 @@ export default function OverviewPanel() {
                     <p className="text-sm text-muted-foreground">{card.label}</p>
                     <p className="text-3xl font-bold mt-1">{card.value}</p>
                   </div>
-                  <div className="p-3 rounded-full bg-muted">
+                  <div className={`p-3 rounded-full ${card.surface}`}>
                     <card.icon className={`h-6 w-6 ${card.color}`} />
                   </div>
                 </div>
@@ -129,20 +132,20 @@ export default function OverviewPanel() {
                   <AreaChart data={funnelData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                     <defs>
                       <linearGradient id="viewsGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                        <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
                       </linearGradient>
                       <linearGradient id="applicantsGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                        <stop offset="5%" stopColor={SUCCESS_COLOR} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={SUCCESS_COLOR} stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="date" className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
-                    <YAxis className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
-                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', color: 'hsl(var(--popover-foreground))' }} />
-                    <Area type="monotone" dataKey="views" stroke="hsl(var(--primary))" fill="url(#viewsGradient)" strokeWidth={2} name="浏览量" />
-                    <Area type="monotone" dataKey="applicants" stroke="#22c55e" fill="url(#applicantsGradient)" strokeWidth={2} name="申请量" />
+                    <XAxis dataKey="date" className="text-xs" tick={{ fill: 'var(--muted-foreground)' }} />
+                    <YAxis className="text-xs" tick={{ fill: 'var(--muted-foreground)' }} />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--popover-foreground)' }} />
+                    <Area type="monotone" dataKey="views" stroke="var(--primary)" fill="url(#viewsGradient)" strokeWidth={2} name="浏览量" />
+                    <Area type="monotone" dataKey="applicants" stroke={SUCCESS_COLOR} fill="url(#applicantsGradient)" strokeWidth={2} name="申请量" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -170,7 +173,7 @@ export default function OverviewPanel() {
                 <div className="space-y-4">
                   {activities.map((activity) => (
                     <div key={activity.id} className="flex gap-3">
-                      <div className="mt-1 h-2 w-2 rounded-full bg-primary shrink-0" />
+                      <div className="mt-1 h-2 w-2 rounded-full shrink-0" style={{backgroundColor: activity.action === 'resume_screen' ? SUCCESS_COLOR : WARNING_COLOR}} />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-tight">{formatActivityAction(activity.action)}</p>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">

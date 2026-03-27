@@ -39,32 +39,30 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
+    <div>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-md"
+        className="w-full"
       >
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">{t('register.title')}</h1>
-          <p className="text-muted-foreground mt-2">{t('register.desc')}</p>
+        <div className="mb-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Workspace Setup</p>
+          <h1 className="mt-2 text-[1.75rem] font-semibold tracking-[-0.04em]">{t('register.title')}</h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('register.desc')}</p>
         </div>
 
-        <Card>
+        <Card className="overflow-hidden border-white/70 bg-[rgba(255,253,250,0.96)] shadow-[0_18px_42px_-28px_rgba(20,32,43,0.16)]">
+          <div className="h-1 bg-[linear-gradient(90deg,#155E63_0%,#155E63_38%,#D89B2B_38%,#D89B2B_64%,transparent_64%)]" />
           <form onSubmit={handleSubmit}>
-            <CardHeader className="sr-only">
-              <CardTitle>{t('register.title')}</CardTitle>
-              <CardDescription>{t('register.desc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-6">
+            <CardContent className="space-y-4 pt-5">
               {error && (
-                <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                <div className="rounded-[var(--radius-md)] border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                   {error}
                 </div>
               )}
               <div className="space-y-2">
-                <Label htmlFor="companyName">{t('register.companyName')}</Label>
+                <Label htmlFor="companyName" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.companyName')}</Label>
                 <Input
                   id="companyName"
                   type="text"
@@ -75,7 +73,7 @@ export default function Register() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="name">{t('register.name')}</Label>
+                <Label htmlFor="name" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.name')}</Label>
                 <Input
                   id="name"
                   type="text"
@@ -86,7 +84,7 @@ export default function Register() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="reg-email">{t('register.email')}</Label>
+                <Label htmlFor="reg-email" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.email')}</Label>
                 <Input
                   id="reg-email"
                   type="email"
@@ -98,7 +96,7 @@ export default function Register() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="reg-password">{t('register.password')}</Label>
+                <Label htmlFor="reg-password" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.password')}</Label>
                 <Input
                   id="reg-password"
                   type="password"
@@ -111,7 +109,7 @@ export default function Register() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">{t('register.confirmPassword')}</Label>
+                <Label htmlFor="confirmPassword" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.confirmPassword')}</Label>
                 <Input
                   id="confirmPassword"
                   type="password"
@@ -124,7 +122,7 @@ export default function Register() {
                 />
               </div>
             </CardContent>
-            <CardFooter className="flex flex-col gap-4">
+            <CardFooter className="flex flex-col gap-3 pt-1">
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
                   <>{t('register.loading')}</>
@@ -135,9 +133,9 @@ export default function Register() {
                   </>
                 )}
               </Button>
-              <p className="text-sm text-muted-foreground text-center">
+              <p className="text-center text-sm text-muted-foreground">
                 {t('register.hasAccount')}{' '}
-                <Link to="/login" className="text-primary hover:underline font-medium">
+                <Link to="/login" className="font-medium text-primary hover:underline">
                   {t('register.login')}
                 </Link>
               </p>
