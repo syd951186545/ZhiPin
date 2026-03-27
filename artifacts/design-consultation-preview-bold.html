@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>机灵平台 Design Preview Bold</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Oswald:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#111315;--surface:#171a1e;--surface-2:#1e2328;--text:#efe9df;--muted:#a8aea2;--line:rgba(239,233,223,.14);--lime:#c7ff4a;--orange:#ff5a36;--blue:#3f6fff;--bone:#eee8de;--ok:#59d18c;--shadow:0 28px 72px rgba(0,0,0,.45)}
+    [data-theme="light"]{--bg:#ede6db;--surface:#f7f0e6;--surface-2:#fffaf2;--text:#111315;--muted:#545c56;--line:rgba(17,19,21,.12);--lime:#92c700;--orange:#e84926;--blue:#214df0;--bone:#111315;--ok:#168a52;--shadow:0 22px 60px rgba(17,19,21,.12)}
+    *{box-sizing:border-box} html,body{margin:0;background:var(--bg);color:var(--text);font-family:"Noto Sans SC","Segoe UI",sans-serif}
+    body{background-image:radial-gradient(circle at top left, rgba(199,255,74,.08), transparent 20rem),radial-gradient(circle at right, rgba(255,90,54,.12), transparent 18rem),linear-gradient(var(--bg),var(--bg))}
+    .page{width:min(1480px,calc(100vw - 28px));margin:0 auto;padding:20px 0 56px}
+    .top,.row,.chips,.actions,.legend{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.top{justify-content:space-between;margin-bottom:18px}
+    .brand{display:flex;gap:14px;align-items:center}.mark{width:42px;height:42px;border-radius:0;display:grid;place-items:center;background:var(--lime);color:#111315;font-weight:900;box-shadow:0 0 0 2px #111315 inset}
+    .tiny{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+    .chip,.ghost,.btn,.pill,.tag{font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+    .chip,.ghost,.pill,.tag{padding:8px 12px}.chip,.ghost{border:1px solid var(--line);background:transparent;color:var(--text)}
+    .btn{padding:12px 18px;font:inherit;border:none;background:var(--lime);color:#111315;font-weight:800;cursor:pointer} .ghost{font:inherit;cursor:pointer}
+    .pill{display:inline-flex;background:var(--orange);color:#fff;font-weight:800}
+    .panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.02),transparent 44%),var(--surface);box-shadow:var(--shadow)}
+    .grid{display:grid;gap:18px}.hero{grid-template-columns:1.15fr .85fr}.duo{grid-template-columns:repeat(2,minmax(0,1fr))}.shell{grid-template-columns:280px 1fr}.split{grid-template-columns:1.15fr .85fr}.trio{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .pad{padding:22px}.rule{height:6px;background:linear-gradient(90deg,var(--lime) 0 35%, var(--orange) 35% 55%, transparent 55%)}
+    h1,h2,h3,h4,p{margin:0} h1{font-size:clamp(48px,7vw,92px);line-height:.92;letter-spacing:-.06em;max-width:9ch;margin-top:16px}
+    h2{font-size:32px;line-height:1;letter-spacing:-.05em} h3{font-size:22px;letter-spacing:-.04em}
+    p{line-height:1.8}.lead{font-size:17px;color:var(--muted);max-width:62ch;margin-top:14px}
+    .display{font-family:"Oswald","Arial Narrow",sans-serif}
+    .hero-sub{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:22px}
+    .metric{padding:16px;border:1px solid var(--line);background:var(--surface-2)} .metric strong{display:block;font-family:"Oswald",sans-serif;font-size:40px;line-height:.95}
+    .metric span{display:block;margin-top:8px;color:var(--muted);font-size:12px;line-height:1.6}
+    .banner{display:grid;gap:12px}.flash{padding:14px 16px;background:linear-gradient(90deg,var(--orange),#ff7b49);color:#fff;font-weight:800}
+    .log,.code{font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.85;white-space:pre-wrap;color:var(--bone)}
+    .board{display:grid;gap:12px}.block{padding:16px;border:1px solid var(--line);background:var(--surface-2)} .status-run{background:var(--lime);color:#111315}.status-pause{background:var(--orange);color:#fff}.status-ok{background:rgba(89,209,140,.14);color:var(--ok)}
+    .big-number{font-family:"Oswald",sans-serif;font-size:92px;line-height:.9;letter-spacing:-.05em}
+    .palette .swatch{padding:16px;border:1px solid var(--line);min-height:150px;display:flex;flex-direction:column;justify-content:space-between}
+    .color{height:72px}.swatch strong{font-size:16px}.swatch span{color:var(--muted);font-size:13px;line-height:1.7}
+    .nav{display:grid;gap:8px;margin-top:16px}.nav-item{padding:12px 14px;border-left:4px solid transparent;background:transparent;color:var(--muted);display:flex;justify-content:space-between}
+    .nav-item.active{border-left-color:var(--lime);background:rgba(199,255,74,.08);color:var(--text)}
+    .main{padding:18px;display:grid;gap:16px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    .stat{padding:16px;border:1px solid var(--line);background:var(--surface-2)} .stat strong{display:block;font-family:"Oswald",sans-serif;font-size:36px;line-height:.95;margin-top:8px}
+    .timeline{display:grid;gap:10px}.step{display:grid;grid-template-columns:120px 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);background:rgba(255,255,255,.02)}
+    .step strong{font-size:14px}.cue{padding:7px 10px;background:rgba(199,255,74,.1);color:var(--lime);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+    .poster{display:grid;gap:14px}.poster-card{padding:18px;border:1px solid var(--line);background:var(--surface-2)}
+    .input,.textarea{width:100%;padding:13px 14px;border:1px solid var(--line);background:transparent;color:var(--text);font:inherit}.textarea{min-height:108px;resize:vertical}
+    .auth{min-height:420px}.auth-brand{padding:24px;background:linear-gradient(180deg,var(--lime),#89c400);color:#111315;display:flex;flex-direction:column;justify-content:space-between}.auth-brand h2{font-size:44px}.auth-form{padding:24px;display:grid;gap:14px;align-content:center}
+    .contrast .block{min-height:126px;display:flex;flex-direction:column;justify-content:space-between}
+    .footer{margin-top:20px;text-align:center;color:var(--muted);font-size:13px}
+    @media (max-width:1100px){.hero,.duo,.shell,.split,.auth{grid-template-columns:1fr}.hero-sub,.stats,.trio{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media (max-width:720px){.page{width:min(100vw - 18px,1480px)}.hero-sub,.stats,.trio{grid-template-columns:1fr}.step{grid-template-columns:1fr}.big-number{font-size:62px}}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <div class="brand"><div class="mark">J</div><div><span class="tiny">Alternative Direction / Bold</span><strong>机灵平台 / SIGNAL OPS</strong></div></div>
+      <div class="chips"><span class="chip">更高记忆点</span><span class="chip">战情海报感</span><span class="chip">黑 × 荧绿 × 橙</span><button class="ghost" id="themeToggle" type="button">切换浅色版</button></div>
+    </header>
+
+    <section class="grid hero">
+      <article class="panel">
+        <div class="rule"></div>
+        <div class="pad">
+          <span class="pill">High-Risk Brand System</span>
+          <h1>让业务执行台像一张持续刷新的战情海报。</h1>
+          <p class="lead">这版不再追求“温和可信的企业后台”，而是把产品做成强信号系统。它更像作战看板、巡检大屏、指挥中心。用户会更容易记住它，但也会更强烈地感受到它的性格。</p>
+          <div class="actions" style="margin-top:22px"><button class="btn" type="button">查看高风险方案</button><button class="ghost" type="button">与稳健版对比</button></div>
+          <div class="grid hero-sub">
+            <div class="metric"><strong>126</strong><span>7 天内自动完成的平台操作次数</span></div>
+            <div class="metric"><strong>03</strong><span>当前在线数字员工流程</span></div>
+            <div class="metric"><strong>91</strong><span>最高 AI 匹配评分</span></div>
+            <div class="metric"><strong>02</strong><span>等待人工介入节点</span></div>
+          </div>
+        </div>
+      </article>
+
+      <aside class="panel pad banner">
+        <div class="flash display">ALERT · ACCOUNT STATE UNSTABLE · MANUAL CHECK REQUIRED</div>
+        <div class="board">
+          <div class="block"><span class="tiny">Execution Feed</span><div class="big-number display">RUN</div><p class="lead" style="margin-top:10px;font-size:15px">系统正在执行机灵招聘流程。视觉中心不再是卡片，而是状态字本身。</p></div>
+          <div class="block"><div class="row" style="justify-content:space-between"><strong>PLATFORM VERIFY</strong><span class="chip status-pause">hold</span></div><p class="lead" style="font-size:14px;margin-top:8px">BOSS 直聘登录态失效。下一步建议：重新验证 → 重新绑定 → 恢复工作流。</p></div>
+          <div class="block"><div class="log">[11:13:03] verify_session platform=boss_zhipin
+[11:13:05] session_status=expired
+[11:13:09] manual_gate=true
+[11:13:24] resume_screen score=91
+[11:13:33] send_message delivered=6</div></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="grid duo" style="margin-top:18px">
+      <section class="panel pad">
+        <h2>更激进的系统提案</h2>
+        <div class="grid trio palette" style="margin-top:18px">
+          <div class="swatch"><div class="color" style="background:#111315"></div><div><strong>Asphalt Black</strong><span>主背景。像控制室、像工业面板，而不是普通 SaaS 白底。</span></div></div>
+          <div class="swatch"><div class="color" style="background:#C7FF4A"></div><div><strong>Signal Lime</strong><span>主识别色。用于状态、CTA、大号数字和高注意力锚点。</span></div></div>
+          <div class="swatch"><div class="color" style="background:#FF5A36"></div><div><strong>Siren Orange</strong><span>人工介入、阻塞、警报、异步确认。比琥珀更冲，更不“温和”。</span></div></div>
+        </div>
+        <div class="poster" style="margin-top:18px">
+          <div class="poster-card"><span class="tiny">Aesthetic</span><h3 style="margin-top:8px">Signal Ops / 战情海报</h3><p class="lead" style="font-size:15px">把业务执行台做成“高压缩的信息海报”：大字号、窄字重、强对比、状态词前置。</p></div>
+          <div class="poster-card"><span class="tiny">Typography</span><h3 style="margin-top:8px">Noto Sans SC + Oswald + JetBrains Mono</h3><p class="lead" style="font-size:15px">中文继续稳定，但数字、状态词、节奏条全面切到窄体大字，形成广播式识别。</p></div>
+          <div class="poster-card"><span class="tiny">Layout</span><h3 style="margin-top:8px">更像编辑海报，而不是组件库页面</h3><p class="lead" style="font-size:15px">允许非对称区块、整条色带、巨大指标和高密度边框，降低“温吞后台感”。</p></div>
+        </div>
+      </section>
+
+      <section class="panel pad">
+        <h2>品牌风险与收益</h2>
+        <div class="grid" style="margin-top:18px">
+          <div class="block"><span class="tiny">Risk 01</span><h3 style="margin-top:8px">荧绿做主色</h3><p class="lead" style="font-size:15px">极容易被记住，也最可能让保守企业觉得“太有攻击性”。</p></div>
+          <div class="block"><span class="tiny">Risk 02</span><h3 style="margin-top:8px">状态字比正文更重要</h3><p class="lead" style="font-size:15px">RUN / HOLD / PUSH / FAIL 这种短词会成为视觉主角，像工业设备面板。</p></div>
+          <div class="block"><span class="tiny">Risk 03</span><h3 style="margin-top:8px">大号数字和压迫节奏</h3><p class="lead" style="font-size:15px">更像指挥中心，不像管理软件。强势、利落，但用户情绪压力也更大。</p></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="panel" style="margin-top:18px">
+      <div class="rule"></div>
+      <div class="grid shell">
+        <aside class="sidebar">
+          <span class="tiny">OPS LAYERS</span>
+          <div class="nav">
+            <div class="nav-item active"><strong>CONTROL</strong><span>02</span></div>
+            <div class="nav-item"><strong>RECRUIT</strong><span>RUN</span></div>
+            <div class="nav-item"><strong>ACCOUNT</strong><span>RISK</span></div>
+            <div class="nav-item"><strong>JOBS</strong><span>18</span></div>
+            <div class="nav-item"><strong>POOL</strong><span>238</span></div>
+            <div class="nav-item"><strong>SETTINGS</strong><span>SYNC</span></div>
+          </div>
+        </aside>
+        <div class="main">
+          <div class="row" style="justify-content:space-between"><div><span class="tiny">CONTROL ROOM</span><h2 style="margin-top:6px">今日数字员工已替企业完成 126 次执行动作</h2></div><div class="legend"><span class="chip status-run">run</span><span class="chip status-pause">hold</span><button class="btn" type="button">NEW FLOW</button></div></div>
+          <div class="stats">
+            <div class="stat"><span class="tiny">POSTED</span><strong>12</strong><p class="sub">自动发布岗位</p></div>
+            <div class="stat"><span class="tiny">SHORTLIST</span><strong>37</strong><p class="sub">推荐候选人</p></div>
+            <div class="stat"><span class="tiny">HEALTH</span><strong>97%</strong><p class="sub">账号健康度</p></div>
+            <div class="stat"><span class="tiny">HOLD</span><strong>2</strong><p class="sub">待人工介入</p></div>
+          </div>
+          <div class="grid split">
+            <div class="block">
+              <div class="row" style="justify-content:space-between"><div><h3>FLOW TIMELINE</h3><p class="sub">不讲“卡片”，直接讲流程。</p></div><span class="cue">manual gate 01</span></div>
+              <div class="timeline">
+                <div class="step"><span class="tiny">STEP 01</span><div><strong>岗位公告同步</strong><p class="sub">多平台分发完成</p></div><span class="chip status-ok">done</span></div>
+                <div class="step"><span class="tiny">STEP 02</span><div><strong>简历抓取与评分</strong><p class="sub">筛出 12 位高意向候选人</p></div><span class="chip status-run">run</span></div>
+                <div class="step"><span class="tiny">STEP 03</span><div><strong>平台账号验证</strong><p class="sub">需要人工确认登录态</p></div><span class="chip status-pause">hold</span></div>
+                <div class="step"><span class="tiny">STEP 04</span><div><strong>主动沟通模板投放</strong><p class="sub">等待确认后继续</p></div><span class="chip">queued</span></div>
+              </div>
+            </div>
+            <div class="block">
+              <h3>TRACE LOG</h3>
+              <div class="code">[11:08:04] flow.publish.start
+[11:09:12] cv_capture.batch=24
+[11:09:26] shortlist.push count=12
+[11:10:03] verify.block reason=session_expired
+[11:10:05] manual_takeover suggested=true
+[11:10:18] waiting_for_operator</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid duo" style="margin-top:18px">
+      <section class="panel pad">
+        <h2>高压设置页</h2>
+        <p class="lead" style="font-size:15px;margin-top:8px">把“设置”做成执行准备区和风险清单，而不是普通表单集合。</p>
+        <div class="grid duo" style="margin-top:18px;gap:16px">
+          <div class="block">
+            <span class="tiny">PRIMARY ACCOUNT</span>
+            <h3 style="margin-top:8px">BOSS 直聘主账号</h3>
+            <div class="row" style="margin-top:12px"><span class="chip status-pause">session risk</span><span class="chip">last verify 11:02</span></div>
+            <div class="timeline" style="margin-top:14px">
+              <div class="step" style="grid-template-columns:1fr auto"><div><strong>查看验证结果</strong><p class="sub">截图与日志一起展示</p></div><button class="ghost" type="button">OPEN</button></div>
+              <div class="step" style="grid-template-columns:1fr auto"><div><strong>重新验证</strong><p class="sub">优先动作，重新打通自动执行</p></div><button class="btn" type="button">VERIFY</button></div>
+            </div>
+          </div>
+          <div class="block">
+            <span class="tiny">MESSAGE SCRIPT</span>
+            <textarea class="textarea" aria-label="message-template">您好，我是机灵平台为企业执行招聘流程的数字员工。根据您的经历，我们判断您与“区域运营经理”岗位高度匹配，想进一步确认职责范围、排班要求与到岗时间。</textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel auth">
+        <div class="auth-brand">
+          <div><span class="tiny" style="color:#111315">SIGNAL ACCESS</span><h2>让系统先开工，再让人进来确认。</h2></div>
+          <p>这版登录页不是“欢迎回来”，而是“进入控制室”。品牌记忆点极强，但比稳健版更挑用户口味。</p>
+        </div>
+        <div class="auth-form">
+          <span class="tiny">Operator Sign-in</span>
+          <h2>进入机灵控制室</h2>
+          <input class="input" value="operator@company.cn" aria-label="email">
+          <input class="input" value="••••••••••••" aria-label="password">
+          <button class="btn" type="button">ENTER OPS</button>
+          <button class="ghost" type="button">SSO ACCESS</button>
+          <p class="sub">过去 7 天，系统已自动节省约 18.5 小时人工执行时间。</p>
+        </div>
+      </section>
+    </section>
+
+    <section class="grid trio contrast" style="margin-top:18px">
+      <div class="block" style="background:var(--lime);color:#111315"><strong>Signal Lime</strong><span>主 CTA、状态灯、巨大指标。极强识别，但很挑品牌态度。</span></div>
+      <div class="block" style="background:var(--orange);color:#fff"><strong>Siren Orange</strong><span>人工介入、阻塞、临界动作。存在感远强于稳健方案的琥珀。</span></div>
+      <div class="block" style="background:var(--bone);color:#111315"><strong>Bone Contrast</strong><span>用于关键文本和大号数字，形成像海报丝印一样的硬对比。</span></div>
+    </section>
+
+    <p class="footer">Bold preview generated for comparison only · 如果你选这版，后续 DESIGN.md 应单独分支为高风险品牌方案，不建议直接覆盖稳健版。</p>
+  </div>
+  <script>
+    const body = document.body;
+    const toggle = document.getElementById("themeToggle");
+    toggle.addEventListener("click", () => {
+      const light = body.dataset.theme === "light";
+      if (light) {
+        body.removeAttribute("data-theme");
+        toggle.textContent = "切换浅色版";
+      } else {
+        body.dataset.theme = "light";
+        toggle.textContent = "切换深色版";
+      }
+    });
+  </script>
+</body>
+</html>

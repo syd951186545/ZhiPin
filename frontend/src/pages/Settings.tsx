@@ -398,10 +398,10 @@ export default function Settings() {
   const hasMaskedApiKey = maskedApiKey.length > 0
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader title={t('settings.title')} description={t('settings.desc')}/>
 
-      <Tabs defaultValue="ai" className="space-y-6">
+      <Tabs defaultValue="ai" className="space-y-5">
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="ai">{t('settings.tab.ai')}</TabsTrigger>
           <TabsTrigger value="proxy">{t('settings.tab.proxy')}</TabsTrigger>
@@ -410,14 +410,16 @@ export default function Settings() {
 
         <TabsContent value="ai">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>{t('settings.ai.title')}</CardTitle>
               <CardDescription>{t('settings.ai.desc')}</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
+            <CardContent className="space-y-5">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                <div className="space-y-5">
+                  <div className="space-y-2">
                 <Label>{t('settings.ai.model')}</Label>
-                <p className="text-xs text-muted-foreground">首次使用时从 OpenClaw Gateway 读取当前模型；配置保存生效后改为从数据库读取，下次直接显示上次成功的配置。</p>
+                <p className="text-xs text-muted-foreground">选择当前执行环境使用的模型；保存后会同步写入数据库与 OpenClaw。</p>
                 <Select
                   value={selectedModelValue}
                   onValueChange={setEditModel}
@@ -446,7 +448,7 @@ export default function Settings() {
 
               <div className="space-y-2">
                 <Label>当前已配对 API Key</Label>
-                <p className="text-xs text-muted-foreground">首次使用显示 OpenClaw 当前 Key 状态；保存生效后从数据库读取。"系统默认 API Key"表示使用 OpenClaw 内置配置；切换其他厂商时需填写对应 Key。</p>
+                <p className="text-xs text-muted-foreground">默认沿用当前已保存配置；切换供应商时再替换对应 Key。</p>
                 <div
                   className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-mono select-none"
                   onCopy={(event) => event.preventDefault()}
@@ -458,7 +460,7 @@ export default function Settings() {
 
               <div className="space-y-2">
                 <Label>更新 API Key</Label>
-                <p className="text-xs text-muted-foreground">留空表示沿用数据库中当前已保存的 Key；填写后会先校验可用性，通过后才会保存并同步到 OpenClaw。</p>
+                <p className="text-xs text-muted-foreground">留空表示沿用当前 Key；填写后会先校验再保存。</p>
                 <Input
                   type="password"
                   value={editApiKey}
@@ -468,8 +470,9 @@ export default function Settings() {
                   className="font-mono text-sm"
                 />
               </div>
+                </div>
 
-              <div className="rounded-md border bg-muted/30 p-4 text-xs space-y-2">
+                <div className="rounded-[20px] border bg-muted/30 p-4 text-xs space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">当前 Provider</span>
                   <span className="font-mono">{serverConfig?.provider || '-'}</span>
@@ -488,6 +491,7 @@ export default function Settings() {
                     <span className="font-mono">{new Date(serverConfig.validatedAt).toLocaleString('zh-CN')}</span>
                   </div>
                 )}
+              </div>
               </div>
 
               <div className="border-t pt-6 space-y-4">
@@ -532,11 +536,11 @@ export default function Settings() {
 
         <TabsContent value="proxy">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>{t('settings.proxy.title')}</CardTitle>
               <CardDescription>{t('settings.proxy.desc')}</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-5">
               <div className="space-y-2">
                 <Label>{t('settings.proxy.pool')}</Label>
                 <Textarea
@@ -576,11 +580,11 @@ export default function Settings() {
 
         <TabsContent value="notifications">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>{t('settings.notifications.title')}</CardTitle>
               <CardDescription>{t('settings.notifications.desc')}</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-5">
               <div>
                 <h3 className="mb-4 text-sm font-medium">{t('settings.notifications.channels')}</h3>
                 <div className="space-y-4">

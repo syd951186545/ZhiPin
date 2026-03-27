@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>机灵平台 Design Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#f5f2ea;--surface:rgba(255,255,255,.84);--surface-2:#fffdfa;--text:#14202b;--muted:#55606b;--line:rgba(20,32,43,.12);--primary:#155e63;--primary-2:#0f474b;--accent:#d89b2b;--ok:#177b5c;--err:#c4493d;--shadow:0 24px 64px rgba(20,32,43,.12);--r1:10px;--r2:16px;--r3:24px}
+    [data-theme="dark"]{--bg:#0f161d;--surface:rgba(20,31,42,.86);--surface-2:#16212c;--text:#eef4f8;--muted:#94a3b0;--line:rgba(238,244,248,.12);--primary:#2c9a9f;--primary-2:#58bcc2;--accent:#d7a952;--ok:#35b186;--err:#dd6e5f;--shadow:0 28px 70px rgba(0,0,0,.34)}
+    *{box-sizing:border-box} html,body{margin:0;font-family:"Noto Sans SC","Segoe UI",sans-serif;color:var(--text);background:
+      radial-gradient(circle at top right, rgba(21,94,99,.18), transparent 24rem),
+      radial-gradient(circle at left 20%, rgba(216,155,43,.16), transparent 20rem),
+      linear-gradient(var(--bg),var(--bg))}
+    body{transition:background-color .16s ease,color .16s ease}
+    .page{width:min(1440px,calc(100vw - 32px));margin:0 auto;padding:24px 0 56px}
+    .grid{display:grid;gap:24px}.hero{grid-template-columns:1.08fr .92fr}.duo{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace{grid-template-columns:252px 1fr}.split{grid-template-columns:1.2fr .8fr}.auth{grid-template-columns:1fr 400px}.palette,.metrics,.stats,.contrast{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .top,.row,.actions,.chips{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.top{justify-content:space-between;margin-bottom:24px}
+    .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r3);box-shadow:var(--shadow);backdrop-filter:blur(18px);overflow:hidden}
+    .pad{padding:24px}.soft{background:var(--surface-2)} .brand{display:flex;gap:14px;align-items:center}.mark{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff;font-weight:800}
+    .tiny{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)} h1,h2,h3,h4,p{margin:0} h1{font-size:clamp(38px,6vw,66px);line-height:1.04;letter-spacing:-.05em;max-width:11ch;margin-top:18px} h2{font-size:28px;letter-spacing:-.04em} h3{font-size:20px;letter-spacing:-.03em}
+    p{line-height:1.8}.lead{font-size:17px;color:var(--muted);margin-top:16px;max-width:60ch}.sub{font-size:13px;color:var(--muted)}
+    .pill,.chip,.btn,.ghost,.tag{border-radius:999px;font-size:12px}.pill,.chip,.tag{padding:7px 11px}.chip,.ghost{border:1px solid var(--line);background:rgba(255,255,255,.3);color:var(--text)} .pill{background:rgba(216,155,43,.14);color:var(--primary);font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+    .btn,.ghost{font:inherit;padding:10px 16px;cursor:pointer}.btn{border:none;background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#f8f7f3;box-shadow:0 12px 24px rgba(21,94,99,.24)} .ghost{background:transparent}
+    .card{padding:16px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface-2)} .metric strong,.stat strong{display:block;font-size:28px;letter-spacing:-.04em} .stat strong{font-size:22px;margin-top:8px}
+    .block{padding:16px;border:1px solid var(--line);border-radius:var(--r2);background:rgba(255,255,255,.48)} .status-run{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#f8f7f3}.status-warn{background:rgba(216,155,43,.18);color:#7a5817}.status-ok{background:rgba(23,123,92,.14);color:var(--ok)}
+    .mono{font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.85;color:var(--muted);white-space:pre-wrap}
+    .nav{display:grid;gap:8px;margin-top:18px}.nav-item{display:flex;justify-content:space-between;gap:10px;padding:11px 12px;border-radius:14px;color:var(--muted);font-size:14px}.nav-item.active{background:rgba(21,94,99,.12);color:var(--primary);border:1px solid rgba(21,94,99,.18)}
+    .sidebar{padding:20px 18px;border-right:1px solid var(--line);background:linear-gradient(180deg,rgba(21,94,99,.08),transparent 36%)} .main{padding:20px;display:grid;gap:18px}
+    .list{display:grid;gap:10px;margin-top:12px}.item{display:grid;grid-template-columns:1.4fr 1fr 96px;gap:10px;align-items:center;padding:12px;border-radius:14px;background:rgba(21,94,99,.04);font-size:13px}
+    .tag{justify-self:start;background:rgba(216,155,43,.16);color:#7a5817;font-weight:700}.code{margin-top:12px;padding:14px;border-radius:16px;background:#11181f;color:#c9d5de;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.9}
+    .swatch{overflow:hidden}.swatch .color{height:88px}.swatch .copy{padding:14px}.swatch .copy strong{display:block;font-size:15px;margin-bottom:6px}
+    .input,.textarea{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:inherit}.textarea{min-height:108px;resize:vertical}
+    .auth-brand{padding:28px;background:linear-gradient(180deg,rgba(21,94,99,.9),rgba(15,71,75,.96));color:#eef4f8;display:flex;flex-direction:column;justify-content:space-between}.auth-brand p{color:rgba(238,244,248,.76)} .auth-form{padding:28px;display:grid;gap:14px;align-content:center}
+    .toggle{width:46px;height:28px;border-radius:999px;background:rgba(21,94,99,.2);border:1px solid rgba(21,94,99,.22);position:relative}.toggle:after{content:"";position:absolute;top:2px;left:20px;width:22px;height:22px;border-radius:50%;background:#fff}
+    .footer{margin-top:22px;text-align:center;color:var(--muted);font-size:13px}
+    @media (max-width:1100px){.hero,.duo,.workspace,.split,.auth{grid-template-columns:1fr}.palette,.metrics,.stats,.contrast{grid-template-columns:repeat(2,minmax(0,1fr))}.sidebar{border-right:none;border-bottom:1px solid var(--line)}}
+    @media (max-width:720px){.page{width:min(100vw - 20px,1440px);padding-top:14px}.pad{padding:18px}.palette,.metrics,.stats,.contrast{grid-template-columns:1fr}.item{grid-template-columns:1fr}}
+  </style>
+</head>
+<body data-theme="light">
+  <div class="page">
+    <header class="top">
+      <div class="brand"><div class="mark">J</div><div><span class="tiny">Design Consultation Preview</span><strong>机灵平台 / 企业数字员工执行台</strong></div></div>
+      <div class="chips"><span class="chip">工业理性</span><span class="chip">执行可核验</span><span class="chip">深青 + 琥珀</span><button class="ghost" id="themeToggle" type="button">切换深色模式</button></div>
+    </header>
+
+    <section class="grid hero">
+      <article class="panel pad">
+        <span class="pill">Agent Operations Console</span>
+        <h1>让“数字员工”看起来真的在替企业干活。</h1>
+        <p class="lead">它应该像业务执行工作台，而不是抽象 AI 平台。HR、招聘运营和企业主需要一眼看出任务进度、账号健康度、人工介入点，以及 AI 到底做了什么。</p>
+        <div class="actions" style="margin-top:26px"><button class="btn" type="button">查看执行台方案</button><button class="ghost" type="button">导出 DESIGN.md</button></div>
+        <div class="grid metrics" style="margin-top:26px">
+          <div class="card metric"><strong>14.2%</strong><span class="sub">简历筛选后的推荐转化率</span></div>
+          <div class="card metric"><strong>03</strong><span class="sub">同时运行中的数字员工流程</span></div>
+          <div class="card metric"><strong>97%</strong><span class="sub">平台账号可复用率</span></div>
+          <div class="card metric"><strong>2</strong><span class="sub">待人工确认节点</span></div>
+        </div>
+      </article>
+
+      <aside class="panel pad soft" style="display:grid;gap:14px">
+        <div class="row" style="justify-content:space-between"><div><span class="tiny">实时执行视图</span><h2 style="margin-top:6px">机灵招聘 / AI 沟通与筛选</h2></div><span class="chip status-run">running</span></div>
+        <div class="grid metrics" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+          <div class="card"><span class="tiny">候选流程</span><strong style="font-size:18px">23 / 40</strong></div>
+          <div class="card"><span class="tiny">人工介入</span><strong style="font-size:18px">2 处</strong></div>
+          <div class="card"><span class="tiny">风险状态</span><strong style="font-size:18px">1 条</strong></div>
+        </div>
+        <div class="block"><div class="row" style="justify-content:space-between;margin-bottom:10px"><span>步骤 3 / 6 · 平台登录状态验证</span><span class="chip status-warn">等待确认</span></div><p class="sub">BOSS 直聘账号最近一次验证已过期，系统建议“重新验证 → 重新绑定 → 回到当前任务重试”。</p></div>
+        <div class="block"><div class="row" style="justify-content:space-between;margin-bottom:10px"><span>步骤 4 / 6 · AI 简历筛选</span><span class="chip status-ok">已完成</span></div><div class="mono">[10:42:11] score=89 candidate=张** matched on "门店管理 / 轮班协调"
+[10:42:15] score=74 candidate=李** hold for manual review
+[10:42:28] score=91 candidate=王** auto-push to shortlist</div></div>
+      </aside>
+    </section>
+
+    <section class="grid duo" style="margin-top:24px">
+      <section class="panel pad">
+        <h2>字体系统</h2>
+        <p class="lead" style="font-size:15px;margin-top:8px">中文优先的稳定可读性，搭配更克制的数字与日志表现。把“执行结果”做得像证据，而不是普通正文。</p>
+        <div class="grid" style="margin-top:18px">
+          <div class="block soft"><span class="tiny" style="letter-spacing:0;text-transform:none">Display / Hero · Noto Sans SC ExtraBold</span><div style="font-size:clamp(28px,4vw,50px);line-height:1.08;letter-spacing:-.05em;margin:10px 0">企业数字员工，不是概念演示，而是可执行的业务资产。</div><p class="sub">适合品牌主标题、数据总览和高层级模块标题。</p></div>
+          <div class="block soft"><span class="tiny" style="letter-spacing:0;text-transform:none">Body / UI · Noto Sans SC Medium</span><p class="sub">当前待处理事项包括：账号重新验证、岗位公告补全、筛选阈值人工复核、候选人主动沟通上线审批。</p><div class="row" style="margin-top:12px"><span class="chip">保存执行模板</span><span class="chip status-run">优先动作</span></div></div>
+          <div class="block soft"><span class="tiny" style="letter-spacing:0;text-transform:none">Evidence / Logs · JetBrains Mono</span><div class="mono">workflow.resume_screen.start()
+platform=boss_zhipin
+cv_recommended=12
+manual_review_required=true</div></div>
+        </div>
+      </section>
+
+      <section class="panel pad">
+        <h2>颜色与组件</h2>
+        <p class="lead" style="font-size:15px;margin-top:8px">深矿石青是“系统在工作”，琥珀色是“需要你看一眼”，温纸白让界面脱离默认模板气质。</p>
+        <div class="grid palette" style="margin-top:18px">
+          <div class="card swatch"><div class="color" style="background:#155E63"></div><div class="copy"><strong>Primary</strong><span class="sub">#155E63 · 主 CTA、当前导航、任务状态。</span></div></div>
+          <div class="card swatch"><div class="color" style="background:#D89B2B"></div><div class="copy"><strong>Accent</strong><span class="sub">#D89B2B · 提醒、人工介入点。</span></div></div>
+          <div class="card swatch"><div class="color" style="background:#14202B"></div><div class="copy"><strong>Ink</strong><span class="sub">#14202B · 标题、深色容器、日志层。</span></div></div>
+          <div class="card swatch"><div class="color" style="background:#F5F2EA"></div><div class="copy"><strong>Surface</strong><span class="sub">#F5F2EA · 替代纯白全局背景。</span></div></div>
+        </div>
+        <div class="actions" style="margin-top:18px"><button class="btn" type="button">开始执行工作流</button><button class="ghost" type="button">保存草稿</button><span class="chip status-warn">待人工确认</span><span class="chip status-ok">已绑定</span></div>
+        <div class="grid duo" style="margin-top:16px;gap:12px"><input class="input" value="市场人才探索工作流" aria-label="workflow-name"><input class="input" value="BOSS 直聘 / 运营经理" aria-label="workflow-target"></div>
+      </section>
+    </section>
+
+    <section class="panel" style="margin-top:24px">
+      <div class="pad"><h2>Mockup 1 · 数字员工执行台</h2><p class="lead" style="font-size:15px;margin-top:8px">主界面应该让人一眼看见：今天系统做了什么、哪里卡住了、哪些结果已经可用。</p></div>
+      <div class="grid workspace">
+        <aside class="sidebar">
+          <div class="brand"><div class="mark">J</div><div><span class="tiny">Digital Workforce</span><strong>机灵平台</strong></div></div>
+          <div class="nav">
+            <div class="nav-item active"><strong>执行工作台</strong><span>02</span></div>
+            <div class="nav-item"><strong>机灵招聘</strong><span>运行中</span></div>
+            <div class="nav-item"><strong>平台与账号</strong><span>1 风险</span></div>
+            <div class="nav-item"><strong>岗位管理</strong><span>18</span></div>
+            <div class="nav-item"><strong>候选人池</strong><span>238</span></div>
+            <div class="nav-item"><strong>系统设置</strong><span>已同步</span></div>
+          </div>
+        </aside>
+        <div class="main">
+          <div class="top" style="margin:0"><div><span class="tiny">Operations View</span><h2 style="margin-top:6px">今天有 3 个数字员工流程正在执行</h2></div><div class="chips"><span class="chip">运行稳定</span><button class="btn" type="button">启动新流程</button></div></div>
+          <div class="grid stats">
+            <div class="card stat"><span class="tiny">自动发布岗位</span><strong>12</strong><p class="sub">过去 24 小时自动分发到多平台</p></div>
+            <div class="card stat"><span class="tiny">AI 推荐候选人</span><strong>37</strong><p class="sub">其中 9 位进入人工复核</p></div>
+            <div class="card stat"><span class="tiny">账号健康度</span><strong>97%</strong><p class="sub">1 个平台建议重新验证</p></div>
+            <div class="card stat"><span class="tiny">待人工确认</span><strong>2</strong><p class="sub">比昨天减少 1 项</p></div>
+          </div>
+          <div class="grid split">
+            <div class="block"><div class="row" style="justify-content:space-between"><div><h3>执行中的岗位流水线</h3><p class="sub">把招聘流程当成一条可追踪的生产线。</p></div><span class="chip status-warn">1 项等待人工</span></div><div class="list"><div class="item"><div><strong>运营经理 / 华东大区</strong><p class="sub">BOSS 直聘 · 机灵招聘</p></div><span class="tag">AI 沟通中</span><strong>12 / 18</strong></div><div class="item"><div><strong>门店主管 / 连锁餐饮</strong><p class="sub">58 同城 · 市场人才探索</p></div><span class="tag">待复核</span><strong>8 / 8</strong></div><div class="item"><div><strong>财务助理 / 苏州</strong><p class="sub">智联招聘 · 简历筛选</p></div><span class="tag">已完成</span><strong>24 / 24</strong></div></div></div>
+            <div class="block"><h3>执行证据</h3><p class="sub">日志和截图是这类产品的品牌资产，不是辅助说明。</p><div class="code">[11:13:03] openclaw/session verify platform=boss_zhipin
+[11:13:05] session status=expired
+[11:13:06] prompt user action="re-verify"
+[11:13:24] resume_screen score=91 candidate=王**
+[11:13:33] send_message delivered count=6
+[11:13:41] workflow state="manual-review-required"</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid duo" style="margin-top:24px">
+      <section class="panel pad">
+        <h2>Mockup 2 · 平台与账号配置</h2>
+        <p class="lead" style="font-size:15px;margin-top:8px">这里不是普通设置页，它是“执行准备区”。账号绑定、验证、风险状态必须比表单本身更醒目。</p>
+        <div class="grid duo" style="margin-top:18px;gap:18px">
+          <div class="grid" style="gap:14px">
+            <div class="block"><div class="row" style="justify-content:space-between"><div><h3>BOSS 直聘主账号</h3><p class="sub">用于岗位发布、人才探索、AI 沟通。</p></div><span class="chip status-warn">等待重新验证</span></div><div class="list"><div class="item" style="grid-template-columns:1fr auto"><div><strong>最近验证</strong><p class="sub">2026-03-27 11:02 · 会话可能失效</p></div><button class="ghost" type="button">查看验证结果</button></div><div class="item" style="grid-template-columns:1fr auto"><div><strong>默认岗位模板</strong><p class="sub">运营经理 / 连锁餐饮 / 华东区域</p></div><button class="btn" type="button">重新验证</button></div></div></div>
+            <div class="block"><span class="tiny" style="letter-spacing:0;text-transform:none">AI 主动沟通策略</span><textarea class="textarea" aria-label="messaging-template">您好，我是机灵平台代企业执行招聘流程。根据您的经历，我们认为您与“区域运营经理”岗位高度匹配，想进一步确认您是否方便沟通职责范围、班次安排和到岗时间。</textarea></div>
+          </div>
+          <aside class="block"><h3>执行前检查</h3><div class="list"><div class="item" style="grid-template-columns:1fr auto"><span>登录态可复用</span><span class="chip status-warn">风险</span></div><div class="item" style="grid-template-columns:1fr auto"><span>岗位字段完整</span><span class="chip status-ok">通过</span></div><div class="item" style="grid-template-columns:1fr auto"><span>默认沟通模板</span><span class="chip status-ok">已保存</span></div></div><div class="row" style="justify-content:space-between;margin-top:18px"><div><span class="tiny" style="letter-spacing:0;text-transform:none">自动验证开关</span><strong style="display:block;margin-top:6px">开启</strong></div><div class="toggle" aria-hidden="true"></div></div></aside>
+        </div>
+      </section>
+
+      <section class="panel pad">
+        <h2>Mockup 3 · 登录与品牌入口</h2>
+        <p class="lead" style="font-size:15px;margin-top:8px">登录页不需要花哨，但应该在第一屏明确传达：这是一套“会执行业务任务”的系统。</p>
+        <div class="grid auth" style="margin-top:18px">
+          <div class="auth-brand"><div><span class="pill" style="background:rgba(255,255,255,.12);color:#eef4f8">Business Agent Workspace</span><h2 style="font-size:40px;margin-top:18px;max-width:8ch">让企业的重复执行，交给数字员工。</h2></div><p>适合招聘、运营、客服等高重复、强流程、可核验的业务场景。系统会告诉你它做了什么，也会告诉你它卡在了哪里。</p></div>
+          <div class="auth-form"><span class="tiny">Sign in</span><h2>欢迎回到机灵平台</h2><input class="input" value="operator@company.cn" aria-label="email"><input class="input" value="••••••••••••" aria-label="password"><button class="btn" type="button">进入执行台</button><button class="ghost" type="button">使用企业账号单点登录</button><p class="sub">最近 7 天内，系统为你自动完成了 126 次平台操作，节省约 18.5 小时人工执行时间。</p></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="grid contrast" style="margin-top:24px">
+      <div class="block" style="background:#155E63;color:#F5F2EA"><strong>Primary on Surface</strong><span>深青色用于主操作和关键信息，不会像默认蓝色一样失去识别度。</span></div>
+      <div class="block" style="background:#14202B;color:#EEF4F8"><strong>Ink on Dark</strong><span>执行日志、截图弹层、夜间模式都围绕墨蓝黑构建。</span></div>
+      <div class="block" style="background:#F5F2EA;color:#14202B"><strong>Surface on Light</strong><span>温纸白把系统从纯白模板中拉出来，更适合长时间操作。</span></div>
+      <div class="block" style="background:#D89B2B;color:#14202B"><strong>Signal Accent</strong><span>琥珀色只在“要你介入”的地方发声，所以更有分量。</span></div>
+    </section>
+
+    <p class="footer">Preview generated for ZhiPin_CC · 推荐下一步：优先改造登录页、左侧导航、执行监控卡片和账号验证模块。</p>
+  </div>
+  <script>
+    const body = document.body;
+    const toggle = document.getElementById("themeToggle");
+    toggle.addEventListener("click", () => {
+      body.dataset.theme = body.dataset.theme === "dark" ? "light" : "dark";
+      toggle.textContent = body.dataset.theme === "dark" ? "切换浅色模式" : "切换深色模式";
+    });
+  </script>
+</body>
+</html>

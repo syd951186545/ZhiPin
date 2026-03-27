@@ -17,6 +17,7 @@ import {Progress} from '@/components/ui/progress'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Skeleton} from '@/components/ui/skeleton'
 import {Slider} from '@/components/ui/slider'
+import {Switch} from '@/components/ui/switch'
 import {Textarea} from '@/components/ui/textarea'
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import AddProfileDialog from '@/components/settings/AddProfileDialog'
@@ -56,6 +57,17 @@ const WORKFLOW_THEMES: Record<string, {gradient: string; iconBg: string}> = {
 }
 
 const pc = (key: string) => PLATFORM_COLORS[key] || PLATFORM_COLORS['58']
+const platformGlyph = (key: string) => {
+  switch (key) {
+    case 'boss_zhipin': return 'B'
+    case '58': return '58'
+    case 'liepin': return '猎'
+    case 'zhilian': return '智'
+    case '51job': return '前'
+    case 'lagou': return '拉'
+    default: return '平'
+  }
+}
 
 type RecruitJobOption = Pick<Job, 'id' | 'title'>
 type RecruitJobDetail = Pick<
@@ -176,6 +188,49 @@ const accountStatusHint = (account: PlatformAccountApiRow) => {
   }
 }
 
+type PreparationTone = 'risk' | 'pass' | 'saved' | 'idle'
+type PlatformConfigSection = 'assets' | 'presets'
+type ExecutionMode = 'immediate' | 'scheduled'
+type ScheduleFrequency = 'daily' | 'weekly'
+
+interface ExecutionGroup {
+  id: string
+  platform: string
+  accountId: string
+  jobId: string
+}
+
+let executionGroupSeed = 0
+
+function createExecutionGroup(initial?: Partial<Omit<ExecutionGroup, 'id'>>): ExecutionGroup {
+  executionGroupSeed += 1
+  return {
+    id: `exec-group-${executionGroupSeed}`,
+    platform: '',
+    accountId: '',
+    jobId: '',
+    ...initial,
+  }
+}
+
+const PREPARATION_BADGE_STYLES: Record<PreparationTone, string> = {
+  risk: 'border-amber-200/80 bg-amber-100/90 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200',
+  pass: 'border-emerald-200/80 bg-emerald-100/90 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200',
+  saved: 'border-teal-200/80 bg-teal-100/90 text-teal-800 dark:border-teal-900/70 dark:bg-teal-950/40 dark:text-teal-200',
+  idle: 'border-border/80 bg-background/88 text-muted-foreground',
+}
+
+const preparationBadge = (label: string, tone: PreparationTone) => (
+  <span
+    className={cn(
+      'inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium tracking-[0.02em]',
+      PREPARATION_BADGE_STYLES[tone],
+    )}
+  >
+    {label}
+  </span>
+)
+
 function getActionNodeImageUrls(node: ActionNode): string[] {
   const deduped = new Set<string>()
   for (const candidate of [...(node.imageUrls || []), node.contentUrl, node.screenshot]) {
@@ -293,12 +348,23 @@ export default function JilingRecruit() {
   const [jobsLoading, setJobsLoading] = useState(true)
 
   const [selectedPlatform, setSelectedPlatform] = useState('')
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
+  const [platformConfigSection, setPlatformConfigSection] = useState<PlatformConfigSection>('assets')
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [platformExecConfigs, setPlatformExecConfigs] = useState<Record<string, {accountId: string; jobId: string}>>({})
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<WorkflowId>('publish_job')
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('immediate')
+  const [scheduleFrequency, setScheduleFrequency] = useState<ScheduleFrequency>('daily')
+  const [scheduleTime, setScheduleTime] = useState('09:00')
+  const [scheduleWeekday, setScheduleWeekday] = useState('1')
+  const [executionGroups, setExecutionGroups] = useState<ExecutionGroup[]>(() => [createExecutionGroup()])
   const [matchThreshold, setMatchThreshold] = useState(60)
   const [messageSendLimit, setMessageSendLimit] = useState(10)
   const [customMessage, setCustomMessage] = useState('')
+  const [autoVerifyEnabled, setAutoVerifyEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true
+    const stored = window.localStorage.getItem('jiling_recruit_auto_verify_enabled')
+    return stored == null ? true : stored === 'true'
+  })
   const [addAccountOpen, setAddAccountOpen] = useState(false)
   const [bindDialogOpen, setBindDialogOpen] = useState(false)
   const [bindAccountId, setBindAccountId] = useState<string | null>(null)
@@ -313,7 +379,6 @@ export default function JilingRecruit() {
   const [activeTab, setActiveTab] = useState('execute')
 
   const textEndRef = useRef<HTMLDivElement>(null)
-  const platformSelectionAutoInitRef = useRef(false)
   const displayExec = activeExecution || lastExecution
   const workflowTemplateMap = useMemo(
     () => Object.fromEntries(workflowTemplates.map((template) => [template.id, template])),
@@ -327,20 +392,211 @@ export default function JilingRecruit() {
     executionMode: workflowTemplateMap[card.id]?.execution_mode || 'auto_submit',
     screenshotMode: workflowTemplateMap[card.id]?.screenshot_mode || 'direct_url',
   })), [workflowTemplateMap])
+  const selectedPlatformCatalog = useMemo(
+    () => catalog.find((item) => item.key === selectedPlatform) || null,
+    [catalog, selectedPlatform],
+  )
   const selectedPlatformAccounts = useMemo(() => accounts.filter((item) => item.platform === selectedPlatform), [accounts, selectedPlatform])
+  const selectedDefaultAccountId = platformConfigs[selectedPlatform]?.boundProfileId || ''
+  const selectedDefaultAccount = useMemo(
+    () => selectedPlatformAccounts.find((item) => item.id === selectedDefaultAccountId) || null,
+    [selectedDefaultAccountId, selectedPlatformAccounts],
+  )
   const selectedAccount = useMemo(() => selectedPlatformAccounts.find((item) => item.id === selectedAccountId), [selectedAccountId, selectedPlatformAccounts])
   const selectedLatestVerifySession = useMemo(() => getLatestVerifySession(selectedAccount), [selectedAccount])
   const selectedAccountIsBound = useMemo(() => selectedAccount ? isBoundPlatformAccount(selectedAccount) : false, [selectedAccount])
   const selectedAccountStatusHint = useMemo(() => selectedAccount ? accountStatusHint(selectedAccount) : '请选择一个账号查看详情。', [selectedAccount])
-  const selectablePlatformKeys = useMemo<string[]>(
-    () => catalog
-      .filter((item) => {
-        const config = platformExecConfigs[item.key] || {accountId: '', jobId: ''}
-        return Boolean(config.accountId && config.jobId)
-      })
-      .map((item) => item.key),
-    [catalog, platformExecConfigs],
+  const selectedExecJobId = platformExecConfigs[selectedPlatform]?.jobId || ''
+  const selectedExecJob = useMemo(
+    () => jobs.find((item) => item.id === selectedExecJobId) || null,
+    [jobs, selectedExecJobId],
   )
+  const resolveDefaultAccountForPlatform = useCallback((platform: string) => (
+    platformConfigs[platform]?.boundProfileId || accounts.find((account) => account.platform === platform && account.status === 'active')?.id || ''
+  ), [accounts, platformConfigs])
+  const resolveDefaultJobForPlatform = useCallback((platform: string) => (
+    platformExecConfigs[platform]?.jobId || jobs[0]?.id || ''
+  ), [jobs, platformExecConfigs])
+  const preparedAccount = selectedDefaultAccount || selectedAccount || null
+  const preparedAccountVerifySession = useMemo(() => getLatestVerifySession(preparedAccount), [preparedAccount])
+  const preparedAccountIsBound = useMemo(() => preparedAccount ? isBoundPlatformAccount(preparedAccount) : false, [preparedAccount])
+  const preparedAccountStatusHint = useMemo(
+    () => preparedAccount ? accountStatusHint(preparedAccount) : '请选择或新增一个账号完成执行准备。',
+    [preparedAccount],
+  )
+  const preparedAccountStatus = useMemo<{label: string; tone: PreparationTone; description: string}>(() => {
+    if (!preparedAccount) {
+      return {
+        label: '待绑定',
+        tone: 'risk',
+        description: '当前平台还没有可直接执行的主账号。',
+      }
+    }
+    if (preparedAccount.status === 'verifying') {
+      return {
+        label: '验证中',
+        tone: 'idle',
+        description: '系统正在后台核验登录态，请等待结果刷新。',
+      }
+    }
+    if (preparedAccount.status === 'active' && preparedAccountIsBound) {
+      return {
+        label: '可直接执行',
+        tone: 'pass',
+        description: '主账号已绑定且登录态可复用，可以进入工作流执行。',
+      }
+    }
+    if (preparedAccount.status === 'expired') {
+      return {
+        label: '待重新验证',
+        tone: 'risk',
+        description: '最近登录态已失效，建议先重新验证，必要时重新绑定。',
+      }
+    }
+    return {
+      label: '待补齐',
+      tone: 'risk',
+      description: '主账号尚未完成绑定，暂时不能进入自动执行。',
+    }
+  }, [preparedAccount, preparedAccountIsBound])
+  const strategyPreview = customMessage.trim() || '留空时，将沿用默认主动沟通模板。'
+  const autoVerifyCheck = useMemo(
+    () => ({
+      label: '自动验证开关',
+      summary: autoVerifyEnabled ? '开启' : '关闭',
+      tone: (autoVerifyEnabled ? 'pass' : 'idle') as PreparationTone,
+      detail: autoVerifyEnabled ? '执行前会默认保留自动验证提醒。' : '关闭后，需人工确认登录态是否仍可复用。',
+    }),
+    [autoVerifyEnabled],
+  )
+  const preflightChecks = useMemo<Array<{label: string; summary: string; tone: PreparationTone; detail: string}>>(() => ([
+    preparedAccount
+      ? preparedAccount.status === 'active' && preparedAccountIsBound
+        ? {
+            label: '登录态可复用',
+            summary: '通过',
+            tone: 'pass',
+            detail: `${preparedAccount.name} 当前处于可复用状态，可直接发起执行。`,
+          }
+        : preparedAccount.status === 'verifying'
+          ? {
+              label: '登录态可复用',
+              summary: '处理中',
+              tone: 'idle',
+              detail: '后台正在验证当前账号，请等待核验结果刷新。',
+            }
+          : {
+              label: '登录态可复用',
+              summary: '风险',
+              tone: 'risk',
+              detail: preparedAccountStatusHint,
+            }
+      : {
+          label: '登录态可复用',
+          summary: '风险',
+          tone: 'risk',
+          detail: '还没有指定主执行账号，无法验证登录态。',
+        },
+    selectedDefaultAccount
+      ? {
+          label: '默认执行账号',
+          summary: '通过',
+          tone: 'pass',
+          detail: `${selectedDefaultAccount.name} 已被设为当前平台默认执行账号。`,
+        }
+      : {
+          label: '默认执行账号',
+          summary: '风险',
+          tone: 'risk',
+          detail: '请选择一个账号作为主执行入口，避免运行时临时兜底。',
+        },
+    selectedExecJob
+      ? {
+          label: '默认执行岗位',
+          summary: '通过',
+          tone: 'pass',
+          detail: `${selectedExecJob.title} 已接入当前平台执行配置。`,
+        }
+      : {
+          label: '默认执行岗位',
+          summary: '风险',
+          tone: 'risk',
+          detail: '当前平台还没有指定岗位模板，执行时会被拦截。',
+        },
+    customMessage.trim()
+      ? {
+          label: '主动沟通模板',
+          summary: '已保存',
+          tone: 'saved',
+          detail: '已写入自定义话术，人才探索时会优先复用。',
+        }
+      : {
+          label: '主动沟通模板',
+          summary: '默认',
+          tone: 'idle',
+          detail: '未自定义时，系统会使用默认沟通模板。',
+        },
+  ]), [customMessage, preparedAccount, preparedAccountIsBound, preparedAccountStatusHint, selectedDefaultAccount, selectedExecJob])
+  const allPreparationChecks = useMemo(
+    () => [...preflightChecks, autoVerifyCheck],
+    [autoVerifyCheck, preflightChecks],
+  )
+  const selectedWorkflowCard = useMemo(
+    () => workflowCards.find((workflow) => workflow.id === selectedWorkflowId) || workflowCards[0] || WORKFLOW_CARDS[0],
+    [selectedWorkflowId, workflowCards],
+  )
+  const accountUsageCount = useMemo(() => {
+    const counts = new Map<string, number>()
+    executionGroups.forEach((group) => {
+      if (!group.accountId) return
+      counts.set(group.accountId, (counts.get(group.accountId) || 0) + 1)
+    })
+    return counts
+  }, [executionGroups])
+  const executionGroupDiagnostics = useMemo(() => executionGroups.map((group, index) => {
+    const account = accounts.find((item) => item.id === group.accountId) || null
+    const job = jobs.find((item) => item.id === group.jobId) || null
+    const duplicateAccount = Boolean(group.accountId && (accountUsageCount.get(group.accountId) || 0) > 1)
+    const missing: string[] = []
+    if (!group.platform) missing.push('未选平台')
+    if (!group.accountId) missing.push('未选账号')
+    if (!group.jobId) missing.push('未选岗位')
+    if (duplicateAccount) missing.push('账号重复')
+    return {
+      index,
+      group,
+      account,
+      job,
+      duplicateAccount,
+      missing,
+      complete: missing.length === 0,
+      platformLabel: PLATFORMS[group.platform as keyof typeof PLATFORMS]?.name || '未选择平台',
+    }
+  }), [accountUsageCount, accounts, executionGroups, jobs])
+  const completeExecutionGroups = useMemo(
+    () => executionGroupDiagnostics.filter((item) => item.complete),
+    [executionGroupDiagnostics],
+  )
+  const draftExecutionGroups = useMemo(
+    () => executionGroupDiagnostics.filter((item) => !item.complete),
+    [executionGroupDiagnostics],
+  )
+  const hasDuplicateAccountGroups = useMemo(
+    () => executionGroupDiagnostics.some((item) => item.duplicateAccount),
+    [executionGroupDiagnostics],
+  )
+  const hasMultipleExecutionGroups = completeExecutionGroups.length > 1
+  const executionReadinessReasons = useMemo(() => {
+    const reasons: string[] = []
+    if (!backendReady) reasons.push('后端未连接，无法发起执行。')
+    if (executionMode === 'scheduled') reasons.push('定期执行的保存与调度下发待后端适配。')
+    if (completeExecutionGroups.length === 0) reasons.push('至少配置 1 组完整执行方案，按钮才会解锁。')
+    if (hasDuplicateAccountGroups) reasons.push('同一账号不能在同次执行中重复使用。')
+    if (hasMultipleExecutionGroups) reasons.push('多组执行编排已完成前端设计，后端接口尚未支持真正下发。')
+    if (activeExecution) reasons.push('当前已有执行中的任务，请先等待完成或停止后再启动。')
+    return reasons
+  }, [activeExecution, backendReady, completeExecutionGroups.length, executionMode, hasDuplicateAccountGroups, hasMultipleExecutionGroups])
+  const canStartSelectedWorkflow = executionReadinessReasons.length === 0
   const actionDialogAccount = useMemo(
     () => actionSession ? accounts.find((item) => item.id === actionSession.account_id) || null : null,
     [accounts, actionSession],
@@ -350,11 +606,47 @@ export default function JilingRecruit() {
     () => getExecutionAuthGuide(displayExec?.error, displayExec?.accumulatedText),
     [displayExec?.accumulatedText, displayExec?.error],
   )
+  const selectedPlatformLabel = PLATFORMS[selectedPlatform as keyof typeof PLATFORMS]?.name || '未选择平台'
+  const completedStepCount = displayExec ? displayExec.steps.filter((step) => step.status === 'done').length : 0
+  const runningStepLabel = displayExec?.steps.find((step) => step.status === 'running')?.nameZh || '等待下一步执行'
+  const workflowStatusMap = useMemo(() => {
+    const statusMap = Object.fromEntries(workflowCards.map((workflow) => [workflow.id, {
+      state: 'idle',
+      label: '空闲',
+      detail: '尚未开始',
+      progress: 0,
+    }])) as Record<WorkflowId, {state: string; label: string; detail: string; progress: number}>
+
+    if (lastExecution?.workflowId && statusMap[lastExecution.workflowId]) {
+      const lastProgress = Math.round((lastExecution.steps.filter((step) => step.status === 'done').length / Math.max(lastExecution.totalSteps, 1)) * 100)
+      statusMap[lastExecution.workflowId] = {
+        state: lastExecution.status,
+        label: lastExecution.status === 'completed' ? '最近成功' : lastExecution.status === 'failed' ? '最近失败' : '最近结束',
+        detail: lastExecution.error || lastExecution.currentPlatform || '可查看最近一次详细记录',
+        progress: lastExecution.status === 'completed' ? 100 : lastProgress,
+      }
+    }
+
+    if (activeExecution?.workflowId && statusMap[activeExecution.workflowId]) {
+      statusMap[activeExecution.workflowId] = {
+        state: 'running',
+        label: '执行中',
+        detail: activeExecution.currentPlatform || runningStepLabel,
+        progress: progressPercent,
+      }
+    }
+
+    return statusMap
+  }, [activeExecution, lastExecution, progressPercent, runningStepLabel, workflowCards])
+  const resolvedPreparationCount = allPreparationChecks.filter((item) => item.tone === 'pass' || item.tone === 'saved').length
+  const blockingPreparationCount = allPreparationChecks.filter((item) => item.tone === 'risk').length
+  const readyPlatformCount = catalog.filter((item) => Boolean(resolveDefaultAccountForPlatform(item.key) && resolveDefaultJobForPlatform(item.key))).length
 
   // stats
   const totalAccounts = accounts.length
   const activeAccounts = accounts.filter((a) => a.status === 'active').length
-  const pendingAccounts = totalAccounts - activeAccounts
+  const inactiveAccounts = totalAccounts - activeAccounts
+  const activePlatformAssetCount = catalog.filter((item) => accounts.some((account) => account.platform === item.key && account.status === 'active')).length
 
   useEffect(() => {
     let cancelled = false
@@ -379,6 +671,11 @@ export default function JilingRecruit() {
       cancelled = true
     }
   }, [restoreExecution, setBackendReady])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('jiling_recruit_auto_verify_enabled', String(autoVerifyEnabled))
+  }, [autoVerifyEnabled])
 
   useEffect(() => {
     let cancelled = false
@@ -433,18 +730,6 @@ export default function JilingRecruit() {
 
   useEffect(() => {
     if (!catalog.length) return
-    setSelectedPlatforms((prev) => {
-      const filtered = prev.filter((item) => selectablePlatformKeys.includes(item))
-      if (!platformSelectionAutoInitRef.current && filtered.length === 0 && selectablePlatformKeys.length) {
-        platformSelectionAutoInitRef.current = true
-        return selectablePlatformKeys
-      }
-      return filtered.length === prev.length ? prev : filtered
-    })
-  }, [catalog.length, selectablePlatformKeys])
-
-  useEffect(() => {
-    if (!catalog.length) return
     setPlatformExecConfigs((prev) => {
       const next = {...prev}
       for (const item of catalog) {
@@ -469,42 +754,80 @@ export default function JilingRecruit() {
   }, [platformConfigs, selectedAccountId, selectedPlatform, selectedPlatformAccounts])
 
   useEffect(() => {
+    if (!activeExecution?.workflowId) return
+    setSelectedWorkflowId(activeExecution.workflowId)
+  }, [activeExecution?.workflowId])
+
+  useEffect(() => {
     textEndRef.current?.scrollIntoView({behavior: 'smooth'})
   }, [displayExec?.accumulatedText])
 
-  const togglePlatformSelection = (platform: string) => {
-    setSelectedPlatforms((prev) => prev.includes(platform) ? prev.filter((item) => item !== platform) : [...prev, platform])
-  }
+  const addExecutionGroup = useCallback((initial?: Partial<Omit<ExecutionGroup, 'id'>>) => {
+    setExecutionGroups((prev) => [...prev, createExecutionGroup(initial)])
+  }, [])
+
+  const updateExecutionGroup = useCallback((groupId: string, updates: Partial<Omit<ExecutionGroup, 'id'>>) => {
+    setExecutionGroups((prev) => prev.map((group) => group.id === groupId ? {...group, ...updates} : group))
+  }, [])
+
+  const removeExecutionGroup = useCallback((groupId: string) => {
+    setExecutionGroups((prev) => prev.length > 1 ? prev.filter((group) => group.id !== groupId) : prev)
+  }, [])
+
+  const duplicateExecutionGroup = useCallback((groupId: string) => {
+    const source = executionGroups.find((group) => group.id === groupId)
+    if (!source) return
+    addExecutionGroup({
+      platform: source.platform,
+      accountId: '',
+      jobId: source.jobId,
+    })
+  }, [addExecutionGroup, executionGroups])
+
+  const applyPlatformToExecutionGroup = useCallback((groupId: string, platform: string) => {
+    updateExecutionGroup(groupId, {
+      platform,
+      accountId: resolveDefaultAccountForPlatform(platform),
+      jobId: resolveDefaultJobForPlatform(platform),
+    })
+  }, [resolveDefaultAccountForPlatform, resolveDefaultJobForPlatform, updateExecutionGroup])
 
   const handleStartWorkflow = useCallback(async (workflowId: WorkflowId) => {
     setWorkflowError(null)
 
-    const runnablePlatforms = selectedPlatforms.filter((platform) => {
-      const config = platformExecConfigs[platform]
-      return Boolean(config?.accountId && config?.jobId)
-    })
-
-    if (runnablePlatforms.length === 0) {
-      setWorkflowError('请先选中至少一个平台卡片，并为其配置账号和岗位。')
+    if (!backendReady) {
+      setWorkflowError('后端服务未连接，无法发起执行。')
       return
     }
 
-    const platformAccountIds: Record<string, string> = {}
-    for (const platform of runnablePlatforms) {
-      const config = platformExecConfigs[platform]
-      if (!config?.accountId) {
-        setWorkflowError(`平台 ${PLATFORMS[platform as keyof typeof PLATFORMS]?.name || platform} 未配置执行账号，请先选择。`)
-        return
-      }
-      if (!config?.jobId) {
-        setWorkflowError(`平台 ${PLATFORMS[platform as keyof typeof PLATFORMS]?.name || platform} 未配置招聘岗位，请先选择。`)
-        return
-      }
-      platformAccountIds[platform] = config.accountId
+    if (executionMode === 'scheduled') {
+      setWorkflowError('定期执行的保存与调度下发待后端适配，当前请先使用立即执行。')
+      return
     }
 
-    const firstPlatform = runnablePlatforms[0]
-    const firstJobId = platformExecConfigs[firstPlatform]?.jobId
+    if (hasDuplicateAccountGroups) {
+      setWorkflowError('同一账号不能在同次执行中重复使用，请调整执行组。')
+      return
+    }
+
+    if (completeExecutionGroups.length === 0) {
+      setWorkflowError('请至少补齐 1 组平台、账号、岗位都完整的执行方案。')
+      return
+    }
+
+    if (completeExecutionGroups.length > 1) {
+      setWorkflowError('多组执行编排的前端已就绪，但后端接口尚未适配；当前请先保留 1 组完整方案后执行。')
+      return
+    }
+
+    const primaryGroup = completeExecutionGroups[0]?.group
+    if (!primaryGroup) {
+      setWorkflowError('未找到可执行的执行组，请重新配置。')
+      return
+    }
+
+    const firstPlatform = primaryGroup.platform
+    const firstJobId = primaryGroup.jobId
     const {data: firstJobData, error: firstJobError} = await supabase
       .from('jobs')
       .select('id, title, location, salary_min, salary_max, employment_type, department, description, requirements, benefits')
@@ -521,8 +844,11 @@ export default function JilingRecruit() {
       setWorkflowError('未找到选择的岗位信息，请重新选择。')
       return
     }
-    const firstAccountId = platformAccountIds[firstPlatform]
+    const firstAccountId = primaryGroup.accountId
     const firstAccount = accounts.find((a) => a.id === firstAccountId)
+    const platformAccountIds: Record<string, string> = {
+      [firstPlatform]: firstAccountId,
+    }
 
     const workflowPayload = {
       workflow_id: workflowId,
@@ -531,7 +857,7 @@ export default function JilingRecruit() {
       platform: firstPlatform,
       account_id: firstAccountId,
       account_name: firstAccount?.accountName || firstAccount?.name || '',
-      platforms: runnablePlatforms,
+      platforms: [firstPlatform],
       platform_account_ids: platformAccountIds,
       job_id: firstJob.id,
       job_title: firstJob.title,
@@ -560,7 +886,7 @@ export default function JilingRecruit() {
     }
 
     await startWorkflow(workflowPayload)
-  }, [accounts, customMessage, matchThreshold, messageSendLimit, platformConfigs, platformExecConfigs, safeCompanyProfile, selectedPlatforms, startWorkflow, user])
+  }, [accounts, backendReady, completeExecutionGroups, customMessage, executionMode, hasDuplicateAccountGroups, matchThreshold, messageSendLimit, platformConfigs, safeCompanyProfile, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
     if (type === 'verify') {
@@ -718,7 +1044,7 @@ export default function JilingRecruit() {
           <div className="flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-amber-500"/>
             <span className="text-sm text-muted-foreground">
-              待绑定 <span className="font-semibold text-foreground">{accountsLoading ? '加载中' : pendingAccounts}</span>
+              失效 <span className="font-semibold text-foreground">{accountsLoading ? '加载中' : inactiveAccounts}</span>
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -759,22 +1085,68 @@ export default function JilingRecruit() {
         </TabsList>
 
         {/* ── Platform & Account Config Tab ── */}
-        <TabsContent value="platform-config" className="space-y-0 mt-0" data-testid="platform-config-tab">
-        <div className="grid gap-5 xl:grid-cols-[1.15fr,1.15fr,1fr]">
+        <TabsContent value="platform-config" className="mt-0 space-y-5" data-testid="platform-config-tab">
+        <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(135deg,hsl(var(--card)),hsl(var(--primary)/0.08)_38%,transparent_88%)]">
+          <CardContent className="p-5 md:p-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Platform Assets</p>
+                <h3 className="mt-2 text-[28px] font-semibold tracking-tight text-foreground">平台与账号配置</h3>
+                <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                  统一维护六大平台的账号资产和全局预设。先选平台，再管理账号。
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3 shadow-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">平台总数</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{catalog.length}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">当前统一管理的平台数量</p>
+                </div>
+                <div className="rounded-[24px] border border-emerald-200/60 bg-emerald-50/70 px-4 py-3 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">生效平台</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{activePlatformAssetCount}</p>
+                  <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-200/80">至少有 1 个可用账号的平台</p>
+                </div>
+                <div className="rounded-[24px] border border-primary/15 bg-primary/[0.06] px-4 py-3 shadow-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">生效账号</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeAccounts}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">可直接参与执行的账号</p>
+                </div>
+                <div className="rounded-[24px] border border-amber-200/70 bg-amber-50/75 px-4 py-3 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">失效账号</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold text-amber-800 dark:text-amber-100">{inactiveAccounts}</p>
+                  <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-200/80">建议优先重新验证或解绑清理</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Tabs value={platformConfigSection} onValueChange={(value) => setPlatformConfigSection(value as PlatformConfigSection)} className="space-y-5">
+          <TabsList className="h-10 bg-muted/50 p-1">
+            <TabsTrigger value="assets" className="gap-1.5 data-[state=active]:shadow-sm">平台账号资产</TabsTrigger>
+            <TabsTrigger value="presets" className="gap-1.5 data-[state=active]:shadow-sm">全局执行预设</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="assets" className="mt-0 space-y-5">
+        <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
 
         {/* Platform Catalog */}
         <Card className="overflow-hidden" data-testid="platform-catalog-panel">
-          <CardHeader className="bg-gradient-to-r from-primary/[0.04] to-transparent">
-            <CardTitle className="text-base">平台目录</CardTitle>
-            <CardDescription>6 个国内主流招聘平台，预置企业端入口。</CardDescription>
+          <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Platform Picker</p>
+            <CardTitle className="mt-2 text-base">选择平台</CardTitle>
+            <CardDescription className="mt-1">先选平台，再查看和管理该平台下的账号。</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 pt-4 sm:grid-cols-2">
+          <CardContent className="grid gap-2.5 pt-4">
             {accountsLoading && catalog.length === 0 ? Array.from({length: 6}).map((_, index) => (
-              <div key={index} className="rounded-xl border p-4">
-                <Skeleton className="h-16 w-full"/>
+              <div key={index} className="rounded-2xl border p-3">
+                <Skeleton className="h-14 w-full"/>
               </div>
             )) : catalog.map((item) => {
               const count = accounts.filter((a) => a.platform === item.key).length
+              const activeCount = accounts.filter((a) => a.platform === item.key && a.status === 'active').length
               const hasActive = accounts.some((a) => a.platform === item.key && a.status === 'active')
               const colors = pc(item.key)
               const isSelected = selectedPlatform === item.key
@@ -788,7 +1160,7 @@ export default function JilingRecruit() {
                   onClick={() => setSelectedPlatform(item.key)}
                   aria-pressed={isSelected}
                   className={cn(
-                    'relative overflow-hidden rounded-2xl border p-4 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                    'relative overflow-hidden rounded-[22px] border px-3 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
                     isSelected
                       ? `border-transparent bg-gradient-to-br ${colors.gradient} ring-2 ${colors.ring} shadow-sm`
                       : 'border-border hover:border-border/80 hover:shadow-sm',
@@ -796,24 +1168,23 @@ export default function JilingRecruit() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5">
-                      <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white', colors.bg)}>
-                        {item.name.charAt(0)}
+                      <div className={cn('flex h-8 w-8 items-center justify-center rounded-xl text-sm font-bold text-white', colors.bg)}>
+                        {platformGlyph(item.key)}
                       </div>
-                      <p className="font-medium">{item.name}</p>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{item.name}</p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">{activeCount}/{Math.max(count, 0)} 可用</p>
+                      </div>
                     </div>
-                    {isSelected && <Badge variant="outline" className="border-primary/20 bg-background/80 text-primary">当前查看</Badge>}
+                    {isSelected && <Badge variant="outline" className="border-primary/20 bg-background/80 text-[10px] text-primary">当前</Badge>}
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Badge className={cn('border-0 text-xs', count ? colors.badge : 'bg-muted text-muted-foreground')}>
                       {count ? `${count} 个账号` : '未添加账号'}
                     </Badge>
                     <Badge variant="outline" className={cn('text-xs', hasActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-muted-foreground')}>
-                      {hasActive ? '已有可用登录态' : '待绑定'}
+                      {hasActive ? '可用' : '待绑定'}
                     </Badge>
-                  </div>
-                  <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-                    <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 opacity-50"/>
-                    <span className="line-clamp-1">{item.enterprise_url}</span>
                   </div>
                 </motion.button>
               )
@@ -823,11 +1194,12 @@ export default function JilingRecruit() {
 
         {/* Account List */}
         <Card className="overflow-hidden">
-          <CardHeader className="bg-gradient-to-r from-primary/[0.04] to-transparent">
+          <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <CardTitle className="text-base">{PLATFORMS[selectedPlatform as keyof typeof PLATFORMS]?.name || '平台'} 账号列表</CardTitle>
-                <CardDescription className="mt-1">同平台多账号并存，每个账号独立持久会话。</CardDescription>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Account Roster</p>
+                <CardTitle className="mt-2 text-base">{selectedPlatformLabel}账号列表</CardTitle>
+                <CardDescription className="mt-1">查看状态，绑定新账号，或对现有账号做验证、解绑、删除。</CardDescription>
               </div>
               <Button size="sm" className="gap-2 shadow-sm shrink-0" onClick={() => setAddAccountOpen(true)} data-testid="open-add-account-dialog">
                 <UserPlus className="h-4 w-4"/>新增平台账号
@@ -862,6 +1234,11 @@ export default function JilingRecruit() {
               const canVerifyAccount = account.status === 'active'
               const verifyEntryLabel = verifySessionViewLabel(latestVerifySession)
               const verifyActionText = verifySessionActionLabel(latestVerifySession)
+              const verificationStateLabel = !isBoundAccount
+                ? account.status === 'expired' ? '登录失效' : '未绑定'
+                : latestVerifySession
+                  ? bindingStatus(latestVerifySession.status)
+                  : '已绑定'
               return (
                 <motion.div
                   key={account.id}
@@ -909,7 +1286,6 @@ export default function JilingRecruit() {
                     </button>
 
                     <div className="flex items-center gap-1.5">
-                      {renderAccountActionButtons(account, 'row')}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid={`account-actions-${account.id}`}>
@@ -984,350 +1360,583 @@ export default function JilingRecruit() {
                       </DropdownMenu>
                     </div>
                   </div>
+
+                  <div className="mt-4 rounded-[20px] border border-border/70 bg-background/80 px-3.5 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">验证状态</p>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'text-[10px] uppercase tracking-[0.16em]',
+                            !isBoundAccount
+                              ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+                              : latestVerifySession?.status === 'running'
+                                ? 'border-primary/20 bg-primary/[0.06] text-primary'
+                                : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
+                          )}
+                        >
+                          {verificationStateLabel}
+                        </Badge>
+                      </div>
+                      {latestVerifySession && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at)}
+                        </p>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      {latestVerifySession ? verifySessionSummary(latestVerifySession) : account.status === 'expired' ? '该账号需要重新绑定后才能继续执行。' : '该账号还没有验证记录，先完成一次绑定。'}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {renderAccountActionButtons(account, 'row')}
+                    {isActive && !isDefaultAccount && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1.5 px-2.5 text-xs"
+                        onClick={() => {
+                          updatePlatformConfig(selectedPlatform, {boundProfileId: account.id})
+                          setSelectedAccountId(account.id)
+                        }}
+                      >
+                        <Check className="h-3 w-3"/>设为默认
+                      </Button>
+                    )}
+                  </div>
                 </motion.div>
               )
             })}
           </CardContent>
         </Card>
 
-        {/* Account Task Panel */}
-        <Card className="overflow-hidden" data-testid="account-task-panel">
-          <CardHeader className="bg-gradient-to-r from-primary/[0.04] to-transparent">
-            <CardTitle className="text-base">账号任务面板</CardTitle>
-            <CardDescription>默认执行账号、绑定/验证/解绑入口。</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">当前平台默认执行账号</Label>
-              <Select
-                value={platformConfigs[selectedPlatform]?.boundProfileId || selectedAccountId || ''}
-                onValueChange={(value) => { updatePlatformConfig(selectedPlatform, {boundProfileId: value}); setSelectedAccountId(value) }}
-                disabled={accountsLoading || selectedPlatformAccounts.length === 0}
-              >
-                <SelectTrigger data-testid="default-account-select"><SelectValue placeholder="选择默认执行账号"/></SelectTrigger>
-                <SelectContent>{selectedPlatformAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+        </div>
+          </TabsContent>
 
-            {accountsLoading ? (
-              <div className="rounded-xl border p-4">
-                <Skeleton className="h-40 w-full"/>
-              </div>
-            ) : selectedAccount ? (
-              <div className="rounded-2xl border bg-gradient-to-br from-card to-muted/20 p-4 shadow-sm" data-testid="selected-account-panel">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold">{selectedAccount.name}</p>
-                    {statusBadge(selectedAccount.status)}
-                    {platformConfigs[selectedPlatform]?.boundProfileId === selectedAccount.id && (
-                      <Badge variant="outline" className="text-[10px]">默认执行</Badge>
-                    )}
-                  </div>
-                  <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
-                    {selectedAccountIsBound ? '可直接复用' : '需要先绑定'}
-                  </Badge>
-                </div>
-                <p className="mt-3 text-xs leading-5 text-muted-foreground/90">{selectedAccountStatusHint}</p>
-
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <div className="rounded-xl border bg-background/70 p-3">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">登录信息</p>
-                    <p className="mt-2 text-sm font-medium text-foreground">{selectedAccount.accountName || selectedAccount.loginIdentifierMasked || '未填写登录名'}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">最近会话：{bindingStatus(selectedAccount.latestBindingSession?.status)}</p>
-                  </div>
-                  <div className="rounded-xl border bg-background/70 p-3">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">最近验证</p>
-                    <p className="mt-2 text-sm font-medium text-foreground">{formatSessionTime(selectedLatestVerifySession?.updated_at || selectedLatestVerifySession?.created_at)}</p>
-                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{verifySessionSummary(selectedLatestVerifySession)}</p>
-                  </div>
-                  <div className="rounded-xl border bg-background/70 p-3 sm:col-span-2">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">浏览器会话键</p>
-                    <p className="mt-2 font-mono text-xs text-foreground break-all">{selectedAccount.browserSessionKey || '未生成'}</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {renderAccountActionButtons(selectedAccount, 'selected')}
-                </div>
-
-                {selectedAccount.latestBindingSession?.latest_screenshot_url && (
-                  <button
-                    type="button"
-                    data-testid="latest-account-screenshot"
-                    className="group/img mt-4 block w-full overflow-hidden rounded-lg border shadow-sm transition-shadow hover:shadow-md"
-                    onClick={() => setLightboxSrc(selectedAccount.latestBindingSession?.latest_screenshot_url || null)}
-                  >
-                    <div className="relative">
-                      <img src={selectedAccount.latestBindingSession.latest_screenshot_url} alt="最近任务截图" className="h-36 w-full object-cover object-top transition-transform group-hover/img:scale-[1.02]"/>
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/img:bg-black/10">
-                        <Search className="h-6 w-6 text-white opacity-0 transition-opacity group-hover/img:opacity-80"/>
+          <TabsContent value="presets" className="mt-0 space-y-5">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_360px]">
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Global Presets</p>
+                  <CardTitle className="mt-2 text-base">全局执行预设</CardTitle>
+                  <CardDescription className="mt-1">这里保存跨平台、跨工作流的长期默认值。执行页会直接引用这些配置作为起始方案。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5 pt-4">
+                  <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
+                    <Label htmlFor="platform-config-custom-message" className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      默认主动沟通话术
+                    </Label>
+                    <Textarea
+                      id="platform-config-custom-message"
+                      placeholder="例如：您好，我是机灵平台企业招聘负责人，目前在招聘区域运营经理岗位，想先确认您最近是否方便沟通。"
+                      value={customMessage}
+                      onChange={(e) => setCustomMessage(e.target.value)}
+                      rows={7}
+                      maxLength={500}
+                      className="mt-3 min-h-[12rem] resize-none rounded-[20px] border-border/70 bg-background/90 text-sm leading-7"
+                    />
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-xs leading-6 text-muted-foreground">{strategyPreview}</p>
+                        <p className={cn('text-[11px]', customMessage.length >= 500 ? 'font-medium text-destructive' : customMessage.length >= 450 ? 'text-amber-600' : 'text-muted-foreground')}>
+                          {customMessage.length}/500 字符
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">单次发送上限</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={messageSendLimit}
+                          onChange={(e) => {
+                            const nextValue = Math.max(1, Math.min(50, Number(e.target.value) || 10))
+                            setMessageSendLimit(nextValue)
+                          }}
+                          className="h-9 w-20 rounded-full text-center text-sm"
+                        />
                       </div>
                     </div>
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed p-8 text-center">
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                  <Zap className="h-5 w-5 text-muted-foreground"/>
-                </div>
-                <p className="text-sm text-muted-foreground">请选择一个账号</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{autoVerifyCheck.label}</p>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{autoVerifyCheck.detail}</p>
+                        </div>
+                        <Switch checked={autoVerifyEnabled} onCheckedChange={setAutoVerifyEnabled} aria-label="自动验证开关"/>
+                      </div>
+                      <p className="mt-3 text-xl font-semibold tracking-tight text-foreground">{autoVerifyCheck.summary}</p>
+                    </div>
+
+                    <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
+                      <p className="text-sm font-medium text-foreground">预设将如何生效</p>
+                      <ul className="mt-3 space-y-2 text-xs leading-6 text-muted-foreground">
+                        <li>执行页新增执行组时，会优先带入平台默认账号和默认岗位。</li>
+                        <li>人才探索工作流会自动带入这份默认沟通话术与人数上限。</li>
+                        <li>平台页处理的是长期配置，执行页只负责本次运行的即时编排。</li>
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Preset Coverage</p>
+                  <CardTitle className="mt-2 text-base">预设覆盖范围</CardTitle>
+                  <CardDescription className="mt-1">让使用者知道哪些内容属于长期配置，哪些内容要在执行页临时决定。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-4">
+                  <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-foreground">这里应该配置什么</p>
+                    <p className="mt-2 text-xs leading-6 text-muted-foreground">平台绑定账号、平台默认执行账号、平台默认岗位模板、默认沟通话术、默认单次发送上限。</p>
+                  </div>
+                  <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-foreground">这里不处理什么</p>
+                    <p className="mt-2 text-xs leading-6 text-muted-foreground">本次执行到底选哪几个执行组、立即执行还是定期执行、每次运行的临时增删改，都在招聘执行页处理。</p>
+                  </div>
+                  <div className="rounded-[24px] border border-emerald-200/70 bg-emerald-50/80 p-4 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                    <p className="text-sm font-medium text-emerald-800 dark:text-emerald-100">当前长期配置完成度</p>
+                    <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{resolvedPreparationCount}</p>
+                    <p className="mt-1 text-xs leading-6 text-emerald-700/80 dark:text-emerald-200/80">这代表已经可被执行页自动带入的默认项数量。</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
         </TabsContent>
 
         <TabsContent value="execute" className="space-y-6 mt-0" data-testid="execute-tab">
-          {/* Multi-platform Selection */}
-          <Card data-testid="execute-platform-selection">
-            <CardHeader className="bg-gradient-to-r from-primary/[0.04] to-transparent pb-3">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <CardTitle className="text-base">多平台选择</CardTitle>
-                  <CardDescription className="mt-1">为每个平台配置账号和岗位，点击卡片选中参与执行。</CardDescription>
-                </div>
-                <div className="flex items-center gap-3 mt-1 shrink-0">
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
-                    筛选阈值 <span className="ml-1 text-foreground font-bold">{matchThreshold}分</span>
-                  </Label>
-                  <div className="w-28">
-                    <Slider value={[matchThreshold]} onValueChange={([value]) => setMatchThreshold(value)} min={0} max={100} step={5} disabled={!!activeExecution}/>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {accountsLoading && catalog.length === 0 ? Array.from({length: 6}).map((_, index) => (
-                  <div key={index} className="rounded-xl border p-4">
-                    <Skeleton className="h-40 w-full"/>
-                  </div>
-                )) : null}
-                {catalog.map((item) => {
-                  const platformAccounts = accounts.filter((a) => a.platform === item.key && a.status === 'active')
-                  const config = platformExecConfigs[item.key] || {accountId: '', jobId: ''}
-                  const canSelect = !!(config.accountId && config.jobId)
-                  const isSelected = selectedPlatforms.includes(item.key)
-                  const colors = pc(item.key)
-                  return (
-                    <motion.div
-                      key={item.key}
-                      data-testid={`execute-platform-card-${item.key}`}
-                      whileHover={canSelect && !activeExecution ? {scale: 1.01} : undefined}
-                      whileTap={canSelect && !activeExecution ? {scale: 0.99} : undefined}
-                      onClick={() => canSelect && !activeExecution && togglePlatformSelection(item.key)}
-                      className={cn(
-                        'relative overflow-hidden rounded-xl border p-4 transition-all duration-200',
-                        canSelect && !activeExecution ? 'cursor-pointer' : 'cursor-default',
-                        isSelected && canSelect
-                          ? `border-transparent bg-gradient-to-br ${colors.gradient} ring-2 ${colors.ring} shadow-md`
-                          : canSelect
-                            ? 'border-border hover:shadow-sm hover:border-border/60'
-                            : 'border-dashed opacity-60',
-                      )}
-                    >
-                      {/* Left accent bar */}
-                      <div className={cn('absolute left-0 top-0 h-full w-1 rounded-l-xl transition-opacity', colors.bg, isSelected ? 'opacity-100' : 'opacity-25')}/>
-
-                      {/* Selection check */}
-                      <AnimatePresence>
-                        {isSelected && (
-                          <motion.div
-                            initial={{scale: 0, opacity: 0}}
-                            animate={{scale: 1, opacity: 1}}
-                            exit={{scale: 0, opacity: 0}}
-                            className="absolute right-3 top-3"
-                          >
-                            <div className={cn('flex h-5 w-5 items-center justify-center rounded-full', colors.bg)}>
-                              <Check className="h-3 w-3 text-white"/>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      <div className="pl-3 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white shrink-0', colors.bg)}>
-                            {item.name.charAt(0)}
-                          </div>
-                          <p className="font-medium text-sm">{item.name}</p>
-                        </div>
-
-                        <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                          <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">执行账号</Label>
-                            <Select
-                              value={config.accountId || ''}
-                              onValueChange={(value) => setPlatformExecConfigs((prev) => ({...prev, [item.key]: {...(prev[item.key] || {}), accountId: value}}))}
-                              disabled={!!activeExecution || accountsLoading}
-                            >
-                              <SelectTrigger className="h-7 text-xs" data-testid={`execute-account-select-${item.key}`}><SelectValue placeholder="选择已绑定账号"/></SelectTrigger>
-                              <SelectContent>
-                                {accountsLoading
-                                  ? <SelectItem value="_loading_accounts" disabled>账号加载中...</SelectItem>
-                                  : platformAccounts.length === 0
-                                  ? <SelectItem value="_none" disabled>暂无已绑定账号</SelectItem>
-                                  : platformAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">招聘岗位</Label>
-                            <Select
-                              value={config.jobId || ''}
-                              onValueChange={(value) => setPlatformExecConfigs((prev) => ({...prev, [item.key]: {...(prev[item.key] || {}), jobId: value}}))}
-                              disabled={!!activeExecution || jobsLoading}
-                            >
-                              <SelectTrigger className="h-7 text-xs" data-testid={`execute-job-select-${item.key}`}><SelectValue placeholder="选择岗位"/></SelectTrigger>
-                              <SelectContent>
-                                {jobsLoading
-                                  ? <SelectItem value="_loading_jobs" disabled>岗位加载中...</SelectItem>
-                                  : jobs.length === 0
-                                  ? <SelectItem value="_none" disabled>暂无岗位</SelectItem>
-                                  : jobs.map((job) => <SelectItem key={job.id} value={job.id}>{job.title}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        {!canSelect && (
-                          <p className="text-xs text-muted-foreground/60 italic">配置账号和岗位后点击选中</p>
-                        )}
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_380px]">
+            <div className="space-y-6">
+              <Card className="overflow-hidden" data-testid="workflow-cards">
+                <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.06),transparent_72%)] pb-4">
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Workflow Selector</p>
+                      <CardTitle className="mt-2 text-base">三大工作流</CardTitle>
+                      <CardDescription className="mt-2 text-sm leading-6">
+                        先选工作流，再补本次执行编排。启动按钮的解锁条件会在右侧实时同步。
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-3 rounded-full border border-border/70 bg-background/80 px-3 py-2 shadow-sm shrink-0">
+                      <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.18em] whitespace-nowrap">
+                        筛选阈值 <span className="ml-1 text-foreground font-bold">{matchThreshold}分</span>
+                      </Label>
+                      <div className="w-24">
+                        <Slider value={[matchThreshold]} onValueChange={([value]) => setMatchThreshold(value)} min={0} max={100} step={5} disabled={!!activeExecution}/>
                       </div>
-                    </motion.div>
-                  )
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Workflow Cards */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3" data-testid="workflow-cards">
-            {workflowCards.map((workflow) => {
-              const isThisActive = !!activeExecution && activeExecution.workflowId === workflow.id
-              const isOtherActive = !!activeExecution && activeExecution.workflowId !== workflow.id
-              const theme = WORKFLOW_THEMES[workflow.id] || WORKFLOW_THEMES.publish_job
-              return (
-                <motion.div key={workflow.id} whileHover={!isOtherActive ? {y: -2} : undefined} transition={{duration: 0.2}}>
-                  <Card
-                    data-testid={`workflow-card-${workflow.id}`}
-                    className={cn(
-                    'overflow-hidden transition-all duration-300',
-                    isOtherActive && 'opacity-40',
-                    isThisActive && 'ring-2 ring-primary shadow-lg shadow-primary/10',
-                  )}>
-                    <CardHeader className={cn('bg-gradient-to-r', theme.gradient)}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', theme.iconBg)}>
-                          <workflow.icon className="h-5 w-5 text-primary"/>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {workflow.multiPlatform && (
-                            <Badge variant="outline" className="gap-1 text-xs">
-                              <Layers className="h-3 w-3"/>多平台
-                            </Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    {workflowCards.map((workflow) => {
+                      const theme = WORKFLOW_THEMES[workflow.id] || WORKFLOW_THEMES.publish_job
+                      const status = workflowStatusMap[workflow.id]
+                      const isSelected = selectedWorkflowCard.id === workflow.id
+                      return (
+                        <motion.button
+                          key={workflow.id}
+                          type="button"
+                          data-testid={`workflow-card-${workflow.id}`}
+                          whileHover={!activeExecution || activeExecution.workflowId === workflow.id ? {y: -2} : undefined}
+                          transition={{duration: 0.2}}
+                          onClick={() => setSelectedWorkflowId(workflow.id)}
+                          className={cn(
+                            'rounded-[28px] border bg-background/88 p-4 text-left transition-all duration-200',
+                            isSelected ? 'border-primary/40 shadow-[0_18px_48px_-32px_hsl(var(--primary)/0.55)] ring-1 ring-primary/20' : 'border-border/70 hover:border-border hover:shadow-sm',
                           )}
-                          <Badge variant="secondary" className="text-[10px]">{workflow.executionMode === 'auto_submit' ? '自动提交' : workflow.executionMode}</Badge>
+                        >
+                          <div className={cn('inline-flex h-11 w-11 items-center justify-center rounded-2xl', theme.iconBg)}>
+                            <workflow.icon className="h-5 w-5 text-primary"/>
+                          </div>
+                          <div className="mt-4 flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">{workflow.title}</p>
+                              <p className="mt-1 text-xs leading-6 text-muted-foreground">{workflow.desc}</p>
+                            </div>
+                            {workflow.multiPlatform && (
+                              <Badge variant="outline" className="gap-1 border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">
+                                <Layers className="h-3 w-3"/>多组
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="mt-4 space-y-3">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-muted-foreground">当前状态</span>
+                              <Badge variant="outline" className={cn(
+                                'border text-[10px] uppercase tracking-[0.16em]',
+                                status.state === 'running'
+                                  ? 'border-primary/30 bg-primary/[0.08] text-primary'
+                                  : status.state === 'completed'
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                    : status.state === 'failed'
+                                      ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'
+                                      : 'border-border/70 bg-background/82 text-muted-foreground',
+                              )}>
+                                {status.label}
+                              </Badge>
+                            </div>
+                            <Progress value={status.progress} className="h-2 rounded-full"/>
+                            <p className="text-[11px] leading-5 text-muted-foreground">{status.detail}</p>
+                          </div>
+                        </motion.button>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="overflow-hidden" data-testid="execution-composer">
+                <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.05),transparent_72%)] pb-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Execution Composer</p>
+                      <CardTitle className="mt-2 text-base">{selectedWorkflowCard.title}</CardTitle>
+                      <CardDescription className="mt-2 text-sm leading-6">
+                        一次执行前可以配置多组“平台 + 账号 + 岗位”。平台允许重复，账号必须唯一，岗位允许重复。
+                      </CardDescription>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <button type="button" onClick={() => setExecutionMode('immediate')} className={cn('rounded-[24px] border px-4 py-3 text-left transition-all', executionMode === 'immediate' ? 'border-primary/35 bg-primary/[0.08] shadow-sm' : 'border-border/70 bg-background/82')}>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <Play className="h-4 w-4 text-primary"/>立即执行
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">通过前端校验后立即发起任务。</p>
+                      </button>
+                      <button type="button" onClick={() => setExecutionMode('scheduled')} className={cn('rounded-[24px] border px-4 py-3 text-left transition-all', executionMode === 'scheduled' ? 'border-primary/35 bg-primary/[0.08] shadow-sm' : 'border-border/70 bg-background/82')}>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <RefreshCw className="h-4 w-4 text-primary"/>定期执行
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">先在前端排期，等待后端调度适配。</p>
+                      </button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-5 pt-5">
+                  {executionMode === 'scheduled' && (
+                    <div className="grid gap-3 rounded-[28px] border border-amber-200/70 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/15 md:grid-cols-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/70 dark:text-amber-100/80">执行频率</Label>
+                        <Select value={scheduleFrequency} onValueChange={(value: ScheduleFrequency) => setScheduleFrequency(value)}>
+                          <SelectTrigger className="h-10 rounded-2xl border-amber-200/70 bg-background/95 text-sm shadow-none dark:border-amber-900/40">
+                            <SelectValue placeholder="选择频率"/>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="daily">每天</SelectItem>
+                            <SelectItem value="weekly">每周</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/70 dark:text-amber-100/80">执行时间</Label>
+                        <Input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="h-10 rounded-2xl border-amber-200/70 bg-background/95 text-sm shadow-none dark:border-amber-900/40"/>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/70 dark:text-amber-100/80">周执行日</Label>
+                        <Select value={scheduleWeekday} onValueChange={setScheduleWeekday} disabled={scheduleFrequency !== 'weekly'}>
+                          <SelectTrigger className="h-10 rounded-2xl border-amber-200/70 bg-background/95 text-sm shadow-none dark:border-amber-900/40">
+                            <SelectValue placeholder="选择星期"/>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">周一</SelectItem>
+                            <SelectItem value="2">周二</SelectItem>
+                            <SelectItem value="3">周三</SelectItem>
+                            <SelectItem value="4">周四</SelectItem>
+                            <SelectItem value="5">周五</SelectItem>
+                            <SelectItem value="6">周六</SelectItem>
+                            <SelectItem value="0">周日</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedWorkflowCard.id === 'talent_explore' && (
+                    <div className="grid gap-4 rounded-[28px] border border-border/70 bg-background/82 p-4 shadow-sm lg:grid-cols-[minmax(0,1fr)_280px]">
+                      <div className="space-y-2">
+                        <Label htmlFor="custom-message" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">本次主动沟通覆盖</Label>
+                        <Textarea id="custom-message" placeholder="留空则沿用平台与账号页中的全局预设。" value={customMessage} onChange={(e) => setCustomMessage(e.target.value)} disabled={!!activeExecution} rows={4} maxLength={500} className="rounded-[22px] border-border/70 bg-background/95 text-sm resize-none"/>
+                        <p className={cn('text-[11px]', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>
+                          {customMessage.length}/500 字符。填写后仅覆盖本次运行。
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">单次发送上限 <span className="ml-1 text-foreground font-bold">{messageSendLimit} 条</span></Label>
+                        <div className="rounded-[22px] border border-border/70 bg-background/95 p-4">
+                          <Slider value={[messageSendLimit]} onValueChange={([value]) => setMessageSendLimit(value)} min={1} max={50} step={1} disabled={!!activeExecution}/>
+                          <div className="mt-4 flex items-center gap-3">
+                            <Input type="number" min={1} max={50} value={messageSendLimit} onChange={(e) => { const value = Math.max(1, Math.min(50, Number(e.target.value) || 10)); setMessageSendLimit(value) }} disabled={!!activeExecution} className="h-10 rounded-2xl text-center text-sm"/>
+                            <p className="text-[11px] leading-5 text-muted-foreground">限制一次运行内最多发送多少条消息。</p>
+                          </div>
                         </div>
                       </div>
-                      <CardTitle className="text-base">{workflow.title}</CardTitle>
-                      <CardDescription className="text-xs leading-relaxed">{workflow.desc}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-3">
-                      {isThisActive && (
-                        <div className="mb-3 flex items-center gap-2">
-                          <span className="relative flex h-2 w-2">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75"/>
-                            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary"/>
-                          </span>
-                          <span className="text-xs font-medium text-primary">执行中...</span>
-                        </div>
-                      )}
-                      <p className="mb-3 text-[11px] text-muted-foreground">截图策略：{workflow.screenshotMode === 'direct_url' ? '直接截图链接' : workflow.screenshotMode}</p>
-                      {workflow.id === 'talent_explore' && (
-                        <div className="mb-3 grid gap-3 sm:grid-cols-2 border-t pt-3">
-                          <div className="space-y-1.5">
-                            <Label htmlFor="custom-message" className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                              主动沟通话术
-                            </Label>
-                            <Textarea
-                              id="custom-message"
-                              placeholder={`（留空使用默认）例：您好！我是XX公司的招聘负责人，正在招聘前台/服务员，薪资X-XK，想了解一下您是否有意向？`}
-                              value={customMessage}
-                              onChange={(e) => setCustomMessage(e.target.value)}
-                              disabled={!!activeExecution}
-                              rows={3}
-                              maxLength={500}
-                              className="text-xs resize-none"
-                            />
-                            <p className={cn('text-[11px]', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>{customMessage.length}/500 字符</p>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                              每次发送上限 <span className="ml-1 text-foreground font-bold">{messageSendLimit} 条</span>
-                            </Label>
-                            <div className="flex items-center gap-2">
-                              <Slider
-                                value={[messageSendLimit]}
-                                onValueChange={([v]) => setMessageSendLimit(v)}
-                                min={1}
-                                max={50}
-                                step={1}
-                                disabled={!!activeExecution}
-                                className="flex-1"
-                              />
-                              <Input
-                                type="number"
-                                min={1}
-                                max={50}
-                                value={messageSendLimit}
-                                onChange={(e) => {
-                                  const v = Math.max(1, Math.min(50, Number(e.target.value) || 10))
-                                  setMessageSendLimit(v)
-                                }}
-                                disabled={!!activeExecution}
-                                className="w-16 text-xs text-center"
-                              />
-                            </div>
-                            <p className="text-[11px] text-muted-foreground">每次运行最多向候选人发送消息数（1-50），超出立即停止。</p>
-                          </div>
-                        </div>
-                      )}
-                      <Button
-                        data-testid={`workflow-action-${workflow.id}`}
-                        className={cn('w-full gap-2', !isThisActive && 'shadow-sm')}
-                        variant={isThisActive ? 'destructive' : 'default'}
-                        onClick={() => isThisActive ? cancelWorkflow() : handleStartWorkflow(workflow.id)}
-                        disabled={(!!activeExecution && !isThisActive) || !backendReady}
-                      >
-                        {isThisActive ? <><Square className="h-4 w-4"/>停止执行</> : <><Play className="h-4 w-4"/>开始执行</>}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">执行组编排</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">至少保留 1 组完整方案。可先按业务要求编好多组，后端适配后再真正并行下发。</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">完整 {completeExecutionGroups.length}</Badge>
+                      <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">草稿 {draftExecutionGroups.length}</Badge>
+                      <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => addExecutionGroup({ platform: selectedPlatform || catalog[0]?.key || '', accountId: selectedPlatform ? resolveDefaultAccountForPlatform(selectedPlatform) : '', jobId: selectedPlatform ? resolveDefaultJobForPlatform(selectedPlatform) : '' })} disabled={!!activeExecution}>
+                        <Layers className="h-3.5 w-3.5"/>新增执行组
                       </Button>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              )
-            })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {executionGroupDiagnostics.map((item) => {
+                      const platformAccounts = accounts.filter((account) => account.platform === item.group.platform && account.status === 'active')
+                      const hasAccounts = platformAccounts.length > 0
+                      return (
+                        <div key={item.group.id} className="rounded-[28px] border border-border/70 bg-background/86 p-4 shadow-sm">
+                          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-sm font-semibold text-foreground">
+                                {String(item.index + 1).padStart(2, '0')}
+                              </div>
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-semibold text-foreground">执行组 {item.index + 1}</p>
+                                  <Badge variant="outline" className={cn('border text-[10px] uppercase tracking-[0.16em]', item.complete ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : item.duplicateAccount ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' : 'border-border/70 bg-background/82 text-muted-foreground')}>
+                                    {item.complete ? '完整' : item.duplicateAccount ? '冲突' : '草稿'}
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.complete ? `${item.platformLabel} · ${item.account?.name || '已选账号'} · ${item.job?.title || '已选岗位'}` : item.missing.join(' / ')}</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => duplicateExecutionGroup(item.group.id)} disabled={!!activeExecution}>
+                                <ClipboardCopy className="h-3.5 w-3.5"/>复制
+                              </Button>
+                              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full text-destructive hover:text-destructive" onClick={() => removeExecutionGroup(item.group.id)} disabled={!!activeExecution || executionGroups.length <= 1}>
+                                <Trash2 className="h-3.5 w-3.5"/>删除
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台</Label>
+                              <Select value={item.group.platform || ''} onValueChange={(value) => applyPlatformToExecutionGroup(item.group.id, value)} disabled={!!activeExecution}>
+                                <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
+                                  <SelectValue placeholder="选择平台"/>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {catalog.map((platform) => <SelectItem key={platform.key} value={platform.key}>{platform.name}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号</Label>
+                              <Select value={item.group.accountId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {accountId: value})} disabled={!!activeExecution || !item.group.platform || accountsLoading}>
+                                <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
+                                  <SelectValue placeholder={item.group.platform ? '选择账号' : '先选择平台'}/>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {accountsLoading
+                                    ? <SelectItem value="_loading_accounts" disabled>账号加载中...</SelectItem>
+                                    : !item.group.platform
+                                      ? <SelectItem value="_platform_first" disabled>请先选择平台</SelectItem>
+                                      : platformAccounts.length === 0
+                                        ? <SelectItem value="_none" disabled>当前平台暂无可用账号</SelectItem>
+                                        : platformAccounts.map((account) => {
+                                          const usedByOthers = Boolean(accountUsageCount.get(account.id)) && account.id !== item.group.accountId
+                                          return <SelectItem key={account.id} value={account.id} disabled={usedByOthers}>{account.name}{usedByOthers ? '（已占用）' : ''}</SelectItem>
+                                        })}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">岗位</Label>
+                              <Select value={item.group.jobId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {jobId: value})} disabled={!!activeExecution || jobsLoading}>
+                                <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
+                                  <SelectValue placeholder="选择岗位"/>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {jobsLoading
+                                    ? <SelectItem value="_loading_jobs" disabled>岗位加载中...</SelectItem>
+                                    : jobs.length === 0
+                                      ? <SelectItem value="_none" disabled>暂无岗位</SelectItem>
+                                      : jobs.map((job) => <SelectItem key={job.id} value={job.id}>{job.title}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                              <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">平台可重复</Badge>
+                              <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>账号不可重复</Badge>
+                              <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">岗位可重复</Badge>
+                            </div>
+                            <Button type="button" variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => { setSelectedPlatform(item.group.platform || selectedPlatform); setActiveTab('platform-config') }}>
+                              <LinkIcon className="h-3.5 w-3.5"/>去平台与账号页补齐长期配置
+                            </Button>
+                          </div>
+
+                          {!hasAccounts && item.group.platform && (
+                            <div className="mt-4 rounded-[22px] border border-amber-200/70 bg-amber-50/75 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+                              当前平台还没有可用账号。先到“平台与账号配置”绑定账号，再回到这里编排执行组。
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-6">
+              <Card className="overflow-hidden" data-testid="execution-readiness">
+                <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Launch Gate</p>
+                  <CardTitle className="mt-2 text-base">启动条件</CardTitle>
+                  <CardDescription className="mt-2 text-sm leading-6">按钮是否可点，完全由这里的条件决定，让使用者在点击前就知道还差什么。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-5">
+                  <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                    <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">当前工作流</p>
+                      <p className="mt-2 text-sm font-semibold text-foreground">{selectedWorkflowCard.title}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{workflowStatusMap[selectedWorkflowCard.id].detail}</p>
+                    </div>
+                    <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">完整执行组</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">至少需要 1 组完整方案</p>
+                    </div>
+                    <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台长期就绪度</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{readyPlatformCount}/{catalog.length}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">表示平台默认账号与岗位是否已备好</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[28px] border border-border/70 bg-background/82 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-foreground">解锁清单</p>
+                      <Badge variant="outline" className={cn('border text-[10px] uppercase tracking-[0.16em]', canStartSelectedWorkflow ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300')}>
+                        {canStartSelectedWorkflow ? '可以启动' : '尚未解锁'}
+                      </Badge>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {executionReadinessReasons.length === 0 ? (
+                        <div className="flex items-start gap-3 rounded-[22px] border border-emerald-200/70 bg-emerald-50/75 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/>
+                          <div>
+                            <p className="font-medium">前端校验已通过</p>
+                            <p className="mt-1 text-xs leading-5">当前可以直接启动；如果选择的是立即执行，将按已编排的完整执行组发起任务。</p>
+                          </div>
+                        </div>
+                      ) : executionReadinessReasons.map((reason, index) => (
+                        <div key={`${reason}-${index}`} className="flex items-start gap-3 rounded-[22px] border border-border/70 bg-background/95 px-4 py-3 text-sm">
+                          <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"/>
+                          <span className="leading-6 text-muted-foreground">{reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {activeExecution && activeExecution.workflowId === selectedWorkflowCard.id ? (
+                    <Button data-testid={`workflow-action-${selectedWorkflowCard.id}`} className="h-12 w-full gap-2 rounded-full" variant="destructive" onClick={() => cancelWorkflow()}>
+                      <Square className="h-4 w-4"/>停止当前执行
+                    </Button>
+                  ) : (
+                    <Button data-testid={`workflow-action-${selectedWorkflowCard.id}`} className="h-12 w-full gap-2 rounded-full" onClick={() => handleStartWorkflow(selectedWorkflowCard.id)} disabled={!canStartSelectedWorkflow}>
+                      {executionMode === 'scheduled'
+                        ? <><RefreshCw className="h-4 w-4"/>保存并启用定时任务</>
+                        : <><Play className="h-4 w-4"/>开始执行（{completeExecutionGroups.length} 组）</>}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="overflow-hidden" data-testid="workflow-progress-overview">
+                <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.04),transparent_72%)] pb-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Parallel Overview</p>
+                  <CardTitle className="mt-2 text-base">并行进度概览</CardTitle>
+                  <CardDescription className="mt-2 text-sm leading-6">简版看状态，详细进度继续看下方执行监控区。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-4">
+                  {workflowCards.map((workflow) => {
+                    const status = workflowStatusMap[workflow.id]
+                    const theme = WORKFLOW_THEMES[workflow.id] || WORKFLOW_THEMES.publish_job
+                    return (
+                      <button key={workflow.id} type="button" onClick={() => setSelectedWorkflowId(workflow.id)} className={cn('w-full rounded-[24px] border p-4 text-left transition-all', selectedWorkflowCard.id === workflow.id ? 'border-primary/30 bg-primary/[0.05]' : 'border-border/70 bg-background/82 hover:border-border')}>
+                        <div className="flex items-start gap-3">
+                          <div className={cn('mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl', theme.iconBg)}>
+                            <workflow.icon className="h-4.5 w-4.5 text-primary"/>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-foreground">{workflow.title}</p>
+                              <Badge variant="outline" className="border-border/70 bg-background/85 text-[10px] uppercase tracking-[0.16em]">{status.label}</Badge>
+                            </div>
+                            <Progress value={status.progress} className="mt-3 h-2 rounded-full"/>
+                            <p className="mt-3 text-[11px] leading-5 text-muted-foreground">{status.detail}</p>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </CardContent>
+              </Card>
+            </div>
           </div>
 
           {/* Execution Monitor */}
           {displayExec && (
-            <Card className="overflow-hidden" data-testid="execution-monitor">
-              <CardHeader className="bg-gradient-to-r from-primary/[0.08] via-primary/[0.04] to-transparent">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-sm">{displayExec.workflowName || '执行监控'}</CardTitle>
-                    <CardDescription>{displayExec.error || '实时监控当前执行步骤、截图与完整输出。'}</CardDescription>
+            <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-monitor">
+              <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.12),transparent_72%)] pb-5">
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="max-w-2xl">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Monitor</p>
+                    <CardTitle className="mt-2 text-base">{displayExec.workflowName || '执行监控'}</CardTitle>
+                    <CardDescription className="mt-2 text-sm leading-6">
+                      {displayExec.error || '实时监控当前执行步骤、截图节点与 AI 完整输出，便于定位失败点和人工接管。'}
+                    </CardDescription>
+                    <p className="mt-3 text-xs text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
                   </div>
-                  <Badge variant="outline" className="gap-1.5">
-                    {activeExecution ? <><Loader2 className="h-3 w-3 animate-spin"/>执行中</> : '已完成'}
-                  </Badge>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(displayExec.totalSteps, 1)} 步骤完成</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{displayExec.actionNodes.length}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">用于核验执行过程的视觉证据</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
+                      <div className="mt-2">
+                        <Badge variant="outline" className="gap-1.5 border-primary/15 bg-primary/[0.06] text-primary">
+                          {activeExecution ? <><Loader2 className="h-3 w-3 animate-spin" />执行中</> : '已完成'}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">{displayExec.accumulatedText ? '已收到 AI 输出流' : '等待输出返回'}</p>
+                    </div>
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-5">
+              <CardContent className="space-y-5 pt-5">
                 {executionAuthGuide && (
-                  <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
+                  <div className="flex flex-col gap-3 rounded-2xl border border-amber-200/70 bg-amber-50/85 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
                     <div className="flex items-start gap-3">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>
                       <div className="space-y-1">
@@ -1345,88 +1954,100 @@ export default function JilingRecruit() {
                     </div>
                   </div>
                 )}
-                <div className="grid gap-6 lg:grid-cols-3">
-                  {/* Progress timeline */}
-                  <div className="space-y-4" data-testid="execution-steps">
-                    <div className="flex items-center justify-between">
-                      <Progress value={progressPercent} className="h-2 flex-1"/>
-                      <span className="ml-3 text-lg font-bold tabular-nums">{progressPercent}%</span>
-                    </div>
-                    <div className="relative space-y-0">
-                      {displayExec.steps.map((step, idx) => {
-                        const isLast = idx === displayExec.steps.length - 1
-                        return (
-                          <div key={step.id} className="relative flex items-start gap-3 pb-4">
-                            {/* Vertical line */}
-                            {!isLast && (
-                              <div className={cn(
-                                'absolute left-[9px] top-5 h-[calc(100%-8px)] w-px',
-                                step.status === 'done' ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-border',
-                              )}/>
-                            )}
-                            {/* Node */}
-                            <div className="relative z-10 mt-0.5 flex-shrink-0">
-                              {step.status === 'failed' ? (
-                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30"><X className="h-3 w-3 text-red-500"/></div>
-                              ) : step.status === 'done' ? (
-                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500"/></div>
-                              ) : step.status === 'running' ? (
-                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10"><Loader2 className="h-3.5 w-3.5 animate-spin text-primary"/></div>
-                              ) : (
-                                <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-muted-foreground/20"><Circle className="h-2 w-2 text-muted-foreground/30"/></div>
+                <div className="grid gap-4 xl:grid-cols-[0.95fr,1fr,1.08fr]">
+                  <div className="space-y-3" data-testid="execution-steps">
+                    <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">步骤时间线</p>
+                        <span className="font-mono text-lg font-semibold text-foreground">{progressPercent}%</span>
+                      </div>
+                      <div className="mt-3">
+                        <Progress value={progressPercent} className="h-2" />
+                      </div>
+                      <div className="mt-4 space-y-0">
+                        {displayExec.steps.map((step, idx) => {
+                          const isLast = idx === displayExec.steps.length - 1
+                          return (
+                            <div key={step.id} className="relative flex items-start gap-3 pb-4">
+                              {!isLast && (
+                                <div
+                                  className={cn(
+                                    'absolute left-[9px] top-5 h-[calc(100%-8px)] w-px',
+                                    step.status === 'done' ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-border',
+                                  )}
+                                />
                               )}
+                              <div className="relative z-10 mt-0.5 shrink-0">
+                                {step.status === 'failed' ? (
+                                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30"><X className="h-3 w-3 text-red-500"/></div>
+                                ) : step.status === 'done' ? (
+                                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500"/></div>
+                                ) : step.status === 'running' ? (
+                                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10"><Loader2 className="h-3.5 w-3.5 animate-spin text-primary"/></div>
+                                ) : (
+                                  <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-muted-foreground/20"><Circle className="h-2 w-2 text-muted-foreground/30"/></div>
+                                )}
+                              </div>
+                              <span className={cn('text-sm leading-6', step.status === 'running' ? 'font-medium text-primary' : step.status === 'done' ? 'text-foreground' : 'text-muted-foreground')}>
+                                {step.nameZh}
+                              </span>
                             </div>
-                            <span className={cn('text-sm', step.status === 'running' ? 'font-medium text-primary' : step.status === 'done' ? 'text-foreground' : 'text-muted-foreground')}>{step.nameZh}</span>
-                          </div>
-                        )
-                      })}
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Screenshots */}
                   <div className="space-y-3" data-testid="execution-screenshots">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">截图节点</p>
-                    {displayExec.actionNodes.length === 0 ? (
-                      <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed bg-muted/20 text-muted-foreground">
-                        <Camera className="mb-2 h-8 w-8 opacity-20"/>
-                        <p className="text-xs">等待截图...</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
-                        {displayExec.actionNodes.map((node) => (
-                          <ExecutionScreenshotCard key={node.id} node={node} onPreview={setLightboxSrc}/>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* AI Output */}
-                  <div className="space-y-3" data-testid="execution-output">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI 完整输出</p>
-                      {displayExec.accumulatedText && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 gap-1.5 px-2 text-xs text-muted-foreground"
-                          onClick={() => copyText(displayExec.accumulatedText || '')}
-                        >
-                          {copiedText ? <Check className="h-3 w-3 text-emerald-500"/> : <ClipboardCopy className="h-3 w-3"/>}
-                          {copiedText ? '已复制' : '复制'}
-                        </Button>
+                    <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">关键截图会按执行顺序追加，作为人工核验与回放依据。</p>
+                      {displayExec.actionNodes.length === 0 ? (
+                        <div className="mt-4 flex h-52 flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 text-muted-foreground">
+                          <Camera className="mb-2 h-8 w-8 opacity-20"/>
+                          <p className="text-xs">等待截图...</p>
+                        </div>
+                      ) : (
+                        <div className="mt-4 max-h-[25rem] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
+                          {displayExec.actionNodes.map((node) => (
+                            <ExecutionScreenshotCard key={node.id} node={node} onPreview={setLightboxSrc}/>
+                          ))}
+                        </div>
                       )}
                     </div>
-                    <div className="h-64 overflow-y-auto rounded-xl bg-zinc-950 p-4 font-mono text-xs text-zinc-100 shadow-inner scrollbar-thin">
-                      {displayExec.accumulatedText ? (
-                        <>
-                          <pre className="whitespace-pre-wrap break-words leading-relaxed">{displayExec.accumulatedText}</pre>
-                          <div ref={textEndRef}/>
-                        </>
-                      ) : (
-                        <p className="flex items-center gap-2 text-zinc-500">
-                          <Loader2 className="h-3 w-3 animate-spin"/>等待 AI 输出...
-                        </p>
-                      )}
+                  </div>
+
+                  <div className="space-y-3" data-testid="execution-output">
+                    <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">AI 完整输出</p>
+                          <p className="mt-1 text-xs text-muted-foreground">适合直接复制给运营、排障或追溯系统执行决策。</p>
+                        </div>
+                        {displayExec.accumulatedText && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1.5 px-2 text-xs text-muted-foreground"
+                            onClick={() => copyText(displayExec.accumulatedText || '')}
+                          >
+                            {copiedText ? <Check className="h-3 w-3 text-emerald-500"/> : <ClipboardCopy className="h-3 w-3"/>}
+                            {copiedText ? '已复制' : '复制'}
+                          </Button>
+                        )}
+                      </div>
+                      <div className="mt-4 h-[25rem] overflow-y-auto rounded-[20px] bg-zinc-950 p-4 font-mono text-xs text-zinc-100 shadow-inner scrollbar-thin">
+                        {displayExec.accumulatedText ? (
+                          <>
+                            <pre className="whitespace-pre-wrap break-words leading-relaxed">{displayExec.accumulatedText}</pre>
+                            <div ref={textEndRef}/>
+                          </>
+                        ) : (
+                          <p className="flex items-center gap-2 text-zinc-500">
+                            <Loader2 className="h-3 w-3 animate-spin"/>等待 AI 输出...
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

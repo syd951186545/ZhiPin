@@ -1,3 +1,5 @@
+import type {PlatformCatalogItem} from '@/types/openclaw'
+
 // 职位状态
 export const JOB_STATUS = {
   draft: '草稿',
@@ -59,6 +61,57 @@ export const PLATFORMS = {
   '51job': { name: '前程无忧/51job', color: 'bg-indigo-500', loginUrl: 'https://ehire.51job.com/' },
   lagou: { name: '拉勾招聘', color: 'bg-emerald-500', loginUrl: 'https://easy.lagou.com/' },
 } as const
+
+export const STATIC_PLATFORM_CATALOG: PlatformCatalogItem[] = [
+  {
+    key: 'boss_zhipin',
+    name: 'BOSS直聘',
+    enterprise_url: PLATFORMS.boss_zhipin.loginUrl,
+    recommended_login_method: 'phone',
+    supported_login_methods: ['phone', 'qr'],
+    hints: ['建议优先绑定主招聘账号', '执行前优先做一次登录态验证'],
+  },
+  {
+    key: 'zhilian',
+    name: '智联招聘',
+    enterprise_url: PLATFORMS.zhilian.loginUrl,
+    recommended_login_method: 'phone',
+    supported_login_methods: ['phone', 'password'],
+    hints: ['适合标准岗位批量筛选', '默认登录入口固定为企业端'],
+  },
+  {
+    key: 'liepin',
+    name: '猎聘',
+    enterprise_url: PLATFORMS.liepin.loginUrl,
+    recommended_login_method: 'qr',
+    supported_login_methods: ['qr', 'phone'],
+    hints: ['优先复用扫码登录态', '适合中高端岗位搜索'],
+  },
+  {
+    key: '58',
+    name: '58同城',
+    enterprise_url: PLATFORMS['58'].loginUrl,
+    recommended_login_method: 'phone',
+    supported_login_methods: ['phone', 'password'],
+    hints: ['适合蓝领与门店岗位', '建议绑定稳定手机号账号'],
+  },
+  {
+    key: '51job',
+    name: '前程无忧/51job',
+    enterprise_url: PLATFORMS['51job'].loginUrl,
+    recommended_login_method: 'password',
+    supported_login_methods: ['password', 'phone'],
+    hints: ['企业端入口固定', '优先维护主企业账号密码登录态'],
+  },
+  {
+    key: 'lagou',
+    name: '拉勾招聘',
+    enterprise_url: PLATFORMS.lagou.loginUrl,
+    recommended_login_method: 'phone',
+    supported_login_methods: ['phone', 'qr'],
+    hints: ['适合互联网岗位筛选', '建议保持单一主账号稳定复用'],
+  },
+]
 
 // 工作类型
 export const EMPLOYMENT_TYPE = {
