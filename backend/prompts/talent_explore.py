@@ -8,6 +8,14 @@ from parsers.result_parser import parse_candidate_list
 from prompts import screenshot_instruction
 
 
+def _browser_rules(state: dict) -> str:
+    return (
+        "【浏览器工具强制要求】\n"
+        "- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"openclaw\"`\n"
+        "- 禁止使用默认 sandbox browser"
+    )
+
+
 def _sanitize_custom_message(raw: str) -> str:
     """清理用户自定义话术：过滤 prompt injection token，截断至 500 字符。"""
     # 过滤可能干扰工作流的控制 token
@@ -36,6 +44,8 @@ def build_login_check_prompt(state: dict) -> str:
 - 这是业务主工作流，不负责重新绑定账号
 - 仅验证当前持久浏览器 session 是否仍然可用
 - 不要切换账号，不要重新走完整登录流程
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:login_check]
 无法完成输出：[STEP_FAILED:login_check]"""
@@ -68,6 +78,8 @@ def build_search_candidates_prompt(state: dict) -> str:
 - 关键词从任职要求中提取核心技能和岗位名称
 - 控制操作频率，避免触发平台风控
 - 每次翻页间隔 3-5 秒
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:search_candidates]
 无法完成输出：[STEP_FAILED:search_candidates]"""
@@ -126,6 +138,8 @@ def build_collect_profiles_prompt(state: dict) -> str:
 - 控制浏览速度，每个候选人间隔 2-3 秒
 - 如遇到限制（如日搜索上限），记录已采集数量并停止
 - 尽量获取联系方式
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:collect_profiles]
 无法完成输出：[STEP_FAILED:collect_profiles]"""
@@ -197,6 +211,8 @@ def build_initiate_contact_prompt(state: dict) -> str:
 - 语气专业友好，不要过度推销
 - 不做出公司未授权的薪资承诺
 - 记录已沟通的候选人数量
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:initiate_contact]
 无法完成输出：[STEP_FAILED:initiate_contact]"""

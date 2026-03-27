@@ -41,6 +41,7 @@ _event_queues: dict[str, asyncio.Queue] = {}
 _event_history: dict[str, list[dict[str, Any]]] = {}
 _running_tasks: dict[str, asyncio.Task] = {}
 _completed_sessions: set[str] = set()
+OPENCLAW_ACTION_TIMEOUT_SECONDS = 40.0
 
 
 def _now_iso() -> str:
@@ -49,6 +50,11 @@ def _now_iso() -> str:
 
 def _future_iso(minutes: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+
+
+def is_binding_session_running(session_id: str) -> bool:
+    task = _running_tasks.get(session_id)
+    return bool(task and not task.done())
 
 
 async def emit_binding_event(session_id: str, event_type: str, data: dict[str, Any]) -> None:
@@ -194,11 +200,13 @@ def _session_patch_for_status(
     parsed_state: str,
     step_key: str,
     screenshot: Optional[str],
+    output_text: Optional[str] = None,
 ) -> dict[str, Any]:
     patch: dict[str, Any] = {
         "status": status,
         "step_key": step_key,
         "error_message": reason or None,
+        "output_text": output_text or None,
         "latest_screenshot_url": screenshot,
         "updated_at": _now_iso(),
         "awaiting_payload_schema": _awaiting_schema(status),
@@ -261,6 +269,7 @@ async def _execute_openclaw_with_retries(
                 attempt=attempt,
                 last_error=last_error,
                 last_state=last_state,
+                browser_profile=session_key,
             )
             await emit_binding_event(
                 session_id,
@@ -268,14 +277,25 @@ async def _execute_openclaw_with_retries(
                 {"status": "running", "message": f"第 {attempt} 次尝试纠偏执行", "attempt": attempt},
             )
 
-        result = await openclaw.execute_step(
-            prompt=current_prompt,
-            session_id=session_key,
-            step_id=f"binding_{attempt}",
-            on_progress=on_progress,
-            on_screenshot=on_screenshot,
-            screenshot_uploader=uploader,
-        )
+        try:
+            result = await asyncio.wait_for(
+                openclaw.execute_step(
+                    prompt=current_prompt,
+                    session_id=session_key,
+                    step_id=f"binding_{attempt}",
+                    on_progress=on_progress,
+                    on_screenshot=on_screenshot,
+                    screenshot_uploader=uploader,
+                ),
+                timeout=OPENCLAW_ACTION_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            result = StepResult(
+                success=False,
+                accumulated_text="",
+                screenshots=[],
+                error=f"OpenClaw 执行超时（>{int(OPENCLAW_ACTION_TIMEOUT_SECONDS)}秒），已自动终止",
+            )
         last_result = result
         accumulated_text = result.accumulated_text or ""
         parsed = parse_platform_binding_output(accumulated_text)
@@ -371,6 +391,7 @@ async def _run_action(
             parsed["state"],
             parsed["step_key"],
             latest_screenshot,
+            result.accumulated_text or "",
         )
         update_binding_session(session_id, tenant_id, session_patch, auth_token=auth_token)
 
@@ -405,6 +426,7 @@ async def _run_action(
                 "identifier_masked": parsed.get("identifier_masked"),
                 "latest_screenshot": latest_screenshot,
                 "screenshots": screenshots,
+                "accumulated_text": result.accumulated_text or "",
             },
         )
 
@@ -417,6 +439,7 @@ async def _run_action(
                     "status": status,
                     "reason": parsed["reason"],
                     "latest_screenshot": latest_screenshot,
+                    "accumulated_text": result.accumulated_text or "",
                 },
             )
     except Exception as exc:
@@ -424,7 +447,11 @@ async def _run_action(
         update_binding_session(
             session_id,
             tenant_id,
-            {"status": "failed", "error_message": str(exc), "updated_at": _now_iso()},
+            {
+                "status": "failed",
+                "error_message": str(exc),
+                "updated_at": _now_iso(),
+            },
             auth_token=auth_token,
         )
         update_platform_account(
@@ -462,6 +489,7 @@ def create_action_session(
             "awaiting_payload_schema": None,
             "retry_count": 0,
             "error_message": None,
+            "output_text": None,
             "expires_at": None,
         },
         auth_token=auth_token,
@@ -480,6 +508,25 @@ def create_action_session(
     )
     _running_tasks[session_row["id"]] = task
     return session_row
+
+
+async def ensure_verify_session_ready(
+    *,
+    account: PlatformAccountRow,
+) -> dict[str, Any]:
+    session_key = str(account.get("browser_session_key") or "").strip()
+    client = OpenClawClient()
+    result = await client.ensure_host_browser_ready(
+        session_id=session_key,
+        platform_url=str(account.get("platform_url") or "").strip(),
+        encrypted_session_state=str(account.get("encrypted_session_state") or "").strip(),
+    )
+    return {
+        "ready": result.ready,
+        "detail": result.detail,
+        "http_status": result.http_status,
+        "status_snapshot": result.status_snapshot,
+    }
 
 
 def start_verify_session(

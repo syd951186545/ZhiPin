@@ -20,6 +20,7 @@ import {Slider} from '@/components/ui/slider'
 import {Textarea} from '@/components/ui/textarea'
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import AddProfileDialog from '@/components/settings/AddProfileDialog'
+import PlatformActionDialog from '@/components/settings/PlatformActionDialog'
 import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
 import TaskMonitorPanel from '@/components/dashboard/TaskMonitorPanel'
 import {useAuth} from '@/contexts/AuthContext'
@@ -34,6 +35,7 @@ import type {WorkflowId, WorkflowTemplate} from '@/services/workflowService'
 import {useSettingsStore} from '@/stores/useSettingsStore'
 import {useWorkflowStore} from '@/stores/useWorkflowStore'
 import type {Job} from '@/types/database'
+import type {PlatformBindingSession} from '@/types/openclaw'
 
 /* ── color helpers ─────────────────────────────────────────── */
 
@@ -133,6 +135,32 @@ const bindingStatus = (status?: string | null) => {
   }
 }
 
+const formatSessionTime = (value?: string | null) => {
+  if (!value) return '暂无'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '暂无' : date.toLocaleString('zh-CN')
+}
+
+const verifySessionViewLabel = (session?: PlatformBindingSession | null) => {
+  if (!session) return '查看验证'
+  return session.status === 'running' ? '查看验证进度' : '查看上次验证结果'
+}
+
+const verifySessionActionLabel = (session?: PlatformBindingSession | null) => (
+  session ? '重新验证' : '验证登录'
+)
+
+const verifySessionSummary = (session?: PlatformBindingSession | null) => {
+  if (!session) return '暂无验证记录'
+  if (session.status === 'running') return 'OpenClaw 正在后台验证登录状态'
+  return session.error_message || bindingStatus(session.status)
+}
+
+const trimInlineText = (value: string, max = 48) => {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}...`
+}
+
 /* ── main component ────────────────────────────────────────── */
 
 export default function JilingRecruit() {
@@ -154,6 +182,9 @@ export default function JilingRecruit() {
   const [addAccountOpen, setAddAccountOpen] = useState(false)
   const [bindDialogOpen, setBindDialogOpen] = useState(false)
   const [bindAccountId, setBindAccountId] = useState<string | null>(null)
+  const [actionDialogOpen, setActionDialogOpen] = useState(false)
+  const [actionSession, setActionSession] = useState<PlatformBindingSession | null>(null)
+  const [actionSessionMeta, setActionSessionMeta] = useState<{platformName: string; accountName: string} | null>(null)
   const [actionPendingAccountId, setActionPendingAccountId] = useState<string | null>(null)
   const [workflowError, setWorkflowError] = useState<string | null>(null)
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([])
@@ -177,6 +208,12 @@ export default function JilingRecruit() {
   })), [workflowTemplateMap])
   const selectedPlatformAccounts = useMemo(() => accounts.filter((item) => item.platform === selectedPlatform), [accounts, selectedPlatform])
   const selectedAccount = useMemo(() => selectedPlatformAccounts.find((item) => item.id === selectedAccountId), [selectedAccountId, selectedPlatformAccounts])
+  const selectedLatestVerifySession = selectedAccount?.latestBindingSession?.action === 'verify' ? selectedAccount.latestBindingSession : null
+  const canReopenSelectedVerify = Boolean(selectedLatestVerifySession)
+  const actionDialogAccount = useMemo(
+    () => actionSession ? accounts.find((item) => item.id === actionSession.account_id) || null : null,
+    [accounts, actionSession],
+  )
   const progressPercent = displayExec ? Math.round((displayExec.steps.filter((step) => step.status === 'done').length / Math.max(displayExec.totalSteps, 1)) * 100) : 0
 
   // stats
@@ -378,20 +415,47 @@ export default function JilingRecruit() {
   }, [accounts, customMessage, matchThreshold, messageSendLimit, platformConfigs, platformExecConfigs, safeCompanyProfile, selectedPlatforms, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
+    if (type === 'verify') {
+      const account = accounts.find((item) => item.id === accountId)
+      const latestVerifySession = account?.latestBindingSession?.action === 'verify' ? account.latestBindingSession : null
+      if (latestVerifySession?.status === 'running') {
+        reopenActionSession(latestVerifySession, accountId)
+        return
+      }
+    }
+
     setActionPendingAccountId(accountId)
     setWorkflowError(null)
-    setBindAccountId(accountId)
-    setBindDialogOpen(true)
     try {
-      if (type === 'verify') await startVerify(accountId)
-      else await startUnbind(accountId)
+      const session = type === 'verify' ? await startVerify(accountId) : await startUnbind(accountId)
+      const account = accounts.find((item) => item.id === accountId)
+      setActionSession(session)
+      setActionSessionMeta({
+        platformName: PLATFORMS[account?.platform as keyof typeof PLATFORMS]?.name || account?.platform || selectedPlatform,
+        accountName: account?.name || account?.accountName || '',
+      })
+      setActionDialogOpen(true)
     } catch (error) {
-      setBindDialogOpen(false)
       setWorkflowError(error instanceof Error ? error.message : `${type === 'verify' ? '验证' : '解绑'}失败`)
     } finally {
       setActionPendingAccountId(null)
     }
   }
+
+  const reopenActionSession = useCallback((session: PlatformBindingSession, accountId: string) => {
+    const account = accounts.find((item) => item.id === accountId)
+    setActionSession(session)
+    setActionSessionMeta({
+      platformName: PLATFORMS[account?.platform as keyof typeof PLATFORMS]?.name || account?.platform || selectedPlatform,
+      accountName: account?.name || account?.accountName || '',
+    })
+    setActionDialogOpen(true)
+  }, [accounts, selectedPlatform])
+
+  const openBindDialogForAccount = useCallback((accountId: string) => {
+    setBindAccountId(accountId)
+    setBindDialogOpen(true)
+  }, [])
 
   const copyText = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -558,6 +622,15 @@ export default function JilingRecruit() {
               </div>
             ) : selectedPlatformAccounts.map((account) => {
               const isSelected = selectedAccountId === account.id
+              const isActive = account.status === 'active'
+              const isExpiredAccount = account.status === 'expired'
+              const isBoundAccount = account.status !== 'expired' && (Boolean(account.browserSessionKey) || ['active', 'verifying'].includes(account.status))
+              const canVerifyAccount = account.status === 'active'
+              const canRebindAccount = isExpiredAccount
+              const latestVerifySession = account.latestBindingSession?.action === 'verify' ? account.latestBindingSession : null
+              const canReopenVerify = Boolean(latestVerifySession)
+              const verifyEntryLabel = verifySessionViewLabel(latestVerifySession)
+              const verifyActionText = verifySessionActionLabel(latestVerifySession)
               return (
                 <motion.div
                   key={account.id}
@@ -585,18 +658,41 @@ export default function JilingRecruit() {
                       <p className="mt-1 text-xs text-muted-foreground">
                         <span className="text-muted-foreground/60">会话</span> {bindingStatus(account.latestBindingSession?.status)}
                       </p>
+                      {latestVerifySession && (
+                        <>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            <span className="text-muted-foreground/60">上次验证</span> {formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at)}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            <span className="text-muted-foreground/60">验证结果</span> {trimInlineText(verifySessionSummary(latestVerifySession))}
+                          </p>
+                        </>
+                      )}
                       {account.lastError && <p className="mt-2 text-xs text-red-500">{account.lastError}</p>}
                     </button>
 
                     <div className="flex items-center gap-1.5">
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="h-7 gap-1.5 px-2.5 text-xs shadow-sm"
-                        onClick={() => { setBindAccountId(account.id); setBindDialogOpen(true) }}
-                      >
-                        <LogIn className="h-3 w-3"/>绑定
-                      </Button>
+                      {canReopenVerify && latestVerifySession && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1.5 px-2.5 text-xs"
+                          onClick={() => reopenActionSession(latestVerifySession, account.id)}
+                          data-testid={`account-view-verify-${account.id}`}
+                        >
+                          <Search className="h-3 w-3"/>{verifyEntryLabel}
+                        </Button>
+                      )}
+                      {!isBoundAccount && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="h-7 gap-1.5 px-2.5 text-xs shadow-sm"
+                          onClick={() => openBindDialogForAccount(account.id)}
+                        >
+                          <LogIn className="h-3 w-3"/>{canRebindAccount ? '重新绑定' : '绑定'}
+                        </Button>
+                      )}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid={`account-actions-${account.id}`}>
@@ -604,28 +700,56 @@ export default function JilingRecruit() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-36">
-                          <DropdownMenuItem
-                            data-testid={`account-verify-${account.id}`}
-                            onClick={() => handleAction('verify', account.id)}
-                            disabled={actionPendingAccountId === account.id}
-                          >
-                            <ShieldCheck className="mr-2 h-4 w-4"/>验证登录
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            data-testid={`account-set-default-${account.id}`}
-                            onClick={() => { updatePlatformConfig(selectedPlatform, {boundProfileId: account.id}); setSelectedAccountId(account.id) }}
-                          >
-                            <Check className="mr-2 h-4 w-4"/>设为默认
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator/>
-                          <DropdownMenuItem
-                            data-testid={`account-unbind-${account.id}`}
-                            className="text-red-600 focus:text-red-600 dark:text-red-400"
-                            onClick={() => handleAction('unbind', account.id)}
-                            disabled={actionPendingAccountId === account.id}
-                          >
-                            <Unplug className="mr-2 h-4 w-4"/>解绑账号
-                          </DropdownMenuItem>
+                          {isBoundAccount && (
+                            <>
+                              {canReopenVerify && latestVerifySession && (
+                                <DropdownMenuItem
+                                  data-testid={`account-view-verify-${account.id}`}
+                                  onClick={() => reopenActionSession(latestVerifySession, account.id)}
+                                >
+                                  <Search className="mr-2 h-4 w-4"/>{verifyEntryLabel}
+                                </DropdownMenuItem>
+                              )}
+                              {canVerifyAccount && (
+                                <DropdownMenuItem
+                                  data-testid={`account-verify-${account.id}`}
+                                  onClick={() => handleAction('verify', account.id)}
+                                  disabled={actionPendingAccountId === account.id}
+                                >
+                                  <ShieldCheck className="mr-2 h-4 w-4"/>{verifyActionText}
+                                </DropdownMenuItem>
+                              )}
+                              {canRebindAccount && (
+                                <DropdownMenuItem
+                                  data-testid={`account-rebind-${account.id}`}
+                                  onClick={() => openBindDialogForAccount(account.id)}
+                                >
+                                  <LogIn className="mr-2 h-4 w-4"/>重新绑定
+                                </DropdownMenuItem>
+                              )}
+                              {isActive && (
+                                <DropdownMenuItem
+                                  data-testid={`account-set-default-${account.id}`}
+                                  onClick={() => { updatePlatformConfig(selectedPlatform, {boundProfileId: account.id}); setSelectedAccountId(account.id) }}
+                                >
+                                  <Check className="mr-2 h-4 w-4"/>设为默认
+                                </DropdownMenuItem>
+                              )}
+                              {(isActive || account.status === 'verifying') && (
+                                <>
+                                  <DropdownMenuSeparator/>
+                                  <DropdownMenuItem
+                                    data-testid={`account-unbind-${account.id}`}
+                                    className="text-red-600 focus:text-red-600 dark:text-red-400"
+                                    onClick={() => handleAction('unbind', account.id)}
+                                    disabled={actionPendingAccountId === account.id}
+                                  >
+                                    <Unplug className="mr-2 h-4 w-4"/>解绑账号
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </>
+                          )}
                           <DropdownMenuItem
                             data-testid={`account-delete-${account.id}`}
                             className="text-red-600 focus:text-red-600 dark:text-red-400"
@@ -683,19 +807,40 @@ export default function JilingRecruit() {
                 </div>
                 <div className="mt-3 space-y-1">
                   <p className="text-xs text-muted-foreground">最近会话：{bindingStatus(selectedAccount.latestBindingSession?.status)}</p>
+                  <p className="text-xs text-muted-foreground">上次验证：{formatSessionTime(selectedLatestVerifySession?.updated_at || selectedLatestVerifySession?.created_at)}</p>
+                  <p className="text-xs text-muted-foreground">验证结果：{verifySessionSummary(selectedLatestVerifySession)}</p>
                   <p className="text-xs text-muted-foreground">会话键：<span className="font-mono text-[10px]">{selectedAccount.browserSessionKey || '未生成'}</span></p>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button size="sm" className="gap-2 shadow-sm" onClick={() => { setBindAccountId(selectedAccount.id); setBindDialogOpen(true) }} data-testid="open-bind-dialog">
-                    <LogIn className="h-3.5 w-3.5"/>开始绑定
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950" onClick={() => handleAction('verify', selectedAccount.id)} data-testid="verify-account">
-                    <ShieldCheck className="h-3.5 w-3.5"/>验证登录
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950" onClick={() => handleAction('unbind', selectedAccount.id)} data-testid="unbind-account">
-                    <Unplug className="h-3.5 w-3.5"/>解绑账号
-                  </Button>
+                  {(Boolean(selectedAccount.browserSessionKey) || ['active', 'expired', 'verifying'].includes(selectedAccount.status)) ? (
+                    <>
+                      {canReopenSelectedVerify && selectedLatestVerifySession && (
+                        <Button size="sm" variant="outline" className="gap-2" onClick={() => reopenActionSession(selectedLatestVerifySession, selectedAccount.id)} data-testid="reopen-verify-dialog">
+                          <Search className="h-3.5 w-3.5"/>{verifySessionViewLabel(selectedLatestVerifySession)}
+                        </Button>
+                      )}
+                      {selectedAccount.status === 'active' && (
+                        <Button size="sm" variant="outline" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950" onClick={() => handleAction('verify', selectedAccount.id)} data-testid="verify-account">
+                          <ShieldCheck className="h-3.5 w-3.5"/>{verifySessionActionLabel(selectedLatestVerifySession)}
+                        </Button>
+                      )}
+                      {selectedAccount.status === 'expired' && (
+                        <Button size="sm" className="gap-2 shadow-sm" onClick={() => openBindDialogForAccount(selectedAccount.id)} data-testid="rebind-account">
+                          <LogIn className="h-3.5 w-3.5"/>重新绑定
+                        </Button>
+                      )}
+                      {(selectedAccount.status === 'active' || selectedAccount.status === 'verifying') && (
+                        <Button size="sm" variant="outline" className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950" onClick={() => handleAction('unbind', selectedAccount.id)} data-testid="unbind-account">
+                          <Unplug className="h-3.5 w-3.5"/>解绑账号
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <Button size="sm" className="gap-2 shadow-sm" onClick={() => openBindDialogForAccount(selectedAccount.id)} data-testid="open-bind-dialog">
+                      <LogIn className="h-3.5 w-3.5"/>开始绑定
+                    </Button>
+                  )}
                 </div>
 
                 {selectedAccount.latestBindingSession?.latest_screenshot_url && (
@@ -1116,6 +1261,30 @@ export default function JilingRecruit() {
       {/* ── Dialogs ── */}
       <AddProfileDialog open={addAccountOpen} onOpenChange={setAddAccountOpen} onCreated={reloadPlatformAccounts}/>
       <PlatformLoginDialog open={bindDialogOpen} onOpenChange={setBindDialogOpen} profileId={bindAccountId} onDataChanged={reloadPlatformAccounts}/>
+      <PlatformActionDialog
+        open={actionDialogOpen}
+        onOpenChange={(open) => {
+          setActionDialogOpen(open)
+          if (!open) {
+            setActionSession(null)
+            setActionSessionMeta(null)
+          }
+        }}
+        session={actionSession}
+        platformName={actionSessionMeta?.platformName}
+        accountName={actionSessionMeta?.accountName}
+        onDataChanged={reloadPlatformAccounts}
+        followupActionLabel={actionSession?.action === 'verify' ? (actionDialogAccount?.status === 'expired' ? '重新绑定' : '重新验证') : undefined}
+        onFollowupAction={actionSession?.action === 'verify'
+          ? () => {
+            if (actionDialogAccount?.status === 'expired') {
+              openBindDialogForAccount(actionSession.account_id)
+              return
+            }
+            void handleAction('verify', actionSession.account_id)
+          }
+          : undefined}
+      />
     </div>
   )
 }

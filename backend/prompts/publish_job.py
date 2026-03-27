@@ -5,6 +5,14 @@
 from prompts import screenshot_instruction
 
 
+def _browser_rules(state: dict) -> str:
+    return (
+        "【浏览器工具强制要求】\n"
+        "- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"openclaw\"`\n"
+        "- 禁止使用默认 sandbox browser"
+    )
+
+
 def build_login_check_prompt(state: dict) -> str:
     account_info = state.get("account_name", "").strip()
     account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供"
@@ -26,6 +34,8 @@ def build_login_check_prompt(state: dict) -> str:
 - 这是主工作流，不负责重新绑定账号
 - 只能验证当前持久浏览器 session 是否仍然有效
 - 不要主动退出已登录账号，不要重新发起完整登录流程
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:login_check]
 无法完成输出：[STEP_FAILED:login_check]"""
@@ -111,6 +121,8 @@ def build_fill_and_publish_prompt(state: dict) -> str:
 - 所有必填字段必须完整填写
 - 如遇到必填字段无法匹配，使用最接近的选项
 
+{_browser_rules(state)}
+
 完成后输出：[STEP_DONE:fill_and_publish]
 无法完成输出：[STEP_FAILED:fill_and_publish]"""
 
@@ -126,6 +138,8 @@ def build_verify_result_prompt(state: dict) -> str:
 2. {shot}
 3. 如果有职位链接，提取链接地址
 4. 记录发布状态
+
+{_browser_rules(state)}
 
 【输出格式（必须严格遵守）】
 【发布结果】

@@ -148,6 +148,7 @@ export interface PlatformBindingSession {
   } | null
   retry_count: number
   error_message?: string | null
+  output_text?: string | null
   expires_at?: string | null
   created_at?: string
   updated_at?: string

@@ -5,6 +5,14 @@
 from prompts import screenshot_instruction
 
 
+def _browser_rules(state: dict) -> str:
+    return (
+        "【浏览器工具强制要求】\n"
+        "- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"openclaw\"`\n"
+        "- 禁止使用默认 sandbox browser"
+    )
+
+
 def build_login_check_prompt(state: dict) -> str:
     account_info = state.get("account_name", "").strip()
     account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供"
@@ -26,6 +34,8 @@ def build_login_check_prompt(state: dict) -> str:
 - 只验证已绑定账号的持久浏览器 session
 - 不允许在本工作流里重新绑定账号
 - 不要主动退出已登录账号
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:login_check]
 无法完成输出：[STEP_FAILED:login_check]"""
@@ -60,6 +70,8 @@ def build_collect_resumes_prompt(state: dict) -> str:
 - 尽可能采集全部简历，不要遗漏
 - 控制操作频率，每份简历间隔 2-3 秒
 - 如遇分页，逐页采集
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:collect_resumes]
 无法完成输出：[STEP_FAILED:collect_resumes]"""
@@ -147,6 +159,8 @@ def build_contact_qualified_prompt(state: dict) -> str:
 - 语气专业友好
 - 不做出薪资承诺
 - 记录已发送消息的候选人数
+
+{_browser_rules(state)}
 
 完成后输出：[STEP_DONE:contact_qualified]
 无法完成输出：[STEP_FAILED:contact_qualified]"""

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -11,7 +12,9 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from services.platform_binding_service import (
+    ensure_verify_session_ready,
     get_binding_session_snapshot,
+    is_binding_session_running,
     refresh_qr_session,
     start_unbind_session,
     start_verify_session,
@@ -25,12 +28,138 @@ from services.supabase_client import (
     delete_platform_account,
     get_binding_session,
     get_platform_account,
+    list_binding_sessions,
     list_platform_accounts,
+    update_binding_session,
     update_platform_account,
     validate_supabase_user,
 )
 
 router = APIRouter(tags=["platform-accounts"])
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _repair_orphaned_binding_session(
+    item: dict[str, Any],
+    tenant_id: str,
+    auth_token: str,
+) -> dict[str, Any]:
+    latest_session = item.get("latest_binding_session") or {}
+    session_id = str(latest_session.get("id") or "").strip()
+    if latest_session.get("status") != "running" or not session_id:
+        return item
+    if is_binding_session_running(session_id):
+        return item
+
+    reason = "后端任务已中断，系统已自动修复状态，请按需重新发起验证"
+    repaired_session = update_binding_session(
+        session_id,
+        tenant_id,
+        {
+            "status": "failed",
+            "error_message": reason,
+            "updated_at": _now_iso(),
+        },
+        auth_token=auth_token,
+    )
+
+    has_persisted_session = bool(item.get("encrypted_session_state"))
+    if has_persisted_session:
+        account_patch = {
+            "status": "active",
+            "is_connected": True,
+            "login_state": "LOGGED_IN",
+            "last_error": None,
+        }
+    else:
+        account_patch = {
+            "status": "needsLogin",
+            "is_connected": False,
+            "last_error": reason,
+        }
+
+    repaired_account = update_platform_account(
+        item["id"],
+        tenant_id,
+        account_patch,
+        auth_token=auth_token,
+    )
+    merged = {**item, **repaired_account}
+    merged["latest_binding_session"] = repaired_session
+    return merged
+
+
+def _repair_interrupted_verify_session(
+    *,
+    account: dict[str, Any],
+    binding_session: dict[str, Any],
+    tenant_id: str,
+    auth_token: str,
+) -> dict[str, Any]:
+    reason = "上一次验证任务已中断，系统已自动释放占用，可重新发起验证"
+    repaired_session = update_binding_session(
+        binding_session["id"],
+        tenant_id,
+        {
+            "status": "failed",
+            "error_message": reason,
+            "updated_at": _now_iso(),
+        },
+        auth_token=auth_token,
+    )
+
+    if account.get("encrypted_session_state"):
+        update_platform_account(
+            account["id"],
+            tenant_id,
+            {
+                "status": "active",
+                "is_connected": True,
+                "login_state": "LOGGED_IN",
+                "last_error": None,
+            },
+            auth_token=auth_token,
+        )
+    else:
+        update_platform_account(
+            account["id"],
+            tenant_id,
+            {
+                "status": "expired",
+                "is_connected": False,
+                "last_error": reason,
+            },
+            auth_token=auth_token,
+        )
+    return repaired_session
+
+
+def _find_reusable_verify_session(
+    *,
+    account: dict[str, Any],
+    tenant_id: str,
+    auth_token: str,
+) -> Optional[dict[str, Any]]:
+    sessions = list_binding_sessions(tenant_id, account_id=account["id"], auth_token=auth_token)
+    for session in sessions:
+        if session.get("action") != "verify" or session.get("status") != "running":
+            continue
+        session_id = str(session.get("id") or "").strip()
+        if not session_id:
+            continue
+        if is_binding_session_running(session_id):
+            return session
+        _repair_interrupted_verify_session(
+            account=account,
+            binding_session=session,
+            tenant_id=tenant_id,
+            auth_token=auth_token,
+        )
+        return None
+    return None
 
 
 def _read_bearer(authorization: Optional[str]) -> str:
@@ -74,7 +203,12 @@ async def get_platform_accounts(
     auth_token = _read_bearer(authorization)
     user = await _validate_request_user(auth_token)
     accounts = list_platform_accounts(user["tenant_id"], auth_token=auth_token)
-    return {"items": attach_latest_binding_session(accounts, user["tenant_id"], auth_token=auth_token)}
+    items = attach_latest_binding_session(accounts, user["tenant_id"], auth_token=auth_token)
+    repaired_items = [
+        _repair_orphaned_binding_session(item, user["tenant_id"], auth_token)
+        for item in items
+    ]
+    return {"items": repaired_items}
 
 
 @router.post("/api/platform-accounts")
@@ -173,8 +307,18 @@ async def verify_platform_account(account_id: str, req: PlatformAccountActionReq
     account = get_platform_account(account_id, user["tenant_id"], auth_token=req.supabase_auth_token)
     if not account:
         raise HTTPException(status_code=404, detail="平台账号不存在")
+    reusable_session = _find_reusable_verify_session(
+        account=account,
+        tenant_id=user["tenant_id"],
+        auth_token=req.supabase_auth_token,
+    )
+    if reusable_session:
+        return {"item": reusable_session, "reused_existing": True}
+    readiness = await ensure_verify_session_ready(account=account)
+    if not readiness["ready"]:
+        raise HTTPException(status_code=readiness["http_status"], detail=readiness["detail"])
     session = start_verify_session(account=account, tenant_id=user["tenant_id"], auth_token=req.supabase_auth_token)
-    return {"item": session}
+    return {"item": session, "reused_existing": False}
 
 
 @router.delete("/api/platform-accounts/{account_id}")

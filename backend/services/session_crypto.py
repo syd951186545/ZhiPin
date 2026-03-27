@@ -22,12 +22,19 @@ def _resolve_key(key: bytes | str | None = None) -> bytes:
       - 32 字节 raw bytes
       - hex 编码字符串 (64 chars)
       - base64 编码字符串
-      - None → 从环境变量 SESSION_ENCRYPTION_KEY 读取
+      - None → 优先从环境变量 SESSION_ENCRYPTION_KEY 读取，缺失时回退到后端配置
     """
     if key is None:
         raw = os.environ.get("SESSION_ENCRYPTION_KEY", "")
         if not raw:
-            raise ValueError("SESSION_ENCRYPTION_KEY 环境变量未设置")
+            try:
+                from config import get_settings
+
+                raw = get_settings().session_encryption_key
+            except Exception:
+                raw = ""
+        if not raw:
+            raise ValueError("SESSION_ENCRYPTION_KEY 未配置")
         key = raw
 
     if isinstance(key, str):

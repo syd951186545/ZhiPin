@@ -168,6 +168,7 @@ prepare_artifacts() {
     ensure_env_value "OPENCLAW_MODEL_MAX_TOKENS" "8192"
     ensure_env_value "OPENCLAW_GATEWAY_TOOLS_ALLOW" "gateway"
     ensure_env_value "OPENCLAW_RESPONSES_API_ENABLED" "true"
+    ensure_env_value "OPENCLAW_BROWSER_BASE_URL" "http://127.0.0.1:18791"
     ensure_env_value "OPENCLAW_PLAYWRIGHT_SKILL_REF" "v4.1.0"
     ensure_env_value "OPENCLAW_APT_MIRROR_HOST" "mirrors.tuna.tsinghua.edu.cn"
     ensure_env_value "OPENCLAW_NPM_REGISTRY" "https://registry.npmmirror.com"
@@ -181,6 +182,11 @@ prepare_artifacts() {
         write_env_value "$ENV_FILE" "OPENCLAW_AUTH_TOKEN" "$(openssl rand -hex 24)"
     fi
 
+    if ! env_has_key "$ENV_FILE" "SESSION_ENCRYPTION_KEY" || [ -z "$(read_env_value SESSION_ENCRYPTION_KEY)" ]; then
+        info "SESSION_ENCRYPTION_KEY 未设置，自动生成并回填到 $ENV_FILE ..."
+        write_env_value "$ENV_FILE" "SESSION_ENCRYPTION_KEY" "$(openssl rand -hex 32)"
+    fi
+
     require_nonempty SUPABASE_URL "$(read_env_value SUPABASE_URL)"
     require_nonempty SUPABASE_ANON_KEY "$(read_env_value SUPABASE_ANON_KEY)"
     require_nonempty OPENCLAW_MODEL_API_KEY "$(read_env_value OPENCLAW_MODEL_API_KEY)"
@@ -190,6 +196,7 @@ prepare_artifacts() {
     require_nonempty SUPABASE_URL "${SUPABASE_URL}"
     require_nonempty SUPABASE_ANON_KEY "${SUPABASE_ANON_KEY}"
     require_nonempty OPENCLAW_AUTH_TOKEN "${OPENCLAW_AUTH_TOKEN}"
+    require_nonempty SESSION_ENCRYPTION_KEY "${SESSION_ENCRYPTION_KEY}"
     require_nonempty OPENCLAW_MODEL_API_KEY "${OPENCLAW_MODEL_API_KEY}"
     require_nonempty OPENCLAW_AGENT_ID "${OPENCLAW_AGENT_ID}"
     require_nonempty OPENCLAW_AGENT_NAME "${OPENCLAW_AGENT_NAME}"
@@ -219,7 +226,9 @@ backend = {
     'SUPABASE_URL': os.environ['SUPABASE_URL'],
     'SUPABASE_ANON_KEY': os.environ['SUPABASE_ANON_KEY'],
     'SUPABASE_SERVICE_KEY': os.environ['SUPABASE_SERVICE_KEY'],
+    'SESSION_ENCRYPTION_KEY': os.environ['SESSION_ENCRYPTION_KEY'],
     'OPENCLAW_BASE_URL': 'http://127.0.0.1:18789',
+    'OPENCLAW_BROWSER_BASE_URL': os.environ['OPENCLAW_BROWSER_BASE_URL'],
     'OPENCLAW_AUTH_TOKEN': os.environ['OPENCLAW_AUTH_TOKEN'],
     'OPENCLAW_AGENT_ID': os.environ['OPENCLAW_AGENT_ID'],
     'HOST': os.environ['HOST'],
@@ -259,6 +268,8 @@ config = {
         'enabled': True,
         'defaultProfile': 'openclaw',
         'executablePath': '/usr/bin/chromium',
+        'headless': True,
+        'noSandbox': True,
     },
     'models': {
         'mode': 'merge',
@@ -295,6 +306,7 @@ config = {
             'default': True,
             'name': os.environ['OPENCLAW_AGENT_NAME'],
             'model': qualified_model,
+            'sandbox': {'mode': 'off'},
             'identity': {
                 'emoji': os.environ['OPENCLAW_AGENT_EMOJI'],
                 'theme': os.environ['OPENCLAW_AGENT_THEME'],

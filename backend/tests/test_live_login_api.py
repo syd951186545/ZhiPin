@@ -145,6 +145,37 @@ async def test_confirm_success(client):
 
 
 @pytest.mark.asyncio
+async def test_confirm_persistence_failure_returns_detail(client):
+    """检测到登录态但持久化失败时，应返回可展示的失败细节。"""
+    with (
+        patch("routers.live_login.get_session", return_value=MOCK_SESSION),
+        patch(
+            "routers.live_login.confirm_login",
+            new_callable=AsyncMock,
+            return_value={
+                "is_logged_in": False,
+                "storage_state": None,
+                "persistence": {
+                    "workspace_saved": True,
+                    "db_saved": False,
+                    "workspace_detail": "工作区已写入",
+                    "db_detail": "数据库持久化异常：column encrypted_session_state does not exist",
+                },
+            },
+        ),
+    ):
+        resp = await client.post(
+            "/api/live-login/ls-001/confirm",
+            headers=auth_header(),
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert body["message"] == "登录态已识别，但数据库持久化失败"
+    assert "数据库持久化异常" in body["persistence_detail"]
+
+
+@pytest.mark.asyncio
 async def test_confirm_session_not_found(client):
     """会话不存在返回 404。"""
     with patch("routers.live_login.get_session", return_value=None):

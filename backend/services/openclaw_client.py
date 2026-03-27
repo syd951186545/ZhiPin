@@ -10,22 +10,33 @@ OpenClaw HTTP + SSE 客户端
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
 from config import get_settings
 from services.screenshot_service import service as screenshot_service
+from services.session_crypto import decrypt_storage_state
 
 REQUEST_TIMEOUT = 15.0
 SSE_TIMEOUT = 300.0  # 5 minutes per step
+BROWSER_STATUS_TIMEOUT = 5.0
+BROWSER_READY_TIMEOUT = 20.0
+GATEWAY_RESTART_TIMEOUT = 30.0
+HOST_BROWSER_START_TIMEOUT = 15.0
+HOST_BROWSER_PROFILE = "openclaw"
 
 _MARKDOWN_IMG_RE = re.compile(r'!\[.*?\]\(((?:file://|https?://)[^)]+\.(?:png|jpg|jpeg|webp)(?:\?[^)]*)?)\)')
 _PLAIN_PATH_RE = re.compile(r'(/(?:tmp|home|root|var|opt)/[^\s\'"<>|]*\.(?:png|jpg|jpeg|webp))')
 _HTTP_IMAGE_RE = re.compile(r'(https?://[^\s\'"<>|]*\.(?:png|jpg|jpeg|webp)(?:\?[^\s\'"<>|]*)?)')
+_BROWSER_READY_RE = re.compile(r"\[BROWSER_READY:(OK|FAILED)\]")
+_BROWSER_REASON_RE = re.compile(r"\[BROWSER_REASON:([^\]]{1,300})\]")
+_LOGIN_STATE_RE = re.compile(r"\[LOGIN_STATE:(LOGGED_IN|FAILED|AWAIT_SMS|AWAIT_QR|AWAIT_PASSWORD_2FA|LOGGED_OUT)\]")
 
 
 @dataclass
@@ -40,6 +51,16 @@ class StepResult:
     error: Optional[str] = None
 
 
+@dataclass
+class BrowserReadyResult:
+    """OpenClaw host browser 预检结果。"""
+
+    ready: bool
+    detail: str = ""
+    http_status: int = 503
+    status_snapshot: dict[str, Any] = field(default_factory=dict)
+
+
 class OpenClawClient:
     """OpenClaw HTTP + SSE 客户端。"""
 
@@ -51,6 +72,7 @@ class OpenClawClient:
     ):
         settings = get_settings()
         self.base_url = (base_url or settings.openclaw_base_url).rstrip("/")
+        self.browser_base_url = (settings.openclaw_browser_base_url or "").rstrip("/")
         self.auth_token = auth_token or settings.openclaw_auth_token
         self.agent_id = agent_id or settings.openclaw_agent_id
 
@@ -60,6 +82,609 @@ class OpenClawClient:
             "Content-Type": "application/json",
             "x-openclaw-agent-id": self.agent_id,
         }
+
+    def _browser_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self.auth_token:
+            headers["Authorization"] = f"Bearer {self.auth_token}"
+        return headers
+
+    def _runtime_config_path(self) -> Path:
+        settings = get_settings()
+        return Path(settings.openclaw_home_mount) / ".openclaw" / "openclaw.json"
+
+    def _workspace_storage_state_path(self, session_id: str) -> Path:
+        settings = get_settings()
+        return Path(settings.openclaw_home_mount) / ".openclaw" / "workspace" / session_id / "storage_state.json"
+
+    def _browser_profile(self, profile: str | None) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", (profile or "").strip())
+        return normalized or HOST_BROWSER_PROFILE
+
+    def _host_browser_user_data_dir(self, profile: str = HOST_BROWSER_PROFILE) -> Path:
+        settings = get_settings()
+        return Path(settings.openclaw_home_mount) / ".openclaw" / "browser" / self._browser_profile(profile) / "user-data"
+
+    def _write_workspace_storage_state(self, session_id: str, storage_state: dict[str, Any]) -> None:
+        path = self._workspace_storage_state_path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(storage_state, ensure_ascii=False), encoding="utf-8")
+
+    def _load_workspace_storage_state(self, session_id: str) -> Optional[dict[str, Any]]:
+        path = self._workspace_storage_state_path(session_id)
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _decode_encrypted_storage_state(self, ciphertext_b64: str) -> dict[str, Any]:
+        ciphertext = base64.b64decode(ciphertext_b64)
+        plaintext = decrypt_storage_state(ciphertext)
+        payload = json.loads(plaintext)
+        if not isinstance(payload, dict):
+            raise ValueError("storageState 结构无效")
+        return payload
+
+    def _load_persisted_storage_state(
+        self,
+        session_id: str,
+        encrypted_session_state: str = "",
+    ) -> tuple[Optional[dict[str, Any]], str]:
+        raw_ciphertext = (encrypted_session_state or "").strip()
+        if raw_ciphertext:
+            payload = self._decode_encrypted_storage_state(raw_ciphertext)
+            self._write_workspace_storage_state(session_id, payload)
+            return payload, "database"
+
+        payload = self._load_workspace_storage_state(session_id)
+        if payload:
+            return payload, "workspace"
+        return None, ""
+
+    def _clear_stale_host_browser_locks(self, profile: str = HOST_BROWSER_PROFILE) -> bool:
+        removed = False
+        user_data_dir = self._host_browser_user_data_dir(profile)
+        for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+            lock_path = user_data_dir / name
+            try:
+                if lock_path.is_symlink() or lock_path.exists():
+                    lock_path.unlink()
+                    removed = True
+            except FileNotFoundError:
+                continue
+        return removed
+
+    def _host_browser_allowed(self) -> BrowserReadyResult:
+        config_path = self._runtime_config_path()
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw 运行时配置缺失，无法确认 host browser 策略",
+                http_status=503,
+            )
+        except Exception as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"OpenClaw 运行时配置不可读：{exc}",
+                http_status=503,
+            )
+
+        agents_cfg = payload.get("agents") if isinstance(payload, dict) else {}
+        defaults_sandbox_cfg = ((agents_cfg or {}).get("defaults") or {}).get("sandbox") or {}
+        defaults_browser_cfg = (
+            (defaults_sandbox_cfg or {}).get("browser") or {}
+        )
+        if defaults_sandbox_cfg.get("mode") == "off":
+            return BrowserReadyResult(ready=True)
+        if defaults_browser_cfg.get("allowHostControl") is True:
+            return BrowserReadyResult(ready=True)
+
+        for item in (agents_cfg or {}).get("list", []) or []:
+            if not isinstance(item, dict) or item.get("id") != self.agent_id:
+                continue
+            sandbox_cfg = item.get("sandbox") or {}
+            if sandbox_cfg.get("mode") == "off":
+                return BrowserReadyResult(ready=True)
+            browser_cfg = (sandbox_cfg.get("browser")) or {}
+            if browser_cfg.get("allowHostControl") is True:
+                return BrowserReadyResult(ready=True)
+
+        return BrowserReadyResult(
+            ready=False,
+            detail=(
+                "OpenClaw 当前仍在沙箱模式，未允许切换到 host browser；"
+                "请设置 agents.list[].sandbox.mode=off 或 agents.defaults.sandbox.browser.allowHostControl=true"
+            ),
+            http_status=503,
+        )
+
+    async def _invoke_gateway(self, action: str, args: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            response = await client.post(
+                f"{self.base_url}/tools/invoke",
+                headers={
+                    "Authorization": f"Bearer {self.auth_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "tool": "gateway",
+                    "action": action,
+                    "args": args,
+                },
+            )
+            response.raise_for_status()
+
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Gateway 返回格式无效")
+        if payload.get("ok") is False:
+            error = payload.get("error") or {}
+            message = error.get("message") if isinstance(error, dict) else None
+            raise ValueError(message or f"Gateway {action} 返回失败")
+
+        result = payload.get("result", payload)
+        if not isinstance(result, dict):
+            raise ValueError("Gateway 返回结果格式无效")
+
+        details = result.get("details")
+        if isinstance(details, dict):
+            inner = details.get("result")
+            if isinstance(inner, dict):
+                return inner
+
+        nested = result.get("result")
+        if isinstance(nested, dict):
+            return nested
+        return result
+
+    async def _wait_for_gateway_ready(self) -> BrowserReadyResult:
+        deadline = asyncio.get_running_loop().time() + GATEWAY_RESTART_TIMEOUT
+        last_error = "OpenClaw 网关重载中"
+
+        async with httpx.AsyncClient(timeout=BROWSER_STATUS_TIMEOUT) as client:
+            while asyncio.get_running_loop().time() < deadline:
+                try:
+                    response = await client.get(
+                        f"{self.base_url}/healthz",
+                        headers=self._browser_headers(),
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    if isinstance(payload, dict) and payload.get("ok") is True:
+                        return BrowserReadyResult(ready=True)
+                except Exception as exc:
+                    last_error = str(exc)
+                await asyncio.sleep(1)
+
+        return BrowserReadyResult(
+            ready=False,
+            detail=f"OpenClaw 网关重载超时：{last_error}",
+            http_status=503,
+        )
+
+    async def _ensure_host_browser_control_runtime(self) -> BrowserReadyResult:
+        current_state = self._host_browser_allowed()
+        if current_state.ready:
+            return current_state
+
+        try:
+            config_get_result = await self._invoke_gateway("config.get", {})
+        except Exception as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"读取 OpenClaw 运行时配置失败：{exc}",
+                http_status=503,
+            )
+
+        runtime_config = config_get_result.get("parsed") if isinstance(config_get_result, dict) else None
+        base_hash = config_get_result.get("hash") if isinstance(config_get_result, dict) else None
+        if not isinstance(runtime_config, dict) or not isinstance(base_hash, str) or not base_hash:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw 运行时配置返回无效，无法启用 host browser",
+                http_status=503,
+            )
+
+        runtime_config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("sandbox", {}).setdefault(
+            "browser", {}
+        )["allowHostControl"] = True
+
+        try:
+            await self._invoke_gateway(
+                "config.apply",
+                {
+                    "raw": json.dumps(runtime_config, ensure_ascii=False, indent=2),
+                    "baseHash": base_hash,
+                    "note": "Enable host browser control for JiLing verify",
+                },
+            )
+        except Exception as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"写入 OpenClaw host browser 配置失败：{exc}",
+                http_status=503,
+            )
+
+        gateway_ready = await self._wait_for_gateway_ready()
+        if not gateway_ready.ready:
+            return gateway_ready
+
+        return BrowserReadyResult(ready=True, detail="host browser 控制已启用")
+
+    async def _fetch_host_browser_status(self, profile: str = HOST_BROWSER_PROFILE) -> BrowserReadyResult:
+        if not self.browser_base_url:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw browser 状态地址未配置",
+                http_status=503,
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=BROWSER_STATUS_TIMEOUT) as client:
+                response = await client.get(
+                    f"{self.browser_base_url}/",
+                    headers=self._browser_headers(),
+                    params={"profile": self._browser_profile(profile)},
+                )
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if status_code in (401, 403):
+                detail = "OpenClaw browser 服务认证失败，请检查 token 配置"
+            else:
+                detail = f"OpenClaw browser 服务不可用 ({status_code})"
+            return BrowserReadyResult(ready=False, detail=detail, http_status=503)
+        except Exception as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"OpenClaw browser 服务不可达：{exc}",
+                http_status=503,
+            )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw browser 服务返回了无效 JSON",
+                http_status=503,
+            )
+
+        if not isinstance(payload, dict):
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw browser 服务状态格式无效",
+                http_status=503,
+            )
+        if payload.get("enabled") is not True:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw host browser 未启用",
+                http_status=503,
+                status_snapshot=payload,
+            )
+        if payload.get("detectError"):
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"OpenClaw host browser 检测失败：{payload.get('detectError')}",
+                http_status=503,
+                status_snapshot=payload,
+            )
+        if payload.get("running") is not True or payload.get("cdpReady") is not True:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw host browser 尚未启动，系统将尝试自动拉起",
+                http_status=503,
+                status_snapshot=payload,
+            )
+        if not payload.get("chosenBrowser"):
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw host browser 未选择可用浏览器",
+                http_status=503,
+                status_snapshot=payload,
+            )
+
+        return BrowserReadyResult(
+            ready=True,
+            status_snapshot=payload,
+        )
+
+    def _normalize_browser_start_detail(self, error: str, status_snapshot: dict[str, Any] | None = None) -> str:
+        text = (error or "").strip()
+        lowered = text.lower()
+        if "profile appears to be in use" in lowered or "singletonlock" in lowered:
+            return "OpenClaw host browser 配置目录被残留锁占用，请稍后重试"
+        if "missing x server" in lowered or "$display" in lowered:
+            return "OpenClaw host browser 当前为有界面模式，但服务器没有 DISPLAY，请改为 headless 模式"
+        if "failed to start chrome cdp" in lowered:
+            return "OpenClaw host browser 启动失败，请检查 Chromium/CDP 配置"
+        if status_snapshot and status_snapshot.get("detectError"):
+            return f"OpenClaw host browser 检测失败：{status_snapshot.get('detectError')}"
+        return text or "OpenClaw host browser 启动失败"
+
+    async def _start_host_browser(
+        self,
+        status_snapshot: dict[str, Any] | None = None,
+        profile: str = HOST_BROWSER_PROFILE,
+    ) -> BrowserReadyResult:
+        if not self.browser_base_url:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw browser 状态地址未配置",
+                http_status=503,
+            )
+
+        async def attempt_start() -> dict[str, Any]:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    f"{self.browser_base_url}/start",
+                    headers=self._browser_headers(),
+                    params={"profile": self._browser_profile(profile)},
+                )
+                response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, dict) and payload.get("error"):
+                raise ValueError(str(payload.get("error")))
+            return payload if isinstance(payload, dict) else {}
+
+        start_error = ""
+        try:
+            await attempt_start()
+        except Exception as exc:
+            start_error = str(exc)
+            if "profile appears to be in use" in start_error.lower() and self._clear_stale_host_browser_locks(profile):
+                try:
+                    await attempt_start()
+                    start_error = ""
+                except Exception as retry_exc:
+                    start_error = str(retry_exc)
+            if start_error:
+                return BrowserReadyResult(
+                    ready=False,
+                    detail=self._normalize_browser_start_detail(start_error, status_snapshot),
+                    http_status=503,
+                    status_snapshot=status_snapshot or {},
+                )
+
+        deadline = asyncio.get_running_loop().time() + HOST_BROWSER_START_TIMEOUT
+        last_status = BrowserReadyResult(
+            ready=False,
+            detail="OpenClaw host browser 启动后仍未就绪",
+            http_status=503,
+            status_snapshot=status_snapshot or {},
+        )
+        while asyncio.get_running_loop().time() < deadline:
+            last_status = await self._fetch_host_browser_status(profile=profile)
+            if last_status.ready:
+                return last_status
+            await asyncio.sleep(1)
+
+        return last_status
+
+    async def _restore_storage_state_to_host_browser(
+        self,
+        *,
+        cdp_url: str,
+        storage_state: dict[str, Any],
+    ) -> None:
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError as exc:
+            raise RuntimeError("playwright 未安装，无法恢复持久登录态") from exc
+
+        cookies = storage_state.get("cookies") or []
+        origins = storage_state.get("origins") or []
+
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.connect_over_cdp(cdp_url, timeout=10_000)
+            context = browser.contexts[0] if browser.contexts else None
+            if context is None:
+                raise RuntimeError("host browser 未暴露可用 context")
+
+            await context.clear_cookies()
+            if cookies:
+                await context.add_cookies(cookies)
+
+            for origin_item in origins:
+                if not isinstance(origin_item, dict):
+                    continue
+                origin = str(origin_item.get("origin") or "").strip()
+                local_storage = origin_item.get("localStorage") or []
+                if not origin or not local_storage:
+                    continue
+
+                page = await context.new_page()
+                try:
+                    await page.goto(origin, wait_until="domcontentloaded", timeout=10_000)
+                    await page.evaluate(
+                        """(items) => {
+                            window.localStorage.clear();
+                            for (const item of items || []) {
+                                if (!item || typeof item.name !== "string") continue;
+                                window.localStorage.setItem(item.name, String(item.value ?? ""));
+                            }
+                        }""",
+                        local_storage,
+                    )
+                finally:
+                    await page.close()
+
+    async def _restore_persisted_session(
+        self,
+        *,
+        session_id: str,
+        profile: str,
+        status_snapshot: dict[str, Any],
+        encrypted_session_state: str = "",
+    ) -> BrowserReadyResult:
+        try:
+            storage_state, source = self._load_persisted_storage_state(
+                session_id=session_id,
+                encrypted_session_state=encrypted_session_state,
+            )
+        except Exception as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"持久化登录态读取失败：{exc}",
+                http_status=503,
+                status_snapshot=status_snapshot,
+            )
+
+        if not storage_state:
+            return BrowserReadyResult(ready=True, detail="未找到可恢复的持久登录态", status_snapshot=status_snapshot)
+
+        cdp_url = str(status_snapshot.get("cdpUrl") or "").strip()
+        if not cdp_url:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw host browser 未返回 CDP 地址，无法恢复登录态",
+                http_status=503,
+                status_snapshot=status_snapshot,
+            )
+
+        try:
+            await self._restore_storage_state_to_host_browser(cdp_url=cdp_url, storage_state=storage_state)
+        except Exception as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"恢复持久登录态失败：{exc}",
+                http_status=503,
+                status_snapshot=status_snapshot,
+            )
+
+        return BrowserReadyResult(
+            ready=True,
+            detail=f"已从{source}恢复持久登录态",
+            status_snapshot=status_snapshot,
+        )
+
+    def _browser_ready_prompt(self, platform_url: str, profile: str) -> str:
+        profile_name = self._browser_profile(profile)
+        target_url = platform_url.strip() if platform_url else "about:blank"
+        return f"""你现在只执行浏览器可用性预检，不要做任何业务判断。
+
+【硬性要求】
+1. 只能使用 browser 工具。
+2. 每次 browser 工具调用都必须显式使用 `target="host"` 和 `profile="{profile_name}"`。
+3. 禁止使用默认 sandbox browser，禁止调用其他工具。
+
+【预检步骤】
+1. 先打开 about:blank。
+2. 再访问 {target_url}，确认页面开始响应即可，不要求判断登录态。
+3. 执行一次 browser snapshot，确认 host browser 可交互。
+
+【输出要求】
+- 若预检成功，只输出：
+[BROWSER_READY:OK]
+[BROWSER_REASON:host browser 可用]
+- 若 browser 工具报错、不可用、超时或被拒绝，只输出：
+[BROWSER_READY:FAILED]
+[BROWSER_REASON:20字以内原因]"""
+
+    def _normalize_browser_ready_detail(self, error: str = "", accumulated: str = "") -> str:
+        text = "\n".join(part for part in (error, accumulated) if part).strip()
+        lowered = text.lower()
+        if "sandbox browser is unavailable" in lowered:
+            return "OpenClaw 仍在尝试使用 sandbox browser，请检查 host browser 目标配置"
+        if "target=\"host\"" in lowered and "allowhostcontrol" in lowered:
+            return "OpenClaw 未允许 host browser 控制，请检查 allowHostControl 配置"
+        if "timed out" in lowered or "超时" in text:
+            return "OpenClaw host browser 响应超时，请重启浏览器网关后重试"
+        if "browser unavailable" in lowered:
+            return "OpenClaw browser 当前不可用，请检查浏览器网关"
+        if "认证失败" in text or "unauthorized" in lowered:
+            return "OpenClaw browser 认证失败，请检查 token 配置"
+        return text or "OpenClaw browser-ready 预检失败"
+
+    async def ensure_host_browser_ready(
+        self,
+        session_id: str,
+        platform_url: str = "",
+        encrypted_session_state: str = "",
+    ) -> BrowserReadyResult:
+        if not session_id:
+            return BrowserReadyResult(
+                ready=False,
+                detail="账号缺少持久会话键，请重新绑定后再验证",
+                http_status=400,
+            )
+
+        profile = HOST_BROWSER_PROFILE
+        host_target_result = await self._ensure_host_browser_control_runtime()
+        if not host_target_result.ready:
+            return host_target_result
+
+        status_result = await self._fetch_host_browser_status(profile=profile)
+        if not status_result.ready:
+            status_result = await self._start_host_browser(status_snapshot=status_result.status_snapshot, profile=profile)
+            if not status_result.ready:
+                return status_result
+
+        restore_result = await self._restore_persisted_session(
+            session_id=session_id,
+            profile=profile,
+            status_snapshot=status_result.status_snapshot,
+            encrypted_session_state=encrypted_session_state,
+        )
+        if not restore_result.ready:
+            return restore_result
+
+        try:
+            smoke_result = await asyncio.wait_for(
+                self.execute_step(
+                    prompt=self._browser_ready_prompt(platform_url, profile=profile),
+                    session_id=session_id,
+                    step_id="browser_ready",
+                ),
+                timeout=BROWSER_READY_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"OpenClaw host browser 预检超时（>{int(BROWSER_READY_TIMEOUT)}秒）",
+                http_status=503,
+                status_snapshot=status_result.status_snapshot,
+            )
+
+        if smoke_result.error:
+            return BrowserReadyResult(
+                ready=False,
+                detail=self._normalize_browser_ready_detail(smoke_result.error, smoke_result.accumulated_text),
+                http_status=503,
+                status_snapshot=status_result.status_snapshot,
+            )
+
+        accumulated_text = smoke_result.accumulated_text or ""
+        state_match = _BROWSER_READY_RE.search(accumulated_text)
+        reason_match = _BROWSER_REASON_RE.search(accumulated_text)
+        reason = reason_match.group(1).strip() if reason_match else ""
+        if state_match and state_match.group(1) == "OK":
+            return BrowserReadyResult(
+                ready=True,
+                detail=reason or "host browser 可用",
+                status_snapshot=status_result.status_snapshot,
+            )
+
+        login_state_match = _LOGIN_STATE_RE.search(accumulated_text)
+        if login_state_match and login_state_match.group(1) == "LOGGED_IN":
+            return BrowserReadyResult(
+                ready=True,
+                detail=reason or "host browser 已恢复到登录态",
+                status_snapshot=status_result.status_snapshot,
+            )
+
+        return BrowserReadyResult(
+            ready=False,
+            detail=reason or self._normalize_browser_ready_detail(accumulated=accumulated_text),
+            http_status=503,
+            status_snapshot=status_result.status_snapshot,
+        )
 
     async def cancel_response(self, response_id: str) -> None:
         if not response_id:

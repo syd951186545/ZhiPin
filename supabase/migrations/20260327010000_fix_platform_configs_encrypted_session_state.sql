@@ -1,6 +1,5 @@
--- Add encrypted_session_state column to platform_configs table
--- Stores AES-256-GCM encrypted Playwright storageState (base64 encoded)
--- for noVNC live login session persistence
+-- Backfill fix for environments that already applied the mistaken migration to platform_accounts.
+-- Runtime code persists login state on public.platform_configs.
 
 ALTER TABLE public.platform_configs
   ADD COLUMN IF NOT EXISTS encrypted_session_state text;

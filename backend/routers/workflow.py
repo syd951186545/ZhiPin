@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from services.openclaw_health import probe_openclaw
+from services.platform_binding_service import ensure_verify_session_ready
 from services.workflow_runtime_store import store as runtime_store
 from services.supabase_client import (
     complete_automation_task,
@@ -186,6 +187,13 @@ async def start_workflow(req: WorkflowStartRequest):
                 raise HTTPException(status_code=400, detail=f"平台 {platform} 的账号未完成绑定或登录已失效")
             resolved_accounts.append(account)
         req.platform_accounts = resolved_accounts
+
+    for account in req.platform_accounts:
+        if not account.get("encrypted_session_state"):
+            continue
+        readiness = await ensure_verify_session_ready(account=account)
+        if not readiness["ready"]:
+            raise HTTPException(status_code=readiness["http_status"], detail=readiness["detail"])
 
     execution_id = str(uuid4())
     _event_queues[execution_id] = asyncio.Queue()
