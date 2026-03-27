@@ -30,10 +30,11 @@ import {supabase} from '@/lib/supabase'
 import {cn} from '@/lib/utils'
 import {JobManagementPanel} from '@/pages/Jobs'
 import Candidates from '@/pages/Candidates'
+import type {PlatformAccountApiRow} from '@/services/platformAccountService'
 import {getWorkflowTemplates, testBackendConnection, validateWorkflowTemplate} from '@/services/workflowService'
 import type {WorkflowId, WorkflowTemplate} from '@/services/workflowService'
 import {useSettingsStore} from '@/stores/useSettingsStore'
-import {useWorkflowStore} from '@/stores/useWorkflowStore'
+import {useWorkflowStore, type ActionNode} from '@/stores/useWorkflowStore'
 import type {Job} from '@/types/database'
 import type {PlatformBindingSession} from '@/types/openclaw'
 
@@ -107,13 +108,6 @@ const WORKFLOW_CARDS: Array<{
 
 /* ── status helpers ────────────────────────────────────────── */
 
-const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-emerald-500',
-  verifying: 'bg-amber-500',
-  expired: 'bg-red-500',
-  needsLogin: 'bg-zinc-400',
-}
-
 const statusBadge = (status: string) => {
   switch (status) {
     case 'active': return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 border-0">已绑定</Badge>
@@ -161,6 +155,132 @@ const trimInlineText = (value: string, max = 48) => {
   return `${value.slice(0, max)}...`
 }
 
+const getLatestVerifySession = (account?: PlatformAccountApiRow | null) => (
+  account?.latestBindingSession?.action === 'verify' ? account.latestBindingSession : null
+)
+
+const isBoundPlatformAccount = (account: PlatformAccountApiRow) => (
+  account.status !== 'expired' && (Boolean(account.browserSessionKey) || ['active', 'verifying'].includes(account.status))
+)
+
+const accountStatusHint = (account: PlatformAccountApiRow) => {
+  switch (account.status) {
+    case 'active':
+      return '登录状态可直接复用，建议定期做一次后台验证。'
+    case 'verifying':
+      return '系统正在后台处理该账号，请等待当前任务结束。'
+    case 'expired':
+      return '最近一次验证已失效，需要重新绑定登录态。'
+    default:
+      return '当前账号还没有可复用的登录态，先完成一次绑定。'
+  }
+}
+
+function getActionNodeImageUrls(node: ActionNode): string[] {
+  const deduped = new Set<string>()
+  for (const candidate of [...(node.imageUrls || []), node.contentUrl, node.screenshot]) {
+    if (typeof candidate !== 'string') continue
+    const normalized = candidate.trim()
+    if (!normalized) continue
+    deduped.add(normalized)
+  }
+  return Array.from(deduped)
+}
+
+function getExecutionAuthGuide(error?: string, accumulatedText?: string) {
+  const source = `${error || ''}\n${accumulatedText || ''}`
+  if (!/(AUTH_REQUIRED|登录态已失效|需要重新登录|会话失效|重新绑定账号)/.test(source)) {
+    return null
+  }
+  return {
+    title: '当前账号登录态已失效',
+    description: '请前往「平台和账号配置」，先对该账号执行“重新验证”；如果仍失败，再执行“重新绑定”完成登录后，回到当前页面重新运行工作流。',
+  }
+}
+
+function ExecutionScreenshotCard({node, onPreview}: {node: ActionNode; onPreview: (src: string) => void}) {
+  const imageUrls = getActionNodeImageUrls(node)
+  const imageUrlKey = imageUrls.join('|')
+  const [activeIndex, setActiveIndex] = useState(imageUrls.length > 0 ? 0 : -1)
+
+  useEffect(() => {
+    setActiveIndex(imageUrls.length > 0 ? 0 : -1)
+  }, [node.id, imageUrlKey])
+
+  const activeUrl = activeIndex >= 0 ? imageUrls[activeIndex] : null
+  const fallbackUrl = imageUrls[0] || null
+  const allAttemptsFailed = !activeUrl && imageUrls.length > 0
+
+  return (
+    <div className="overflow-hidden rounded-lg border shadow-sm">
+      <div className="relative">
+        {activeUrl ? (
+          <button
+            type="button"
+            className="group/shot relative block w-full text-left"
+            onClick={() => onPreview(activeUrl)}
+          >
+            <img
+              src={activeUrl}
+              alt={node.action}
+              className="h-28 w-full object-cover object-top"
+              onError={() => setActiveIndex((current) => (current + 1 < imageUrls.length ? current + 1 : -1))}
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/shot:bg-black/10">
+              <Search className="h-5 w-5 text-white opacity-0 transition-opacity group-hover/shot:opacity-80"/>
+            </div>
+          </button>
+        ) : (
+          <div className="flex h-28 flex-col items-center justify-center gap-1 bg-muted/20 px-4 text-center text-muted-foreground">
+            <Camera className="h-7 w-7 opacity-30"/>
+            <p className="text-xs">截图加载失败</p>
+            <p className="text-[11px] opacity-80">已尝试备用链接，可直接打开原图重试。</p>
+          </div>
+        )}
+        {node.artifactId && (
+          <div className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+            {node.persisted ? '已落库' : '实时'}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t bg-muted/10 px-3 py-2">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-medium text-foreground">{node.action}</p>
+          <p className="text-[11px] text-muted-foreground">{node.time}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {activeUrl && (
+            <button
+              type="button"
+              className="text-[11px] font-medium text-primary transition-opacity hover:opacity-80"
+              onClick={() => onPreview(activeUrl)}
+            >
+              查看
+            </button>
+          )}
+          {fallbackUrl && (
+            <a
+              href={fallbackUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[11px] font-medium text-muted-foreground transition-opacity hover:text-foreground"
+            >
+              原图
+            </a>
+          )}
+        </div>
+      </div>
+
+      {allAttemptsFailed && (
+        <div className="border-t bg-amber-50/80 px-3 py-2 text-[11px] text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
+          当前卡片内预览未成功加载，但工作流截图已生成。可点击“原图”直接打开，或刷新页面后重试。
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── main component ────────────────────────────────────────── */
 
 export default function JilingRecruit() {
@@ -193,6 +313,7 @@ export default function JilingRecruit() {
   const [activeTab, setActiveTab] = useState('execute')
 
   const textEndRef = useRef<HTMLDivElement>(null)
+  const platformSelectionAutoInitRef = useRef(false)
   const displayExec = activeExecution || lastExecution
   const workflowTemplateMap = useMemo(
     () => Object.fromEntries(workflowTemplates.map((template) => [template.id, template])),
@@ -208,13 +329,27 @@ export default function JilingRecruit() {
   })), [workflowTemplateMap])
   const selectedPlatformAccounts = useMemo(() => accounts.filter((item) => item.platform === selectedPlatform), [accounts, selectedPlatform])
   const selectedAccount = useMemo(() => selectedPlatformAccounts.find((item) => item.id === selectedAccountId), [selectedAccountId, selectedPlatformAccounts])
-  const selectedLatestVerifySession = selectedAccount?.latestBindingSession?.action === 'verify' ? selectedAccount.latestBindingSession : null
-  const canReopenSelectedVerify = Boolean(selectedLatestVerifySession)
+  const selectedLatestVerifySession = useMemo(() => getLatestVerifySession(selectedAccount), [selectedAccount])
+  const selectedAccountIsBound = useMemo(() => selectedAccount ? isBoundPlatformAccount(selectedAccount) : false, [selectedAccount])
+  const selectedAccountStatusHint = useMemo(() => selectedAccount ? accountStatusHint(selectedAccount) : '请选择一个账号查看详情。', [selectedAccount])
+  const selectablePlatformKeys = useMemo<string[]>(
+    () => catalog
+      .filter((item) => {
+        const config = platformExecConfigs[item.key] || {accountId: '', jobId: ''}
+        return Boolean(config.accountId && config.jobId)
+      })
+      .map((item) => item.key),
+    [catalog, platformExecConfigs],
+  )
   const actionDialogAccount = useMemo(
     () => actionSession ? accounts.find((item) => item.id === actionSession.account_id) || null : null,
     [accounts, actionSession],
   )
   const progressPercent = displayExec ? Math.round((displayExec.steps.filter((step) => step.status === 'done').length / Math.max(displayExec.totalSteps, 1)) * 100) : 0
+  const executionAuthGuide = useMemo(
+    () => getExecutionAuthGuide(displayExec?.error, displayExec?.accumulatedText),
+    [displayExec?.accumulatedText, displayExec?.error],
+  )
 
   // stats
   const totalAccounts = accounts.length
@@ -297,8 +432,16 @@ export default function JilingRecruit() {
   }, [catalog, selectedPlatform])
 
   useEffect(() => {
-    if (!selectedPlatforms.length && catalog.length) setSelectedPlatforms(catalog.map((item) => item.key))
-  }, [catalog, selectedPlatforms.length])
+    if (!catalog.length) return
+    setSelectedPlatforms((prev) => {
+      const filtered = prev.filter((item) => selectablePlatformKeys.includes(item))
+      if (!platformSelectionAutoInitRef.current && filtered.length === 0 && selectablePlatformKeys.length) {
+        platformSelectionAutoInitRef.current = true
+        return selectablePlatformKeys
+      }
+      return filtered.length === prev.length ? prev : filtered
+    })
+  }, [catalog.length, selectablePlatformKeys])
 
   useEffect(() => {
     if (!catalog.length) return
@@ -336,13 +479,18 @@ export default function JilingRecruit() {
   const handleStartWorkflow = useCallback(async (workflowId: WorkflowId) => {
     setWorkflowError(null)
 
-    if (selectedPlatforms.length === 0) {
+    const runnablePlatforms = selectedPlatforms.filter((platform) => {
+      const config = platformExecConfigs[platform]
+      return Boolean(config?.accountId && config?.jobId)
+    })
+
+    if (runnablePlatforms.length === 0) {
       setWorkflowError('请先选中至少一个平台卡片，并为其配置账号和岗位。')
       return
     }
 
     const platformAccountIds: Record<string, string> = {}
-    for (const platform of selectedPlatforms) {
+    for (const platform of runnablePlatforms) {
       const config = platformExecConfigs[platform]
       if (!config?.accountId) {
         setWorkflowError(`平台 ${PLATFORMS[platform as keyof typeof PLATFORMS]?.name || platform} 未配置执行账号，请先选择。`)
@@ -355,7 +503,7 @@ export default function JilingRecruit() {
       platformAccountIds[platform] = config.accountId
     }
 
-    const firstPlatform = selectedPlatforms[0]
+    const firstPlatform = runnablePlatforms[0]
     const firstJobId = platformExecConfigs[firstPlatform]?.jobId
     const {data: firstJobData, error: firstJobError} = await supabase
       .from('jobs')
@@ -383,7 +531,7 @@ export default function JilingRecruit() {
       platform: firstPlatform,
       account_id: firstAccountId,
       account_name: firstAccount?.accountName || firstAccount?.name || '',
-      platforms: selectedPlatforms,
+      platforms: runnablePlatforms,
       platform_account_ids: platformAccountIds,
       job_id: firstJob.id,
       job_title: firstJob.title,
@@ -462,6 +610,86 @@ export default function JilingRecruit() {
       setCopiedText(true)
       setTimeout(() => setCopiedText(false), 2000)
     })
+  }
+
+  const renderAccountActionButtons = (
+    account: PlatformAccountApiRow,
+    variant: 'selected' | 'row',
+  ) => {
+    const latestVerifySession = getLatestVerifySession(account)
+    const canReopenVerify = Boolean(latestVerifySession)
+    const canVerifyAccount = account.status === 'active'
+    const canRebindAccount = account.status === 'expired'
+    const canUnbindAccount = account.status === 'active' || account.status === 'verifying'
+    const isBoundAccount = isBoundPlatformAccount(account)
+    const pending = actionPendingAccountId === account.id
+    const size = variant === 'selected' ? 'sm' : 'sm'
+    const viewClassName = variant === 'selected' ? 'gap-2' : 'h-7 gap-1.5 px-2.5 text-xs'
+    const primaryClassName = variant === 'selected' ? 'gap-2 shadow-sm' : 'h-7 gap-1.5 px-2.5 text-xs shadow-sm'
+    const verifyClassName = variant === 'selected'
+      ? 'gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950'
+      : 'h-7 gap-1.5 border-emerald-200 px-2.5 text-xs text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950'
+    const unbindClassName = variant === 'selected'
+      ? 'gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950'
+      : 'h-7 gap-1.5 border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950'
+
+    if (!isBoundAccount) {
+      return (
+        <Button
+          size={size}
+          className={primaryClassName}
+          onClick={() => openBindDialogForAccount(account.id)}
+          disabled={pending}
+          data-testid={variant === 'selected' ? (canRebindAccount ? 'rebind-account' : 'open-bind-dialog') : undefined}
+        >
+          <LogIn className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+          {pending ? '处理中...' : canRebindAccount ? '重新绑定' : '开始绑定'}
+        </Button>
+      )
+    }
+
+    return (
+      <>
+        {canReopenVerify && latestVerifySession && (
+          <Button
+            size={size}
+            variant="outline"
+            className={viewClassName}
+            onClick={() => reopenActionSession(latestVerifySession, account.id)}
+            data-testid={variant === 'selected' ? 'reopen-verify-dialog' : `account-view-verify-${account.id}`}
+          >
+            <Search className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+            {verifySessionViewLabel(latestVerifySession)}
+          </Button>
+        )}
+        {canVerifyAccount && (
+          <Button
+            size={size}
+            variant="outline"
+            className={verifyClassName}
+            onClick={() => handleAction('verify', account.id)}
+            disabled={pending}
+            data-testid={variant === 'selected' ? 'verify-account' : undefined}
+          >
+            <ShieldCheck className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+            {pending ? '验证中...' : verifySessionActionLabel(latestVerifySession)}
+          </Button>
+        )}
+        {canUnbindAccount && (
+          <Button
+            size={size}
+            variant="outline"
+            className={unbindClassName}
+            onClick={() => handleAction('unbind', account.id)}
+            disabled={pending}
+            data-testid={variant === 'selected' ? 'unbind-account' : undefined}
+          >
+            <Unplug className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+            {pending ? '解绑中...' : '解绑账号'}
+          </Button>
+        )}
+      </>
+    )
   }
 
   return (
@@ -558,15 +786,14 @@ export default function JilingRecruit() {
                   whileHover={{scale: 1.02}}
                   whileTap={{scale: 0.98}}
                   onClick={() => setSelectedPlatform(item.key)}
+                  aria-pressed={isSelected}
                   className={cn(
-                    'relative overflow-hidden rounded-xl border p-4 text-left transition-all duration-200',
+                    'relative overflow-hidden rounded-2xl border p-4 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
                     isSelected
                       ? `border-transparent bg-gradient-to-br ${colors.gradient} ring-2 ${colors.ring} shadow-sm`
                       : 'border-border hover:border-border/80 hover:shadow-sm',
                   )}
                 >
-                  {/* Left accent bar */}
-                  <div className={cn('absolute left-0 top-0 h-full w-1 rounded-l-xl transition-opacity', colors.bg, isSelected ? 'opacity-100' : 'opacity-0')}/>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5">
                       <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white', colors.bg)}>
@@ -574,10 +801,15 @@ export default function JilingRecruit() {
                       </div>
                       <p className="font-medium">{item.name}</p>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {hasActive && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"/>}
-                      <Badge className={cn('border-0 text-xs', count ? colors.badge : 'bg-muted text-muted-foreground')}>{count}</Badge>
-                    </div>
+                    {isSelected && <Badge variant="outline" className="border-primary/20 bg-background/80 text-primary">当前查看</Badge>}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Badge className={cn('border-0 text-xs', count ? colors.badge : 'bg-muted text-muted-foreground')}>
+                      {count ? `${count} 个账号` : '未添加账号'}
+                    </Badge>
+                    <Badge variant="outline" className={cn('text-xs', hasActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-muted-foreground')}>
+                      {hasActive ? '已有可用登录态' : '待绑定'}
+                    </Badge>
                   </div>
                   <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
                     <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 opacity-50"/>
@@ -623,12 +855,11 @@ export default function JilingRecruit() {
             ) : selectedPlatformAccounts.map((account) => {
               const isSelected = selectedAccountId === account.id
               const isActive = account.status === 'active'
-              const isExpiredAccount = account.status === 'expired'
-              const isBoundAccount = account.status !== 'expired' && (Boolean(account.browserSessionKey) || ['active', 'verifying'].includes(account.status))
-              const canVerifyAccount = account.status === 'active'
-              const canRebindAccount = isExpiredAccount
-              const latestVerifySession = account.latestBindingSession?.action === 'verify' ? account.latestBindingSession : null
+              const isDefaultAccount = platformConfigs[selectedPlatform]?.boundProfileId === account.id
+              const latestVerifySession = getLatestVerifySession(account)
               const canReopenVerify = Boolean(latestVerifySession)
+              const isBoundAccount = isBoundPlatformAccount(account)
+              const canVerifyAccount = account.status === 'active'
               const verifyEntryLabel = verifySessionViewLabel(latestVerifySession)
               const verifyActionText = verifySessionActionLabel(latestVerifySession)
               return (
@@ -639,67 +870,58 @@ export default function JilingRecruit() {
                   animate={{opacity: 1, y: 0}}
                   data-testid={`account-row-${account.id}`}
                   className={cn(
-                    'group relative overflow-hidden rounded-xl border p-4 transition-all duration-200',
-                    isSelected ? 'border-primary/30 bg-primary/[0.03] shadow-sm' : 'border-border hover:shadow-sm hover:border-border/80',
+                    'group relative overflow-hidden rounded-2xl border p-4 transition-all duration-200',
+                    isSelected ? 'border-primary/30 bg-primary/[0.03] shadow-sm shadow-primary/5' : 'border-border hover:shadow-sm hover:border-border/80',
                   )}
                 >
-                  {/* Status color bar */}
-                  <div className={cn('absolute left-0 top-0 h-full w-1 rounded-l-xl', STATUS_COLORS[account.status] || 'bg-zinc-300 dark:bg-zinc-600')}/>
-
                   <div className="flex items-start justify-between gap-3">
-                    <button type="button" className="flex-1 text-left pl-2" onClick={() => setSelectedAccountId(account.id)}>
+                    <button type="button" className="flex-1 text-left" onClick={() => setSelectedAccountId(account.id)}>
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium">{account.name}</p>
                         {statusBadge(account.status)}
+                        {isDefaultAccount && <Badge variant="outline" className="text-[10px]">默认执行</Badge>}
                       </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        <span className="text-muted-foreground/60">登录名</span> {account.accountName || account.loginIdentifierMasked || '未填写'}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        <span className="text-muted-foreground/60">会话</span> {bindingStatus(account.latestBindingSession?.status)}
-                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+                          登录名 {account.accountName || account.loginIdentifierMasked || '未填写'}
+                        </span>
+                        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+                          最近会话 {bindingStatus(account.latestBindingSession?.status)}
+                        </span>
+                        {isDefaultAccount && (
+                          <span className="rounded-full bg-primary/8 px-2.5 py-1 text-[11px] text-primary">
+                            将作为当前平台默认执行账号
+                          </span>
+                        )}
+                      </div>
                       {latestVerifySession && (
                         <>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            <span className="text-muted-foreground/60">上次验证</span> {formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at)}
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            上次验证：{formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at)}
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            <span className="text-muted-foreground/60">验证结果</span> {trimInlineText(verifySessionSummary(latestVerifySession))}
+                            验证结果：{trimInlineText(verifySessionSummary(latestVerifySession))}
                           </p>
                         </>
                       )}
+                      <p className="mt-2 text-xs text-muted-foreground/80">{accountStatusHint(account)}</p>
                       {account.lastError && <p className="mt-2 text-xs text-red-500">{account.lastError}</p>}
                     </button>
 
                     <div className="flex items-center gap-1.5">
-                      {canReopenVerify && latestVerifySession && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 gap-1.5 px-2.5 text-xs"
-                          onClick={() => reopenActionSession(latestVerifySession, account.id)}
-                          data-testid={`account-view-verify-${account.id}`}
-                        >
-                          <Search className="h-3 w-3"/>{verifyEntryLabel}
-                        </Button>
-                      )}
-                      {!isBoundAccount && (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="h-7 gap-1.5 px-2.5 text-xs shadow-sm"
-                          onClick={() => openBindDialogForAccount(account.id)}
-                        >
-                          <LogIn className="h-3 w-3"/>{canRebindAccount ? '重新绑定' : '绑定'}
-                        </Button>
-                      )}
+                      {renderAccountActionButtons(account, 'row')}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid={`account-actions-${account.id}`}>
                             <MoreHorizontal className="h-4 w-4"/>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-36">
+                        <DropdownMenuContent align="end" className="w-40">
+                          {!isBoundAccount && (
+                            <DropdownMenuItem onClick={() => openBindDialogForAccount(account.id)}>
+                              <LogIn className="mr-2 h-4 w-4"/>{account.status === 'expired' ? '重新绑定' : '开始绑定'}
+                            </DropdownMenuItem>
+                          )}
                           {isBoundAccount && (
                             <>
                               {canReopenVerify && latestVerifySession && (
@@ -717,14 +939,6 @@ export default function JilingRecruit() {
                                   disabled={actionPendingAccountId === account.id}
                                 >
                                   <ShieldCheck className="mr-2 h-4 w-4"/>{verifyActionText}
-                                </DropdownMenuItem>
-                              )}
-                              {canRebindAccount && (
-                                <DropdownMenuItem
-                                  data-testid={`account-rebind-${account.id}`}
-                                  onClick={() => openBindDialogForAccount(account.id)}
-                                >
-                                  <LogIn className="mr-2 h-4 w-4"/>重新绑定
                                 </DropdownMenuItem>
                               )}
                               {isActive && (
@@ -800,47 +1014,40 @@ export default function JilingRecruit() {
                 <Skeleton className="h-40 w-full"/>
               </div>
             ) : selectedAccount ? (
-              <div className="rounded-xl border bg-gradient-to-br from-card to-muted/20 p-4" data-testid="selected-account-panel">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold">{selectedAccount.name}</p>
-                  {statusBadge(selectedAccount.status)}
+              <div className="rounded-2xl border bg-gradient-to-br from-card to-muted/20 p-4 shadow-sm" data-testid="selected-account-panel">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold">{selectedAccount.name}</p>
+                    {statusBadge(selectedAccount.status)}
+                    {platformConfigs[selectedPlatform]?.boundProfileId === selectedAccount.id && (
+                      <Badge variant="outline" className="text-[10px]">默认执行</Badge>
+                    )}
+                  </div>
+                  <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+                    {selectedAccountIsBound ? '可直接复用' : '需要先绑定'}
+                  </Badge>
                 </div>
-                <div className="mt-3 space-y-1">
-                  <p className="text-xs text-muted-foreground">最近会话：{bindingStatus(selectedAccount.latestBindingSession?.status)}</p>
-                  <p className="text-xs text-muted-foreground">上次验证：{formatSessionTime(selectedLatestVerifySession?.updated_at || selectedLatestVerifySession?.created_at)}</p>
-                  <p className="text-xs text-muted-foreground">验证结果：{verifySessionSummary(selectedLatestVerifySession)}</p>
-                  <p className="text-xs text-muted-foreground">会话键：<span className="font-mono text-[10px]">{selectedAccount.browserSessionKey || '未生成'}</span></p>
+                <p className="mt-3 text-xs leading-5 text-muted-foreground/90">{selectedAccountStatusHint}</p>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-xl border bg-background/70 p-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">登录信息</p>
+                    <p className="mt-2 text-sm font-medium text-foreground">{selectedAccount.accountName || selectedAccount.loginIdentifierMasked || '未填写登录名'}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">最近会话：{bindingStatus(selectedAccount.latestBindingSession?.status)}</p>
+                  </div>
+                  <div className="rounded-xl border bg-background/70 p-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">最近验证</p>
+                    <p className="mt-2 text-sm font-medium text-foreground">{formatSessionTime(selectedLatestVerifySession?.updated_at || selectedLatestVerifySession?.created_at)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{verifySessionSummary(selectedLatestVerifySession)}</p>
+                  </div>
+                  <div className="rounded-xl border bg-background/70 p-3 sm:col-span-2">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">浏览器会话键</p>
+                    <p className="mt-2 font-mono text-xs text-foreground break-all">{selectedAccount.browserSessionKey || '未生成'}</p>
+                  </div>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {(Boolean(selectedAccount.browserSessionKey) || ['active', 'expired', 'verifying'].includes(selectedAccount.status)) ? (
-                    <>
-                      {canReopenSelectedVerify && selectedLatestVerifySession && (
-                        <Button size="sm" variant="outline" className="gap-2" onClick={() => reopenActionSession(selectedLatestVerifySession, selectedAccount.id)} data-testid="reopen-verify-dialog">
-                          <Search className="h-3.5 w-3.5"/>{verifySessionViewLabel(selectedLatestVerifySession)}
-                        </Button>
-                      )}
-                      {selectedAccount.status === 'active' && (
-                        <Button size="sm" variant="outline" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950" onClick={() => handleAction('verify', selectedAccount.id)} data-testid="verify-account">
-                          <ShieldCheck className="h-3.5 w-3.5"/>{verifySessionActionLabel(selectedLatestVerifySession)}
-                        </Button>
-                      )}
-                      {selectedAccount.status === 'expired' && (
-                        <Button size="sm" className="gap-2 shadow-sm" onClick={() => openBindDialogForAccount(selectedAccount.id)} data-testid="rebind-account">
-                          <LogIn className="h-3.5 w-3.5"/>重新绑定
-                        </Button>
-                      )}
-                      {(selectedAccount.status === 'active' || selectedAccount.status === 'verifying') && (
-                        <Button size="sm" variant="outline" className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950" onClick={() => handleAction('unbind', selectedAccount.id)} data-testid="unbind-account">
-                          <Unplug className="h-3.5 w-3.5"/>解绑账号
-                        </Button>
-                      )}
-                    </>
-                  ) : (
-                    <Button size="sm" className="gap-2 shadow-sm" onClick={() => openBindDialogForAccount(selectedAccount.id)} data-testid="open-bind-dialog">
-                      <LogIn className="h-3.5 w-3.5"/>开始绑定
-                    </Button>
-                  )}
+                  {renderAccountActionButtons(selectedAccount, 'selected')}
                 </div>
 
                 {selectedAccount.latestBindingSession?.latest_screenshot_url && (
@@ -1119,6 +1326,25 @@ export default function JilingRecruit() {
                 </div>
               </CardHeader>
               <CardContent className="pt-5">
+                {executionAuthGuide && (
+                  <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>
+                      <div className="space-y-1">
+                        <p className="font-medium">{executionAuthGuide.title}</p>
+                        <p className="text-xs leading-5 text-amber-800/90 dark:text-amber-200/90">{executionAuthGuide.description}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" className="h-8 gap-1.5" onClick={() => setActiveTab('platform-config')}>
+                        <LinkIcon className="h-3.5 w-3.5"/>前往平台和账号配置
+                      </Button>
+                      <span className="flex items-center text-[11px] text-amber-800/80 dark:text-amber-200/80">
+                        建议顺序：重新验证 → 重新绑定 → 回到本页重试
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <div className="grid gap-6 lg:grid-cols-3">
                   {/* Progress timeline */}
                   <div className="space-y-4" data-testid="execution-steps">
@@ -1168,23 +1394,7 @@ export default function JilingRecruit() {
                     ) : (
                       <div className="space-y-3 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
                         {displayExec.actionNodes.map((node) => (
-                          <button key={node.id} type="button" className="group/shot w-full overflow-hidden rounded-lg border shadow-sm transition-shadow hover:shadow-md text-left" onClick={() => setLightboxSrc(node.screenshot || node.contentUrl || null)}>
-                            {node.screenshot ? (
-                              <div className="relative">
-                                <img src={node.screenshot} alt={node.action} className="h-28 w-full object-cover object-top"/>
-                                {node.artifactId && (
-                                  <div className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
-                                    {node.persisted ? '已落库' : '实时'}
-                                  </div>
-                                )}
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/shot:bg-black/10">
-                                  <Search className="h-5 w-5 text-white opacity-0 transition-opacity group-hover/shot:opacity-80"/>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="p-3 text-xs text-muted-foreground">{node.action}</div>
-                            )}
-                          </button>
+                          <ExecutionScreenshotCard key={node.id} node={node} onPreview={setLightboxSrc}/>
                         ))}
                       </div>
                     )}

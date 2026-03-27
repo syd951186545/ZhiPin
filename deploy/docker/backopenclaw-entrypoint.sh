@@ -155,6 +155,25 @@ PY
     return 1
 }
 
+openclaw_health_ok() {
+    python - <<'PY'
+import urllib.request
+urllib.request.urlopen("http://127.0.0.1:18789/healthz", timeout=2).read()
+PY
+}
+
+wait_for_openclaw_recovery() {
+    retries="${1:-15}"
+    while [ "$retries" -gt 0 ]; do
+        if openclaw_health_ok; then
+            return 0
+        fi
+        retries=$((retries - 1))
+        sleep 2
+    done
+    return 1
+}
+
 cleanup() {
     if [ "${BACKEND_PID:-}" ]; then
         kill "$BACKEND_PID" 2>/dev/null || true
@@ -162,6 +181,7 @@ cleanup() {
     if [ "${OPENCLAW_PID:-}" ]; then
         kill "$OPENCLAW_PID" 2>/dev/null || true
     fi
+    pkill -f "node openclaw.mjs gateway --allow-unconfigured" 2>/dev/null || true
 }
 
 trap cleanup INT TERM EXIT
@@ -203,9 +223,12 @@ BACKEND_PID=$!
 
 exit_code=0
 while :; do
-    if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
-        wait "$OPENCLAW_PID" || exit_code=$?
-        break
+    if ! openclaw_health_ok >/dev/null 2>&1; then
+        if ! wait_for_openclaw_recovery 20 >/dev/null 2>&1; then
+            echo "OpenClaw 在恢复窗口内未重新就绪，停止容器" >&2
+            exit_code=1
+            break
+        fi
     fi
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
         wait "$BACKEND_PID" || exit_code=$?

@@ -7,6 +7,7 @@
 import {create} from 'zustand'
 import {supabase} from '@/lib/supabase'
 import {
+  type ArtifactEvent,
   cancelWorkflow as apiCancelWorkflow,
   getWorkflowRun,
   startWorkflow as apiStartWorkflow,
@@ -33,6 +34,7 @@ export interface ActionNode {
   time: string
   action: string
   screenshot?: string
+  imageUrls?: string[]
   stepId: string
   artifactId?: string
   contentUrl?: string
@@ -136,27 +138,72 @@ function setAndPersist(
   persistExecutionPointer(state.activeExecution, state.lastExecution)
 }
 
+function collectArtifactImageUrls(source: {
+  content_url?: string | null
+  signed_url?: string | null
+  preview_url?: string | null
+  live_url?: string | null
+}): string[] {
+  const deduped = new Set<string>()
+  for (const candidate of [source.content_url, source.signed_url, source.preview_url, source.live_url]) {
+    if (typeof candidate !== 'string') continue
+    const normalized = candidate.trim()
+    if (!normalized) continue
+    deduped.add(normalized)
+  }
+  return Array.from(deduped)
+}
+
+function mergeImageUrls(...collections: Array<Array<string | undefined> | undefined>): string[] {
+  const deduped = new Set<string>()
+  for (const collection of collections) {
+    if (!collection) continue
+    for (const candidate of collection) {
+      if (typeof candidate !== 'string') continue
+      const normalized = candidate.trim()
+      if (!normalized) continue
+      deduped.add(normalized)
+    }
+  }
+  return Array.from(deduped)
+}
+
+function buildActionNodeImageState(source: {
+  content_url?: string | null
+  signed_url?: string | null
+  preview_url?: string | null
+  live_url?: string | null
+}) {
+  const imageUrls = collectArtifactImageUrls(source)
+  return {
+    imageUrls,
+    screenshot: imageUrls[0],
+  }
+}
+
 function buildActionNodeFromArtifact(artifact: Record<string, unknown>): ActionNode | null {
   const artifactId = typeof artifact.artifact_id === 'string' ? artifact.artifact_id : null
   const stepId = typeof artifact.step_id === 'string' ? artifact.step_id : 'unknown'
   const capturedAt = typeof artifact.captured_at === 'string' ? artifact.captured_at : new Date().toISOString()
-  const screenshot =
-    typeof artifact.preview_url === 'string' ? artifact.preview_url :
-    typeof artifact.live_url === 'string' ? artifact.live_url :
-    typeof artifact.signed_url === 'string' ? artifact.signed_url :
-    undefined
+  const imageState = buildActionNodeImageState({
+    content_url: typeof artifact.content_url === 'string' ? artifact.content_url : null,
+    signed_url: typeof artifact.signed_url === 'string' ? artifact.signed_url : null,
+    preview_url: typeof artifact.preview_url === 'string' ? artifact.preview_url : null,
+    live_url: typeof artifact.live_url === 'string' ? artifact.live_url : null,
+  })
 
-  if (!artifactId && !screenshot) return null
+  if (!artifactId && !imageState.screenshot) return null
 
   return {
     id: artifactId || `artifact-${stepId}-${capturedAt}`,
     time: new Date(capturedAt).toLocaleTimeString('zh-CN', {hour12: false}),
     action: `截图(${typeof artifact.capture_phase === 'string' ? artifact.capture_phase : 'after_action'})`,
-    screenshot,
+    screenshot: imageState.screenshot,
+    imageUrls: imageState.imageUrls,
     stepId,
     artifactId: artifactId || undefined,
     contentUrl: typeof artifact.content_url === 'string' ? artifact.content_url : undefined,
-    persisted: Boolean(artifact.signed_url || artifact.storage_key),
+    persisted: Boolean(artifact.content_url || artifact.signed_url || artifact.storage_key),
   }
 }
 
@@ -402,7 +449,7 @@ function bindWorkflowSubscription(
     onHandoffRequired: (data) => {
       setAndPersist(set, get, (state) => {
         if (!state.activeExecution) return state
-        const handoffError = `登录态已失效，请前往「设置」重新绑定账号后重试。（步骤：${data.step_name}）`
+        const handoffError = `登录态已失效。请前往「平台和账号配置」先执行“重新验证”；若仍失败，再执行“重新绑定”后重试当前工作流。（步骤：${data.step_name}）`
         const handoffExecution: WorkflowExecution = {
           ...state.activeExecution,
           status: 'failed',
@@ -428,16 +475,17 @@ function bindWorkflowSubscription(
         const exists = target.actionNodes.some((node) => node.artifactId === data.artifact_id)
         if (exists) return state
 
-        const screenshot = data.preview_url || data.live_url || data.signed_url || undefined
+        const imageState = buildActionNodeImageState(data)
         const node: ActionNode = {
           id: data.artifact_id,
           time: new Date(data.captured_at).toLocaleTimeString('zh-CN', {hour12: false}),
           action: `截图(${data.capture_phase})`,
-          screenshot,
+          screenshot: imageState.screenshot,
+          imageUrls: imageState.imageUrls,
           stepId: data.step_id,
           artifactId: data.artifact_id,
           contentUrl: data.content_url,
-          persisted: false,
+          persisted: Boolean(data.content_url || data.signed_url || data.storage_key),
         }
         const updated = {...target, actionNodes: [...target.actionNodes, node]}
         return state.activeExecution ? {activeExecution: updated} : {lastExecution: updated}
@@ -452,12 +500,7 @@ function bindWorkflowSubscription(
             ...execution,
             actionNodes: execution.actionNodes.map((node) =>
               node.artifactId === data.artifact_id
-                ? {
-                    ...node,
-                    screenshot: data.preview_url || data.live_url || data.signed_url || node.screenshot,
-                    contentUrl: data.content_url || node.contentUrl,
-                    persisted: true,
-                  }
+                ? updateActionNodeFromArtifact(node, data)
                 : node,
             ),
           }
@@ -470,6 +513,22 @@ function bindWorkflowSubscription(
       })
     },
   })
+}
+
+function updateActionNodeFromArtifact(node: ActionNode, data: ArtifactEvent): ActionNode {
+  const nextUrls = mergeImageUrls(
+    collectArtifactImageUrls(data),
+    node.imageUrls,
+    [node.contentUrl, node.screenshot],
+  )
+
+  return {
+    ...node,
+    screenshot: nextUrls[0] || node.screenshot,
+    imageUrls: nextUrls,
+    contentUrl: data.content_url || node.contentUrl,
+    persisted: Boolean(data.content_url || data.signed_url || data.storage_key || node.persisted),
+  }
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({

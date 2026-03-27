@@ -168,6 +168,7 @@ async def run(execution_id: str, req):
         "step_index": 0,
         "total_steps": len(STEPS),
         "platform": get_platform_name(req.platform),
+        "platform_url": req.platform_accounts[0].get("platform_url", ""),
         "account_id": req.account_id,
         "account_name": req.account_name,
         "browser_session_key": req.platform_accounts[0].get("browser_session_key", ""),

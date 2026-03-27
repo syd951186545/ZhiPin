@@ -10,7 +10,7 @@ import json
 import mimetypes
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import HTTPException
@@ -59,6 +59,16 @@ class ScreenshotService:
         raise HTTPException(status_code=400, detail=f"不支持的截图引用: {value[:120]}")
 
     async def _fetch_remote_bytes(self, url: str) -> tuple[bytes, str]:
+        local_candidate = self._resolve_remote_media_url_path(url)
+        if local_candidate is not None:
+            try:
+                content = await self._read_local_file(local_candidate)
+                return content, self._guess_content_type(local_candidate.as_posix())
+            except FileNotFoundError:
+                pass
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"读取本地截图文件失败: {exc}") from exc
+
         headers = self._auth_headers(url)
         try:
             async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
@@ -147,6 +157,28 @@ class ScreenshotService:
             if resolved.is_file():
                 return resolved
         return None
+
+    def _resolve_remote_media_url_path(self, url: str) -> Optional[Path]:
+        try:
+            parsed = urlparse((url or "").strip())
+        except Exception:
+            return None
+
+        media_path = parsed.path or ""
+        relative = ""
+        for marker in ("/media/", "media/"):
+            if marker in media_path:
+                relative = media_path.split(marker, 1)[1].lstrip("/")
+                break
+
+        if not relative:
+            return None
+
+        media_root = Path(self._settings.openclaw_media_mount.rstrip("/")).resolve(strict=False)
+        candidate = (media_root / Path(relative)).resolve(strict=False)
+        if not self._is_under_allowed_roots(candidate, [media_root]):
+            return None
+        return candidate if candidate.is_file() else None
 
     async def _read_local_file(self, path: Path) -> bytes:
         return await asyncio.to_thread(path.read_bytes)

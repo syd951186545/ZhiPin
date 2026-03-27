@@ -131,6 +131,7 @@ async def run(execution_id: str, req):
         "step_index": 0,
         "total_steps": total_steps,
         "platform": "",
+        "platform_url": "",
         "platforms": platforms,
         "current_platform_index": 0,
         "account_id": "",
@@ -199,6 +200,7 @@ async def run(execution_id: str, req):
                 )
                 new_state["session_id"] = platform_account.get("browser_session_key", "")
                 new_state["browser_session_key"] = platform_account.get("browser_session_key", "")
+                new_state["platform_url"] = platform_account.get("platform_url", "")
                 new_state["account_id"] = platform_account.get("id", "")
                 new_state["account_name"] = platform_account.get("account_name") or platform_account.get("name") or ""
                 new_state["accumulated_text"] = ""

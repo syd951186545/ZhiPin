@@ -26,17 +26,23 @@ def _sanitize_custom_message(raw: str) -> str:
 def build_login_check_prompt(state: dict) -> str:
     account_info = state.get("account_name", "").strip()
     account_section = f"【账号信息】{account_info}" if account_info else "【账号信息】未提供"
+    target_url = state.get("platform_url", "").strip() or state.get("platform", "")
     shot = screenshot_instruction()
     return f"""你是一个专业的招聘助手，请执行「市场人才探索」任务的第1步：验证平台持久登录状态。
 
 【目标平台】{state.get("platform", "")}
+【企业端地址】{target_url or '未提供'}
 {account_section}
 【持久会话键】{state.get("browser_session_key", "")}
 
 【本步骤要求】
-1. 打开{state.get("platform", "")}网站
-2. {shot}
-3. 判断是否已登录：
+1. 优先打开企业端地址 `{target_url or state.get("platform", "")}`，不要跳到普通官网首页。
+2. 如果页面看起来空白、过期、或落在旧 tab，先刷新当前企业端地址，再检查登录态。
+3. {shot}
+4. 判断是否已登录，优先检查以下强信号：
+   - 用户头像、账号昵称、退出登录或切换账号入口
+   - 企业名称、企业工作台菜单、人才搜索/简历管理入口
+   - 已进入企业工作台业务页，而不是登录页
    - 若已登录 → 直接输出 [STEP_DONE:login_check]
    - 若未登录、跳回登录页、出现验证码/扫码/密码校验 → 截图并输出 [STEP_FAILED:login_check]
 
@@ -44,6 +50,7 @@ def build_login_check_prompt(state: dict) -> str:
 - 这是业务主工作流，不负责重新绑定账号
 - 仅验证当前持久浏览器 session 是否仍然可用
 - 不要切换账号，不要重新走完整登录流程
+- 不要因为落在企业工作台的消息页或搜索结果页就误判失败，只要能确认企业登录态即可判定成功
 
 {_browser_rules(state)}
 

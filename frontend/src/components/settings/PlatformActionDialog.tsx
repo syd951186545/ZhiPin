@@ -58,6 +58,29 @@ function statusLabel(status?: string | null, action?: PlatformBindingSession['ac
   }
 }
 
+function statusPanelTone(status?: string | null): string {
+  switch (status) {
+    case 'completed':
+      return 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-900/50 dark:bg-emerald-950/20'
+    case 'failed':
+    case 'expired':
+      return 'border-red-200 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/20'
+    case 'awaiting_sms':
+    case 'awaiting_qr':
+    case 'awaiting_password_2fa':
+      return 'border-amber-200 bg-amber-50/80 dark:border-amber-900/50 dark:bg-amber-950/20'
+    default:
+      return 'border-blue-200 bg-blue-50/80 dark:border-blue-900/50 dark:bg-blue-950/20'
+  }
+}
+
+function statusHeadline(status?: string | null, action?: PlatformBindingSession['action']) {
+  if (action === 'unbind') {
+    return status === 'completed' ? '账号解绑已完成' : status === 'failed' ? '账号解绑失败' : '正在处理账号解绑'
+  }
+  return status === 'completed' ? '登录验证已完成' : status === 'failed' ? '登录验证失败' : '正在校验当前登录态'
+}
+
 export default function PlatformActionDialog({
   open,
   onOpenChange,
@@ -236,44 +259,55 @@ export default function PlatformActionDialog({
   const Icon = session?.action === 'unbind' ? Unplug : ShieldCheck
   const latestUpdateAt = session?.updated_at || session?.created_at
   const canFollowup = Boolean(followupActionLabel && onFollowupAction && session?.action === 'verify' && phase !== 'running')
+  const badgeLabel = statusLabel(status, session?.action)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="platform-action-dialog">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Icon className="h-4 w-4"/>
-            {actionLabel}
-            <Badge className={cn('border-0', statusTone(status))}>{statusLabel(status, session?.action)}</Badge>
-          </DialogTitle>
-          <DialogDescription>
-            {platformName || '-'} · {accountName || '-'} · {intro}
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="platform-login-dialog">
+        <div data-testid="platform-action-dialog" className="space-y-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Icon className="h-4 w-4"/>
+              {actionLabel}
+              <Badge data-testid="bind-status-badge" className={cn('border-0', statusTone(status))}>{badgeLabel}</Badge>
+            </DialogTitle>
+            <DialogDescription>
+              {platformName || '-'} · {accountName || '-'} · {intro}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border bg-muted/20 p-4">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              {phase === 'running' ? <Loader2 className="h-4 w-4 animate-spin text-primary"/> : null}
-              {phase === 'success' ? <CheckCircle2 className="h-4 w-4 text-emerald-500"/> : null}
-              {phase === 'error' ? <AlertTriangle className="h-4 w-4 text-red-500"/> : null}
-              <span>{session?.action === 'unbind' ? (phase === 'success' ? '最终解绑结果' : '当前解绑状态') : (phase === 'success' ? '最终验证结果' : '当前验证状态')}</span>
+          <div className={cn('rounded-2xl border p-4', statusPanelTone(status))}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  {phase === 'running' ? <Loader2 className="h-4 w-4 animate-spin text-primary"/> : null}
+                  {phase === 'success' ? <CheckCircle2 className="h-4 w-4 text-emerald-500"/> : null}
+                  {phase === 'error' ? <AlertTriangle className="h-4 w-4 text-red-500"/> : null}
+                  <span>{statusHeadline(status, session?.action)}</span>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {reason || (phase === 'running'
+                    ? (session?.action === 'unbind' ? 'OpenClaw 正在执行解绑，请稍候...' : 'OpenClaw 正在执行验证，请稍候...')
+                    : '暂无补充说明')}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className="text-xs">{platformName || '-'}</Badge>
+                <Badge variant="outline" className="text-xs">{accountName || '-'}</Badge>
+              </div>
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {reason || (phase === 'running'
-                ? (session?.action === 'unbind' ? 'OpenClaw 正在执行解绑，请稍候...' : 'OpenClaw 正在执行验证，请稍候...')
-                : '暂无补充说明')}
-            </p>
-            {stepKey && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                当前步骤：<span className="font-mono">{stepKey}</span>
-              </p>
-            )}
-            {latestUpdateAt && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                最近更新：<span className="font-mono">{new Date(latestUpdateAt).toLocaleString('zh-CN')}</span>
-              </p>
-            )}
+            <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
+              {stepKey && (
+                <p>
+                  当前步骤：<span className="font-mono">{stepKey}</span>
+                </p>
+              )}
+              {latestUpdateAt && (
+                <p>
+                  最近更新：<span className="font-mono">{new Date(latestUpdateAt).toLocaleString('zh-CN')}</span>
+                </p>
+              )}
+            </div>
           </div>
 
           {streamError && (
@@ -283,8 +317,8 @@ export default function PlatformActionDialog({
           )}
 
           <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="rounded-xl border">
-              <div className="border-b px-4 py-3 text-sm font-medium">OpenClaw 验证反馈</div>
+            <div className="overflow-hidden rounded-xl border">
+              <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">OpenClaw 过程反馈</div>
               <div className="max-h-[360px] overflow-y-auto p-4">
                 {accumulatedText ? (
                   <pre className="whitespace-pre-wrap break-words text-xs leading-6 text-muted-foreground">
@@ -300,8 +334,8 @@ export default function PlatformActionDialog({
               </div>
             </div>
 
-            <div className="rounded-xl border">
-              <div className="border-b px-4 py-3 text-sm font-medium">最近截图</div>
+            <div className="overflow-hidden rounded-xl border">
+              <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">最近截图</div>
               <div className="p-4">
                 {latestScreenshot ? (
                   <img
@@ -310,29 +344,34 @@ export default function PlatformActionDialog({
                     className="w-full rounded-lg border object-cover"
                   />
                 ) : (
-                  <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                  <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed bg-muted/20 text-sm text-muted-foreground">
                     暂无截图
                   </div>
                 )}
               </div>
             </div>
           </div>
-        </div>
 
-        <DialogFooter>
-          {canFollowup && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                onOpenChange(false)
-                onFollowupAction?.()
-              }}
-            >
-              {followupActionLabel}
-            </Button>
-          )}
-          <Button onClick={() => onOpenChange(false)}>{phase === 'running' ? '后台继续执行，关闭窗口' : '关闭'}</Button>
-        </DialogFooter>
+          <DialogFooter className="sticky bottom-0 z-10 justify-between gap-4 border-t bg-background/95 pt-4 backdrop-blur">
+            <div className="text-xs text-muted-foreground">
+              {phase === 'running' ? '关闭窗口后任务仍会在后台继续执行。' : '当前结果已经同步到账号状态。'}
+            </div>
+            <div className="flex gap-2">
+              {canFollowup && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onOpenChange(false)
+                    onFollowupAction?.()
+                  }}
+                >
+                  {followupActionLabel}
+                </Button>
+              )}
+              <Button onClick={() => onOpenChange(false)}>{phase === 'running' ? '后台继续，关闭窗口' : '关闭'}</Button>
+            </div>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )

@@ -45,6 +45,7 @@ class WorkflowState(TypedDict, total=False):
 
     # 平台与账号
     platform: str
+    platform_url: str
     platforms: list[str]  # 多平台工作流
     current_platform_index: int
     account_id: str
@@ -401,12 +402,14 @@ async def execute_step(
         async def capture_after_step() -> None:
             try:
                 extra_artifacts: list[ArtifactRef] = []
+                capture_source = "host_browser_cdp"
 
                 async def emit_capture_screenshot(screenshot: str):
                     artifact = ArtifactRef.create(
                         run_id=execution_id,
                         step_id=step_id,
                         capture_phase="after_action",
+                        source=capture_source,
                         preview_url=screenshot,
                         live_url=screenshot,
                     )
@@ -421,13 +424,32 @@ async def execute_step(
                     })
 
                 capture_result = await asyncio.wait_for(
-                    openclaw.capture_screenshot(
+                    openclaw.capture_host_browser_screenshot(
                         session_id=state["session_id"],
                         on_screenshot=emit_capture_screenshot,
                         screenshot_uploader=uploader,
                     ),
-                    timeout=45.0,
+                    timeout=20.0,
                 )
+
+                if not capture_result.success or not capture_result.screenshots:
+                    if capture_result.error:
+                        logger.debug(f"[{execution_id}] 步骤 {step_id} CDP 补充截图失败，回退 agent：{capture_result.error}")
+                    capture_source = "openclaw_browser"
+                    capture_result = await asyncio.wait_for(
+                        openclaw.capture_screenshot(
+                            session_id=state["session_id"],
+                            on_screenshot=emit_capture_screenshot,
+                            screenshot_uploader=uploader,
+                        ),
+                        timeout=45.0,
+                    )
+
+                if not capture_result.success or not capture_result.screenshots:
+                    logger.debug(
+                        f"[{execution_id}] 步骤 {step_id} 补充截图未产出有效结果: {capture_result.error or 'empty result'}"
+                    )
+                    return
 
                 for artifact, persisted_url in zip(extra_artifacts, capture_result.persisted_screenshots or []):
                     artifact.signed_url = persisted_url

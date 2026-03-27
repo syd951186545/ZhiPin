@@ -4,6 +4,8 @@
  * 负责与 FastAPI 后端通信：启动工作流、取消工作流、SSE 进度订阅。
  */
 
+import {supabase} from '@/lib/supabase'
+
 // ── 类型定义 ─────────────────────────────────────────────
 
 export type WorkflowId = 'publish_job' | 'talent_explore' | 'resume_screen'

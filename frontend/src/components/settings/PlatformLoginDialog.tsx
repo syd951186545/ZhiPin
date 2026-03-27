@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react'
 import {
-  AlertTriangle, Check, CheckCircle2, Loader2, Monitor, StopCircle, X,
+  AlertTriangle, Check, CheckCircle2, Loader2, Monitor, StopCircle,
 } from 'lucide-react'
 import {AnimatePresence, motion} from 'motion/react'
 import {
@@ -67,6 +67,76 @@ function formatRemaining(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function phaseMeta(phase: LiveLoginPhase) {
+  switch (phase) {
+    case 'starting':
+      return {
+        label: '准备中',
+        badgeClass: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+        panelClass: 'border-blue-200 bg-blue-50/80 dark:border-blue-900/50 dark:bg-blue-950/20',
+        title: '正在初始化远程桌面',
+        description: '系统会为当前账号拉起一个临时浏览器工作区，用于你手动完成登录。',
+      }
+    case 'running':
+      return {
+        label: '待确认',
+        badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+        panelClass: 'border-amber-200 bg-amber-50/80 dark:border-amber-900/50 dark:bg-amber-950/20',
+        title: '请在远程桌面内完成平台登录',
+        description: '看到平台主页后，点击“确认已登录”，系统会保存当前登录态供后续自动化任务复用。',
+      }
+    case 'confirming':
+      return {
+        label: '验证中',
+        badgeClass: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+        panelClass: 'border-blue-200 bg-blue-50/80 dark:border-blue-900/50 dark:bg-blue-950/20',
+        title: '正在校验登录结果',
+        description: '系统会检查当前会话是否可持久化，并在成功后自动刷新账号状态。',
+      }
+    case 'confirmed':
+      return {
+        label: '已完成',
+        badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+        panelClass: 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-900/50 dark:bg-emerald-950/20',
+        title: '登录态已保存',
+        description: '当前账号已经可被平台页和工作流直接复用，无需再次手动登录。',
+      }
+    case 'expired':
+      return {
+        label: '已过期',
+        badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+        panelClass: 'border-red-200 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/20',
+        title: '会话已超时',
+        description: '远程桌面已关闭，需要重新启动一次登录流程。',
+      }
+    case 'error':
+      return {
+        label: '异常',
+        badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+        panelClass: 'border-red-200 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/20',
+        title: '登录流程启动失败',
+        description: '请先检查账号与网络状态，再重新发起登录。',
+      }
+    case 'stopped':
+      return {
+        label: '已停止',
+        badgeClass: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+        panelClass: 'border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/40',
+        title: '当前会话已停止',
+        description: '如果还需要重新保存登录态，可以再次启动远程桌面。',
+      }
+    case 'idle':
+    default:
+      return {
+        label: '未开始',
+        badgeClass: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+        panelClass: 'border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/40',
+        title: '准备绑定当前平台账号',
+        description: '先启动远程桌面，再在浏览器内手动完成平台登录。',
+      }
+  }
 }
 
 export default function PlatformLoginDialog({open, onOpenChange, profileId, onDataChanged}: PlatformLoginDialogProps) {
@@ -208,6 +278,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
   }
 
   const currentStep = deriveStep(phase)
+  const meta = phaseMeta(phase)
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -215,19 +286,30 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             登录平台账号
-            {phase === 'running' && remaining > 0 && (
-              <Badge variant="secondary" className="ml-2 tabular-nums">
-                剩余 {formatRemaining(remaining)}
-              </Badge>
-            )}
-            {phase === 'confirmed' && (
-              <Badge variant="default" className="ml-2">已完成</Badge>
-            )}
+            <Badge data-testid="bind-status-badge" className={cn('ml-1 border-0', meta.badgeClass)}>{meta.label}</Badge>
           </DialogTitle>
           <DialogDescription>
             {platformMeta?.name || profile?.platform} · {profile?.name} — 通过远程桌面直接登录招聘平台
           </DialogDescription>
         </DialogHeader>
+
+        <div className={cn('rounded-2xl border p-4', meta.panelClass)}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{meta.title}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{meta.description}</p>
+            </div>
+            {phase === 'running' && remaining > 0 && (
+              <Badge variant="secondary" className="tabular-nums">
+                剩余 {formatRemaining(remaining)}
+              </Badge>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Badge variant="outline" className="text-xs">{platformMeta?.name || '-'}</Badge>
+            {profile?.name && <Badge variant="outline" className="text-xs">{profile.name}</Badge>}
+          </div>
+        </div>
 
         <div className="py-2">
           <StepIndicator currentStep={currentStep}/>
@@ -263,12 +345,12 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
               <p className="text-sm text-muted-foreground">{confirmMessage}</p>
             </motion.div>
           ) : phase === 'starting' ? (
-            <div className="flex flex-col items-center justify-center gap-4 py-16 rounded-xl border bg-muted/20">
+            <div className="flex flex-col items-center justify-center gap-4 rounded-xl border bg-muted/20 py-16">
               <Loader2 className="h-10 w-10 animate-spin text-primary"/>
               <p className="text-sm text-muted-foreground">正在启动远程桌面...</p>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center gap-4 py-16 rounded-xl border bg-muted/20">
+            <div className="flex flex-col items-center justify-center gap-4 rounded-xl border bg-muted/20 py-16">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                 <Monitor className="h-7 w-7 text-muted-foreground/60"/>
               </div>
@@ -313,9 +395,8 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
 
         <DialogFooter className="sticky bottom-0 z-10 justify-between gap-4 border-t bg-background/95 pt-4 backdrop-blur">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline" className="gap-1 text-xs">
-              {platformMeta?.name || '-'}
-            </Badge>
+            <Badge variant="outline" className="gap-1 text-xs">{platformMeta?.name || '-'}</Badge>
+            {profile?.accountName && <span>登录名 {profile.accountName}</span>}
           </div>
           <div className="flex gap-2">
             {phase === 'running' && (
@@ -348,7 +429,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
             )}
             {(phase === 'idle' || phase === 'stopped' || phase === 'expired' || phase === 'error') && (
               <>
-                <Button variant="outline" onClick={handleClose}>
+                <Button variant="outline" onClick={() => handleClose()}>
                   关闭
                 </Button>
                 <Button
@@ -363,7 +444,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
               </>
             )}
             {phase === 'confirmed' && (
-              <Button variant="outline" onClick={handleClose}>
+              <Button variant="outline" onClick={() => handleClose()}>
                 完成
               </Button>
             )}

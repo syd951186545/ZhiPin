@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
+from uuid import uuid4
 
 import httpx
 
@@ -26,9 +28,11 @@ from services.session_crypto import decrypt_storage_state
 REQUEST_TIMEOUT = 15.0
 SSE_TIMEOUT = 300.0  # 5 minutes per step
 BROWSER_STATUS_TIMEOUT = 5.0
-BROWSER_READY_TIMEOUT = 20.0
+BROWSER_READY_TIMEOUT = 45.0
 GATEWAY_RESTART_TIMEOUT = 30.0
 HOST_BROWSER_START_TIMEOUT = 15.0
+HOST_BROWSER_RESTORE_RETRIES = 3
+HOST_BROWSER_SCREENSHOT_RETRIES = 3
 HOST_BROWSER_PROFILE = "openclaw"
 
 _MARKDOWN_IMG_RE = re.compile(r'!\[.*?\]\(((?:file://|https?://)[^)]+\.(?:png|jpg|jpeg|webp)(?:\?[^)]*)?)\)')
@@ -104,6 +108,10 @@ class OpenClawClient:
     def _host_browser_user_data_dir(self, profile: str = HOST_BROWSER_PROFILE) -> Path:
         settings = get_settings()
         return Path(settings.openclaw_home_mount) / ".openclaw" / "browser" / self._browser_profile(profile) / "user-data"
+
+    def _host_browser_capture_dir(self) -> Path:
+        settings = get_settings()
+        return Path(settings.openclaw_media_mount.rstrip("/")) / "browser" / "backend-captures"
 
     def _write_workspace_storage_state(self, session_id: str, storage_state: dict[str, Any]) -> None:
         path = self._workspace_storage_state_path(session_id)
@@ -382,7 +390,8 @@ class OpenClawClient:
                 http_status=503,
                 status_snapshot=payload,
             )
-        if not payload.get("chosenBrowser"):
+        chosen_browser = payload.get("chosenBrowser") or payload.get("detectedBrowser")
+        if not chosen_browser and not payload.get("executablePath"):
             return BrowserReadyResult(
                 ready=False,
                 detail="OpenClaw host browser 未选择可用浏览器",
@@ -483,37 +492,103 @@ class OpenClawClient:
 
         async with async_playwright() as playwright:
             browser = await playwright.chromium.connect_over_cdp(cdp_url, timeout=10_000)
-            context = browser.contexts[0] if browser.contexts else None
-            if context is None:
-                raise RuntimeError("host browser 未暴露可用 context")
+            try:
+                context = browser.contexts[0] if browser.contexts else None
+                if context is None:
+                    raise RuntimeError("host browser 未暴露可用 context")
 
-            await context.clear_cookies()
-            if cookies:
-                await context.add_cookies(cookies)
+                await context.clear_cookies()
+                if cookies:
+                    await context.add_cookies(cookies)
 
-            for origin_item in origins:
-                if not isinstance(origin_item, dict):
-                    continue
-                origin = str(origin_item.get("origin") or "").strip()
-                local_storage = origin_item.get("localStorage") or []
-                if not origin or not local_storage:
-                    continue
+                for origin_item in origins:
+                    if not isinstance(origin_item, dict):
+                        continue
+                    origin = str(origin_item.get("origin") or "").strip()
+                    local_storage = origin_item.get("localStorage") or []
+                    if not origin or not local_storage:
+                        continue
 
-                page = await context.new_page()
-                try:
-                    await page.goto(origin, wait_until="domcontentloaded", timeout=10_000)
-                    await page.evaluate(
-                        """(items) => {
-                            window.localStorage.clear();
-                            for (const item of items || []) {
-                                if (!item || typeof item.name !== "string") continue;
-                                window.localStorage.setItem(item.name, String(item.value ?? ""));
-                            }
-                        }""",
-                        local_storage,
-                    )
-                finally:
-                    await page.close()
+                    page = await context.new_page()
+                    try:
+                        await page.goto(origin, wait_until="domcontentloaded", timeout=10_000)
+                        await page.evaluate(
+                            """(items) => {
+                                window.localStorage.clear();
+                                for (const item of items || []) {
+                                    if (!item || typeof item.name !== "string") continue;
+                                    window.localStorage.setItem(item.name, String(item.value ?? ""));
+                                }
+                            }""",
+                            local_storage,
+                        )
+                    finally:
+                        await page.close()
+            finally:
+                await browser.close()
+
+    def _is_transient_restore_error(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        transient_markers = (
+            "target page, context or browser has been closed",
+            "browser has been closed",
+            "context or browser has been closed",
+            "connection refused",
+            "connect_over_cdp",
+            "cdp",
+        )
+        return any(marker in message for marker in transient_markers)
+
+    async def _capture_host_browser_png(self, cdp_url: str) -> bytes:
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError as exc:
+            raise RuntimeError("playwright 未安装，无法执行 CDP 截图") from exc
+
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.connect_over_cdp(cdp_url, timeout=10_000)
+            try:
+                context = browser.contexts[0] if browser.contexts else None
+                if context is None:
+                    raise RuntimeError("host browser 未暴露可用 context")
+
+                pages = [page for page in context.pages if not page.is_closed()]
+                if not pages:
+                    raise RuntimeError("host browser 未暴露可用 page")
+
+                page = next(
+                    (
+                        candidate
+                        for candidate in reversed(pages)
+                        if str(getattr(candidate, "url", "") or "").strip()
+                        and str(getattr(candidate, "url", "") or "").strip() != "about:blank"
+                    ),
+                    pages[-1],
+                )
+
+                with contextlib.suppress(Exception):
+                    await page.bring_to_front()
+                with contextlib.suppress(Exception):
+                    await page.wait_for_load_state("domcontentloaded", timeout=5_000)
+                with contextlib.suppress(Exception):
+                    await page.wait_for_load_state("networkidle", timeout=3_000)
+
+                return await page.screenshot(
+                    type="png",
+                    full_page=True,
+                    animations="disabled",
+                    timeout=10_000,
+                )
+            finally:
+                await browser.close()
+
+    async def _store_host_browser_capture(self, image_bytes: bytes, session_id: str) -> str:
+        capture_dir = self._host_browser_capture_dir()
+        capture_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{self._browser_profile(HOST_BROWSER_PROFILE)}-{session_id}-{uuid4().hex}.png"
+        file_path = capture_dir / filename
+        await asyncio.to_thread(file_path.write_bytes, image_bytes)
+        return file_path.as_posix()
 
     async def _restore_persisted_session(
         self,
@@ -548,20 +623,54 @@ class OpenClawClient:
                 status_snapshot=status_snapshot,
             )
 
-        try:
-            await self._restore_storage_state_to_host_browser(cdp_url=cdp_url, storage_state=storage_state)
-        except Exception as exc:
+        last_error: Exception | None = None
+        current_status_snapshot = dict(status_snapshot)
+        for attempt in range(1, HOST_BROWSER_RESTORE_RETRIES + 1):
+            current_cdp_url = str(current_status_snapshot.get("cdpUrl") or cdp_url).strip()
+            if not current_cdp_url:
+                return BrowserReadyResult(
+                    ready=False,
+                    detail="OpenClaw host browser 未返回 CDP 地址，无法恢复登录态",
+                    http_status=503,
+                    status_snapshot=current_status_snapshot,
+                )
+            try:
+                await self._restore_storage_state_to_host_browser(
+                    cdp_url=current_cdp_url,
+                    storage_state=storage_state,
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt >= HOST_BROWSER_RESTORE_RETRIES or not self._is_transient_restore_error(exc):
+                    return BrowserReadyResult(
+                        ready=False,
+                        detail=f"恢复持久登录态失败：{exc}",
+                        http_status=503,
+                        status_snapshot=current_status_snapshot,
+                    )
+                await asyncio.sleep(1)
+                refreshed_status = await self._fetch_host_browser_status(profile=profile)
+                if not refreshed_status.ready:
+                    refreshed_status = await self._start_host_browser(
+                        status_snapshot=refreshed_status.status_snapshot,
+                        profile=profile,
+                    )
+                    if not refreshed_status.ready:
+                        return refreshed_status
+                current_status_snapshot = refreshed_status.status_snapshot or current_status_snapshot
+        else:
             return BrowserReadyResult(
                 ready=False,
-                detail=f"恢复持久登录态失败：{exc}",
+                detail=f"恢复持久登录态失败：{last_error}",
                 http_status=503,
-                status_snapshot=status_snapshot,
+                status_snapshot=current_status_snapshot,
             )
 
         return BrowserReadyResult(
             ready=True,
             detail=f"已从{source}恢复持久登录态",
-            status_snapshot=status_snapshot,
+            status_snapshot=current_status_snapshot,
         )
 
     def _browser_ready_prompt(self, platform_url: str, profile: str) -> str:
@@ -876,7 +985,7 @@ class OpenClawClient:
         media_mount = get_settings().openclaw_media_mount.rstrip("/")
         return await self.execute_step(
             prompt=(
-                "请使用浏览器内置截图能力截图当前页面。"
+                "请使用浏览器内置截图能力截取当前页面的完整整页截图，不要只截可视区域首屏。"
                 "优先直接返回截图工具产生的 image_url 或 markdown 图片链接，不要输出本地文件路径。"
                 f"如果截图工具只能提供文件路径，截图必须位于稳定媒体目录 {media_mount}/browser/ 下，"
                 "禁止输出 /tmp 或 /home 等本地绝对路径。"
@@ -886,6 +995,78 @@ class OpenClawClient:
             step_id="_screenshot",
             on_screenshot=on_screenshot,
             screenshot_uploader=screenshot_uploader,
+        )
+
+    async def capture_host_browser_screenshot(
+        self,
+        session_id: str,
+        on_screenshot: Optional[Callable[[str], Awaitable[None] | None]] = None,
+        screenshot_uploader: Optional[Callable[[bytes, str, str], Awaitable[Optional[str]]]] = None,
+        profile: str = HOST_BROWSER_PROFILE,
+    ) -> StepResult:
+        status_result = await self._fetch_host_browser_status(profile=profile)
+        if not status_result.ready:
+            status_result = await self._start_host_browser(
+                status_snapshot=status_result.status_snapshot,
+                profile=profile,
+            )
+            if not status_result.ready:
+                return StepResult(
+                    success=False,
+                    error=status_result.detail or "host browser 未就绪，无法执行 CDP 截图",
+                )
+
+        current_status_snapshot = dict(status_result.status_snapshot or {})
+        cdp_url = str(current_status_snapshot.get("cdpUrl") or "").strip()
+        if not cdp_url:
+            return StepResult(success=False, error="OpenClaw host browser 未返回 CDP 地址，无法执行截图")
+
+        image_bytes: bytes | None = None
+        last_error: Exception | None = None
+        for attempt in range(1, HOST_BROWSER_SCREENSHOT_RETRIES + 1):
+            current_cdp_url = str(current_status_snapshot.get("cdpUrl") or cdp_url).strip()
+            if not current_cdp_url:
+                return StepResult(success=False, error="OpenClaw host browser 未返回 CDP 地址，无法执行截图")
+            try:
+                image_bytes = await self._capture_host_browser_png(current_cdp_url)
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt >= HOST_BROWSER_SCREENSHOT_RETRIES or not self._is_transient_restore_error(exc):
+                    return StepResult(success=False, error=f"CDP 截图失败：{exc}")
+                await asyncio.sleep(1)
+                refreshed_status = await self._fetch_host_browser_status(profile=profile)
+                if not refreshed_status.ready:
+                    refreshed_status = await self._start_host_browser(
+                        status_snapshot=refreshed_status.status_snapshot,
+                        profile=profile,
+                    )
+                    if not refreshed_status.ready:
+                        return StepResult(success=False, error=refreshed_status.detail)
+                current_status_snapshot = refreshed_status.status_snapshot or current_status_snapshot
+        if image_bytes is None:
+            return StepResult(success=False, error=f"CDP 截图失败：{last_error}")
+
+        raw_ref = await self._store_host_browser_capture(image_bytes, session_id)
+        live_url = screenshot_service.build_proxy_url(raw_ref)
+        screenshots = [live_url]
+        if on_screenshot:
+            await _maybe_await(on_screenshot, live_url)
+
+        persisted_screenshots: list[str] = []
+        if screenshot_uploader:
+            persisted_url = await screenshot_uploader(
+                image_bytes,
+                Path(raw_ref).name,
+                "image/png",
+            )
+            if persisted_url:
+                persisted_screenshots.append(persisted_url)
+
+        return StepResult(
+            success=True,
+            screenshots=screenshots,
+            persisted_screenshots=persisted_screenshots,
         )
 
     async def _persist_screenshot(
@@ -922,7 +1103,23 @@ class OpenClawClient:
         return event_type, data
 
     def _extract_screenshot(self, data: dict) -> Optional[str]:
+        def _pick_local_ref(container: dict) -> Optional[str]:
+            details = container.get("details")
+            if isinstance(details, dict):
+                direct_path = details.get("path")
+                if isinstance(direct_path, str) and direct_path.strip():
+                    return direct_path.strip()
+                media = details.get("media")
+                if isinstance(media, dict):
+                    media_url = media.get("mediaUrl")
+                    if isinstance(media_url, str) and media_url.strip():
+                        return media_url.strip()
+            return None
+
         def _from_output(obj: dict) -> Optional[str]:
+            local_ref = _pick_local_ref(obj)
+            if local_ref:
+                return local_ref
             output = obj.get("output", {})
             if isinstance(output, dict) and output.get("type") == "computer_screenshot":
                 return output.get("image_url")
@@ -939,7 +1136,7 @@ class OpenClawClient:
             if url:
                 return url
 
-        return data.get("screenshot") or data.get("image_url")
+        return _pick_local_ref(data) or data.get("screenshot") or data.get("image_url")
 
 
 def _extract_response_id(data: dict) -> Optional[str]:
