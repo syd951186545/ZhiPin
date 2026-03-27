@@ -16,7 +16,8 @@
 - 如果任务需要访问局域网 OpenClaw、远端 SSH、或读取本机保存的敏感凭据，先读取 `docs/AI_AGENT_SECRETS.local.md`（如果存在）
 - 非必要不要在回复里回显密码、token、anon key、登录口令
 - 测试环境（同生产部署）只有 `frontend` 与 `backopenclaw` 两个服务，`backopenclaw` 容器内同时运行 FastAPI 与 OpenClaw
-
+## 测试部署和生产部署
+暂不涉及正式部署，测试和生产部署都可以使用 /zhipin-deploy skill
 ## gstack
 Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools directly.
 
