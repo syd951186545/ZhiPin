@@ -8,7 +8,7 @@ export default function AuthLayout() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F2EA] text-muted-foreground">
         正在恢复登录状态...
       </div>
     );
@@ -19,67 +19,133 @@ export default function AuthLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto grid min-h-screen w-full max-w-[1540px] md:grid-cols-[0.96fr,1.04fr]">
-        {/* ── Brand Panel ── */}
-        <div className="relative hidden overflow-hidden bg-[#14202b] text-[#eef4f8] md:flex">
-          {/* Ambient glow */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_20%_40%,rgba(45,142,147,0.22),transparent),radial-gradient(ellipse_60%_40%_at_80%_20%,rgba(216,155,43,0.10),transparent)]" />
-          {/* Subtle grid texture */}
-          <div className="absolute inset-0 opacity-[0.03]" style={{backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '48px 48px'}} />
+    <div className="grid min-h-screen md:grid-cols-[45vw_1fr]">
+      {/* ── Brand Panel ── */}
+      <div className="relative hidden overflow-hidden bg-[#0D1A22] text-[#eef4f8] md:flex">
+        {/* Large ghost watermark */}
+        <div
+          className="pointer-events-none absolute inset-0 flex select-none items-center justify-center"
+          aria-hidden="true"
+        >
+          <span className="text-[18vw] font-extrabold leading-none tracking-[-0.04em] text-[#1a2f3e]">
+            机灵
+          </span>
+        </div>
 
-          <div className="relative flex w-full flex-col justify-between p-8 lg:p-10 xl:p-12">
-            {/* Top: Logo */}
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#2d8e93] text-lg font-extrabold text-white shadow-[0_12px_28px_rgba(45,142,147,0.32)]">
-                J
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#9dc5c8]">Business Agent Workspace</p>
-                <p className="text-base font-semibold tracking-[-0.01em]">机灵平台</p>
-              </div>
+        {/* Dot grid */}
+        <div
+          className="absolute inset-0 opacity-[0.035]"
+          style={{
+            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.7) 1px, transparent 1px)',
+            backgroundSize: '32px 32px',
+          }}
+        />
+
+        {/* Ambient color glow */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_18%_50%,rgba(45,142,147,0.15),transparent),radial-gradient(ellipse_45%_30%_at_82%_22%,rgba(216,155,43,0.07),transparent)]" />
+
+        {/* Workflow nodes */}
+        <WorkflowNodes />
+
+        <div className="relative flex w-full flex-col justify-between p-10 xl:p-14">
+          {/* Top: Logo */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#155E63] text-base font-extrabold text-white shadow-[0_8px_24px_rgba(21,94,99,0.36)]">
+              机
             </div>
-
-            {/* Center: Hero */}
-            <div className="max-w-[28rem]">
-              <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#2d8e93]/30 bg-[#2d8e93]/10 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] text-[#7ecfd3]">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#2d8e93] shadow-[0_0_6px_rgba(45,142,147,0.6)]" />
-                企业数字员工执行台
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#9dc5c8]">
+                Business Agent Workspace
               </p>
-              <h1 className="text-[2.15rem] font-extrabold leading-[1.18] tracking-[-0.02em] lg:text-[3.1rem]">
-                让系统先替你执行，
-                <br />
-                <span className="text-[#f2d9a3]">再把证据交回给人。</span>
-              </h1>
-              <p className="mt-4 max-w-md text-[15px] leading-7 text-[#9db1bd]">
-                面向招聘、运营、客服等高重复流程，把账号状态、任务推进、截图证据与 AI 输出统一收束在一个业务工作台里。
-              </p>
-
-              <div className="mt-6 flex flex-wrap gap-2">
-                <CapabilityPill label="流程可视化" sublabel="每步可回看" />
-                <CapabilityPill label="账号可复用" sublabel="绑定 · 验证 · 恢复" />
-                <CapabilityPill label="AI 留痕" sublabel="日志 + 截图 + 输出" />
-              </div>
+              <p className="text-sm font-semibold tracking-[-0.01em]">机灵平台</p>
             </div>
+          </div>
 
-            {/* Bottom: Tagline */}
-            <p className="text-[12px] tracking-[0.06em] text-[#5e7382]">
-              工业理性 · 运营指挥室 · 设计系统 v1
+          {/* Center-upper: Hero */}
+          <div className="max-w-[30rem]">
+            <h1 className="text-[2.5rem] font-extrabold leading-[1.16] tracking-[-0.025em] xl:text-[3.2rem]">
+              执行权归机器，
+              <br />
+              <span className="text-[#f2d9a3]">决策权归人。</span>
+            </h1>
+            <p className="mt-5 max-w-[26rem] text-[15px] leading-[1.9] text-[#8aa8b8]">
+              数字员工全天候接管招聘、运营等高重复流程，每步操作均完整留证。人只在关键节点介入，审核结果，决定方向。
+            </p>
+          </div>
+
+          {/* Bottom: Capabilities + tagline */}
+          <div>
+            <div className="mb-5 flex flex-wrap gap-2">
+              <CapabilityPill label="全程留证" sublabel="截图 · 日志 · AI 输出" />
+              <CapabilityPill label="账号托管" sublabel="独立隔离 · 统一管理" />
+              <CapabilityPill label="断点续跑" sublabel="异常自动重试" />
+            </div>
+            <p className="text-[11px] tracking-[0.06em] text-[#3d5566]">
+              机灵科技 · 企业级执行自动化基础设施
             </p>
           </div>
         </div>
+      </div>
 
-        {/* ── Form Panel ── */}
-        <div className="flex items-center justify-center bg-[linear-gradient(180deg,rgba(255,253,250,0.82),rgba(245,242,234,0.94))] p-5 sm:p-8 md:border-l md:border-border/50 lg:p-12">
+      {/* ── Form Panel ── */}
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#F5F2EA] px-5 py-12 sm:px-10 md:border-l md:border-[#14202B]/[0.08] lg:px-14 xl:px-20">
+        <div className="w-full max-w-[480px]">
+          {/* Brand wordmark — visible on mobile and desktop */}
+          <div className="mb-10 flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#155E63] text-sm font-extrabold text-white shadow-[0_6px_16px_rgba(21,94,99,0.28)]">
+              机
+            </div>
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[#155E63]/70">
+                Business Agent Workspace
+              </p>
+              <p className="text-[13px] font-semibold tracking-[-0.01em] text-foreground/80">
+                机灵平台
+              </p>
+            </div>
+          </div>
+
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="w-full max-w-[430px]"
+            transition={{ duration: 0.38 }}
           >
             <Outlet />
           </motion.div>
+
+          <p className="mt-10 text-center text-[11px] tracking-[0.04em] text-muted-foreground/50">
+            企业级安全登录 · 数据本地化存储
+          </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowNodes() {
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+      {/* SVG connector lines */}
+      <svg className="absolute inset-0 h-full w-full opacity-[0.06]" xmlns="http://www.w3.org/2000/svg">
+        <line x1="57%" y1="33%" x2="70%" y2="50%" stroke="white" strokeWidth="1" strokeDasharray="4 4" />
+        <line x1="33%" y1="46%" x2="57%" y2="33%" stroke="white" strokeWidth="1" strokeDasharray="4 4" />
+        <line x1="70%" y1="50%" x2="48%" y2="66%" stroke="white" strokeWidth="1" strokeDasharray="4 4" />
+      </svg>
+      {/* Running node — teal */}
+      <div className="absolute" style={{ top: '33%', left: '57%' }}>
+        <div className="h-2 w-2 rounded-full bg-[#2D8E93] shadow-[0_0_10px_rgba(45,142,147,0.9),0_0_22px_rgba(45,142,147,0.4)]" />
+      </div>
+      {/* Running node — teal, smaller */}
+      <div className="absolute" style={{ top: '50%', left: '70%' }}>
+        <div className="h-1.5 w-1.5 rounded-full bg-[#2D8E93] opacity-70 shadow-[0_0_8px_rgba(45,142,147,0.8)]" />
+      </div>
+      {/* Completed node — teal, faint */}
+      <div className="absolute" style={{ top: '66%', left: '48%' }}>
+        <div className="h-1.5 w-1.5 rounded-full bg-[#2D8E93] opacity-40 shadow-[0_0_6px_rgba(45,142,147,0.5)]" />
+      </div>
+      {/* Pending human review — amber */}
+      <div className="absolute" style={{ top: '46%', left: '33%' }}>
+        <div className="h-2 w-2 rounded-full bg-[#D89B2B] shadow-[0_0_10px_rgba(216,155,43,0.85),0_0_22px_rgba(216,155,43,0.35)]" />
       </div>
     </div>
   );
@@ -87,9 +153,9 @@ export default function AuthLayout() {
 
 function CapabilityPill({ label, sublabel }: { label: string; sublabel: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.04] px-3 py-1.5">
+    <div className="flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.04] px-3 py-1.5">
       <span className="text-[13px] font-medium text-[#eef4f8]">{label}</span>
-      <span className="text-[11px] text-[#6b8393]">{sublabel}</span>
+      <span className="text-[11px] text-[#5e7a8a]">{sublabel}</span>
     </div>
   );
 }

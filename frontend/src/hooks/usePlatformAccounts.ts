@@ -1,12 +1,12 @@
 import {useCallback, useEffect, useState} from 'react'
 import type {PlatformBindingSession, PlatformCatalogItem} from '@/types/openclaw'
+import {STATIC_PLATFORM_CATALOG} from '@/lib/constants'
 import {
   confirmLiveLogin,
   createPlatformAccount,
   deletePlatformAccount,
   fetchBindingSession,
   fetchPlatformAccounts,
-  fetchPlatformCatalog,
   getLiveLoginStatus,
   startLiveLogin,
   stopLiveLogin,
@@ -17,28 +17,7 @@ import {
   type PlatformAccountApiRow,
 } from '@/services/platformAccountService'
 
-let platformCatalogCache: PlatformCatalogItem[] | null = null
-let platformCatalogRequest: Promise<PlatformCatalogItem[]> | null = null
 let platformAccountsRequest: Promise<PlatformAccountApiRow[]> | null = null
-
-async function loadPlatformCatalogCached() {
-  if (platformCatalogCache) {
-    return platformCatalogCache
-  }
-
-  if (!platformCatalogRequest) {
-    platformCatalogRequest = fetchPlatformCatalog()
-      .then((items) => {
-        platformCatalogCache = items
-        return items
-      })
-      .finally(() => {
-        platformCatalogRequest = null
-      })
-  }
-
-  return platformCatalogRequest
-}
 
 async function loadPlatformAccountsDeduped() {
   if (!platformAccountsRequest) {
@@ -51,7 +30,7 @@ async function loadPlatformAccountsDeduped() {
 }
 
 export function usePlatformAccounts() {
-  const [catalog, setCatalog] = useState<PlatformCatalogItem[]>([])
+  const [catalog] = useState<PlatformCatalogItem[]>(STATIC_PLATFORM_CATALOG)
   const [accounts, setAccounts] = useState<PlatformAccountApiRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -60,11 +39,7 @@ export function usePlatformAccounts() {
     setLoading(true)
     setError(null)
     try {
-      const [catalogItems, accountItems] = await Promise.all([
-        loadPlatformCatalogCached(),
-        loadPlatformAccountsDeduped(),
-      ])
-      setCatalog(catalogItems)
+      const accountItems = await loadPlatformAccountsDeduped()
       setAccounts(accountItems)
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载平台账号失败')

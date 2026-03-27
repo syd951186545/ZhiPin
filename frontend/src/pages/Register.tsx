@@ -1,11 +1,9 @@
 import React, {type FormEvent, useState} from 'react';
 import {Link, useNavigate} from 'react-router-dom';
-import {motion} from 'motion/react';
 import {UserPlus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from '@/components/ui/card';
 import {useAuth} from '@/contexts/AuthContext';
 import {useI18n} from '@/contexts/I18nContext';
 
@@ -40,109 +38,125 @@ export default function Register() {
 
   return (
     <div>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="w-full"
-      >
-        <div className="mb-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Workspace Setup</p>
-          <h1 className="mt-2 text-[1.75rem] font-semibold tracking-[-0.04em]">{t('register.title')}</h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('register.desc')}</p>
+      {/* Form header */}
+      <div className="mb-8">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/70">
+          Workspace Setup
+        </p>
+        <h1 className="mt-1.5 text-[1.75rem] font-bold tracking-[-0.03em]">
+          {t('register.title')}
+        </h1>
+        <p className="mt-2 text-[14px] leading-6 text-muted-foreground">{t('register.desc')}</p>
+      </div>
+
+      {/* Form — no Card wrapper */}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <div className="rounded-xl border border-destructive/20 bg-destructive/[0.08] px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="companyName" className="text-sm font-medium text-foreground/80">
+            {t('register.companyName')}
+          </Label>
+          <Input
+            id="companyName"
+            type="text"
+            placeholder={t('register.companyNamePlaceholder')}
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            required
+            className="h-11 bg-white/80 text-base"
+          />
         </div>
 
-        <Card className="overflow-hidden border-white/70 bg-[rgba(255,253,250,0.96)] shadow-[0_18px_42px_-28px_rgba(20,32,43,0.16)]">
-          <div className="h-1 bg-[linear-gradient(90deg,#155E63_0%,#155E63_38%,#D89B2B_38%,#D89B2B_64%,transparent_64%)]" />
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4 pt-5">
-              {error && (
-                <div className="rounded-[var(--radius-md)] border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-                  {error}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="companyName" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.companyName')}</Label>
-                <Input
-                  id="companyName"
-                  type="text"
-                  placeholder={t('register.companyNamePlaceholder')}
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.name')}</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder={t('register.namePlaceholder')}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="reg-email" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.email')}</Label>
-                <Input
-                  id="reg-email"
-                  type="email"
-                  placeholder={t('register.emailPlaceholder')}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="reg-password" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.password')}</Label>
-                <Input
-                  id="reg-password"
-                  type="password"
-                  placeholder={t('register.passwordPlaceholder')}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('register.confirmPassword')}</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder={t('register.confirmPasswordPlaceholder')}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                />
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-3 pt-1">
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? (
-                  <>{t('register.loading')}</>
-                ) : (
-                  <>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    {t('register.submit')}
-                  </>
-                )}
-              </Button>
-              <p className="text-center text-sm text-muted-foreground">
-                {t('register.hasAccount')}{' '}
-                <Link to="/login" className="font-medium text-primary hover:underline">
-                  {t('register.login')}
-                </Link>
-              </p>
-            </CardFooter>
-          </form>
-        </Card>
-      </motion.div>
+        <div className="space-y-1.5">
+          <Label htmlFor="name" className="text-sm font-medium text-foreground/80">
+            {t('register.name')}
+          </Label>
+          <Input
+            id="name"
+            type="text"
+            placeholder={t('register.namePlaceholder')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            className="h-11 bg-white/80 text-base"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="reg-email" className="text-sm font-medium text-foreground/80">
+            {t('register.email')}
+          </Label>
+          <Input
+            id="reg-email"
+            type="email"
+            placeholder={t('register.emailPlaceholder')}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+            className="h-11 bg-white/80 text-base"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="reg-password" className="text-sm font-medium text-foreground/80">
+            {t('register.password')}
+          </Label>
+          <Input
+            id="reg-password"
+            type="password"
+            placeholder={t('register.passwordPlaceholder')}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={6}
+            autoComplete="new-password"
+            className="h-11 bg-white/80 text-base"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="confirmPassword" className="text-sm font-medium text-foreground/80">
+            {t('register.confirmPassword')}
+          </Label>
+          <Input
+            id="confirmPassword"
+            type="password"
+            placeholder={t('register.confirmPasswordPlaceholder')}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            minLength={6}
+            autoComplete="new-password"
+            className="h-11 bg-white/80 text-base"
+          />
+        </div>
+
+        <div className="pt-1">
+          <Button type="submit" className="h-11 w-full text-base" disabled={loading}>
+            {loading ? (
+              t('register.loading')
+            ) : (
+              <>
+                <UserPlus className="mr-2 h-4 w-4" />
+                {t('register.submit')}
+              </>
+            )}
+          </Button>
+        </div>
+
+        <p className="text-center text-sm text-muted-foreground">
+          {t('register.hasAccount')}{' '}
+          <Link to="/login" className="font-medium text-primary hover:underline">
+            {t('register.login')}
+          </Link>
+        </p>
+      </form>
     </div>
   );
 }
