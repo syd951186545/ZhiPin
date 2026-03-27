@@ -7,9 +7,6 @@
 - 如果任务需要访问局域网 OpenClaw、远端 SSH、或读取本机保存的敏感凭据，先读取 `docs/AI_AGENT_SECRETS.local.md`（如果存在）
 - 非必要不要在回复里回显密码、token、anon key、登录口令
 - 生产部署只有 `frontend` 与 `backopenclaw` 两个服务，`backopenclaw` 容器内同时运行 FastAPI 与 OpenClaw
-- 涉及 Supabase 迁移、schema 变更、远端迁移状态时，优先使用全局技能 `C:\Users\SunYD\.codex\skills\supabase-cli-ops\SKILL.md`
-- 本项目涉及 215 服务器同步、SSH、部署、热更新时，使用项目技能 `D:\_WorkSpaceWebStorm\ZhiPin_CC\.claude\skills\zhipin-215-sync\SKILL.md`
-- 当本仓库代码发生改动时，除非用户明确禁止，结束前默认执行 `python .claude/skills/zhipin-215-sync/scripts/sync_to_215.py --changed-only --health-check` 把变更同步到 `192.168.3.215:/home/sunyd/projectspace/ZhiPin`
 
 ## 默认运行方式
 - 后端：在 `backend/` 执行 `python main.py`
