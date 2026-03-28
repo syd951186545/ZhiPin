@@ -1,16 +1,13 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {
   AlertTriangle, Camera, Check, CheckCircle2, Circle, ClipboardCopy, Cpu, ExternalLink,
-  FileSearch, Layers, Link as LinkIcon, Loader2, LogIn, Megaphone, MoreHorizontal,
+  FileSearch, Layers, Link as LinkIcon, Loader2, LogIn, Megaphone,
   Play, RefreshCw, Search, ShieldCheck, Square, Trash2, Unplug, UserPlus, X, Zap,
 } from 'lucide-react'
 import {AnimatePresence, motion} from 'motion/react'
 import {Badge} from '@/components/ui/badge'
 import {Button} from '@/components/ui/button'
-import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card'
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Progress} from '@/components/ui/progress'
@@ -35,7 +32,7 @@ import type {PlatformAccountApiRow} from '@/services/platformAccountService'
 import {getWorkflowTemplates, testBackendConnection, validateWorkflowTemplate} from '@/services/workflowService'
 import type {WorkflowId, WorkflowTemplate} from '@/services/workflowService'
 import {useSettingsStore} from '@/stores/useSettingsStore'
-import {useWorkflowStore, type ActionNode} from '@/stores/useWorkflowStore'
+import {useWorkflowStore, type ActionNode, type WorkflowExecution} from '@/stores/useWorkflowStore'
 import type {Job} from '@/types/database'
 import type {PlatformBindingSession} from '@/types/openclaw'
 
@@ -172,7 +169,7 @@ const getLatestVerifySession = (account?: PlatformAccountApiRow | null) => (
 )
 
 const isBoundPlatformAccount = (account: PlatformAccountApiRow) => (
-  account.status !== 'expired' && (Boolean(account.browserSessionKey) || ['active', 'verifying'].includes(account.status))
+  ['active', 'verifying'].includes(account.status)
 )
 
 const accountStatusHint = (account: PlatformAccountApiRow) => {
@@ -342,7 +339,7 @@ export default function JilingRecruit() {
   const {user} = useAuth()
   const {catalog, accounts, loading: accountsLoading, startVerify, startUnbind, deleteAccount, load: reloadPlatformAccounts} = usePlatformAccounts()
   const {platformConfigs, companyProfile, updatePlatformConfig} = useSettingsStore()
-  const {activeExecution, lastExecution, backendReady, startWorkflow, cancelWorkflow, setBackendReady, restoreExecution} = useWorkflowStore()
+  const {executions, executionOrder, backendReady, startWorkflow, cancelWorkflow, setBackendReady, restoreExecution} = useWorkflowStore()
   const safeCompanyProfile = companyProfile || {name: '', address: '', size: '', overview: ''}
   const [jobs, setJobs] = useState<RecruitJobOption[]>([])
   const [jobsLoading, setJobsLoading] = useState(true)
@@ -377,9 +374,26 @@ export default function JilingRecruit() {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [copiedText, setCopiedText] = useState(false)
   const [activeTab, setActiveTab] = useState('execute')
+  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null)
+  const [launchingWorkflowIds, setLaunchingWorkflowIds] = useState<WorkflowId[]>([])
 
   const textEndRef = useRef<HTMLDivElement>(null)
-  const displayExec = activeExecution || lastExecution
+  const orderedExecutions = useMemo(
+    () => executionOrder
+      .map((executionId) => executions[executionId])
+      .filter((execution): execution is WorkflowExecution => Boolean(execution)),
+    [executionOrder, executions],
+  )
+  const activeExecutions = useMemo(
+    () => orderedExecutions.filter((execution) => ['starting', 'running', 'cancelling'].includes(execution.status)),
+    [orderedExecutions],
+  )
+  const displayExec = useMemo(() => {
+    if (selectedExecutionId && executions[selectedExecutionId]) {
+      return executions[selectedExecutionId]
+    }
+    return orderedExecutions[0] || null
+  }, [executions, orderedExecutions, selectedExecutionId])
   const workflowTemplateMap = useMemo(
     () => Object.fromEntries(workflowTemplates.map((template) => [template.id, template])),
     [workflowTemplates],
@@ -585,17 +599,14 @@ export default function JilingRecruit() {
     () => executionGroupDiagnostics.some((item) => item.duplicateAccount),
     [executionGroupDiagnostics],
   )
-  const hasMultipleExecutionGroups = completeExecutionGroups.length > 1
   const executionReadinessReasons = useMemo(() => {
     const reasons: string[] = []
     if (!backendReady) reasons.push('后端未连接，无法发起执行。')
     if (executionMode === 'scheduled') reasons.push('定期执行的保存与调度下发待后端适配。')
     if (completeExecutionGroups.length === 0) reasons.push('至少配置 1 组完整执行方案，按钮才会解锁。')
     if (hasDuplicateAccountGroups) reasons.push('同一账号不能在同次执行中重复使用。')
-    if (hasMultipleExecutionGroups) reasons.push('多组执行编排已完成前端设计，后端接口尚未支持真正下发。')
-    if (activeExecution) reasons.push('当前已有执行中的任务，请先等待完成或停止后再启动。')
     return reasons
-  }, [activeExecution, backendReady, completeExecutionGroups.length, executionMode, hasDuplicateAccountGroups, hasMultipleExecutionGroups])
+  }, [backendReady, completeExecutionGroups.length, executionMode, hasDuplicateAccountGroups])
   const canStartSelectedWorkflow = executionReadinessReasons.length === 0
   const actionDialogAccount = useMemo(
     () => actionSession ? accounts.find((item) => item.id === actionSession.account_id) || null : null,
@@ -609,6 +620,28 @@ export default function JilingRecruit() {
   const selectedPlatformLabel = PLATFORMS[selectedPlatform as keyof typeof PLATFORMS]?.name || '未选择平台'
   const completedStepCount = displayExec ? displayExec.steps.filter((step) => step.status === 'done').length : 0
   const runningStepLabel = displayExec?.steps.find((step) => step.status === 'running')?.nameZh || '等待下一步执行'
+  const activeExecutionCount = activeExecutions.length
+  const selectedWorkflowRunningExecutions = useMemo(
+    () => activeExecutions.filter((execution) => execution.workflowId === selectedWorkflowCard.id),
+    [activeExecutions, selectedWorkflowCard.id],
+  )
+  const runningAccountIds = useMemo(
+    () => new Set(activeExecutions.flatMap((execution) => execution.accountIds || [])),
+    [activeExecutions],
+  )
+  const selectedWorkflowRunningCount = selectedWorkflowRunningExecutions.length
+  const isSelectedWorkflowLaunching = launchingWorkflowIds.includes(selectedWorkflowCard.id)
+  const isDisplayExecActive = Boolean(displayExec && ['starting', 'running', 'cancelling'].includes(displayExec.status))
+
+  const getExecutionProgress = useCallback((execution: typeof displayExec) => {
+    if (!execution) return 0
+    return Math.round((execution.steps.filter((step) => step.status === 'done').length / Math.max(execution.totalSteps, 1)) * 100)
+  }, [])
+
+  const getExecutionRunningStepLabel = useCallback((execution: typeof displayExec) => (
+    execution?.steps.find((step) => step.status === 'running')?.nameZh || execution?.currentPlatform || '等待下一步执行'
+  ), [])
+
   const workflowStatusMap = useMemo(() => {
     const statusMap = Object.fromEntries(workflowCards.map((workflow) => [workflow.id, {
       state: 'idle',
@@ -617,27 +650,41 @@ export default function JilingRecruit() {
       progress: 0,
     }])) as Record<WorkflowId, {state: string; label: string; detail: string; progress: number}>
 
-    if (lastExecution?.workflowId && statusMap[lastExecution.workflowId]) {
-      const lastProgress = Math.round((lastExecution.steps.filter((step) => step.status === 'done').length / Math.max(lastExecution.totalSteps, 1)) * 100)
-      statusMap[lastExecution.workflowId] = {
-        state: lastExecution.status,
-        label: lastExecution.status === 'completed' ? '最近成功' : lastExecution.status === 'failed' ? '最近失败' : '最近结束',
-        detail: lastExecution.error || lastExecution.currentPlatform || '可查看最近一次详细记录',
-        progress: lastExecution.status === 'completed' ? 100 : lastProgress,
+    for (const workflow of workflowCards) {
+      const runningExecutions = activeExecutions.filter((execution) => execution.workflowId === workflow.id)
+      if (runningExecutions.length > 0) {
+        const leadExecution = runningExecutions[0]
+        statusMap[workflow.id] = {
+          state: runningExecutions.some((execution) => execution.status === 'cancelling') ? 'cancelling' : 'running',
+          label: runningExecutions.length > 1 ? `并行中 ${runningExecutions.length}` : (leadExecution.status === 'cancelling' ? '停止中' : '执行中'),
+          detail: runningExecutions.length > 1
+            ? `运行中 ${runningExecutions.length} 个任务，最近任务：${getExecutionRunningStepLabel(leadExecution)}`
+            : getExecutionRunningStepLabel(leadExecution),
+          progress: Math.max(...runningExecutions.map((execution) => getExecutionProgress(execution))),
+        }
+        continue
       }
-    }
 
-    if (activeExecution?.workflowId && statusMap[activeExecution.workflowId]) {
-      statusMap[activeExecution.workflowId] = {
-        state: 'running',
-        label: '执行中',
-        detail: activeExecution.currentPlatform || runningStepLabel,
-        progress: progressPercent,
+      const recentExecution = orderedExecutions.find((execution) => execution.workflowId === workflow.id)
+      if (!recentExecution) continue
+
+      const recentProgress = getExecutionProgress(recentExecution)
+      statusMap[workflow.id] = {
+        state: recentExecution.status,
+        label: recentExecution.status === 'completed'
+          ? '最近成功'
+          : recentExecution.status === 'failed'
+            ? '最近失败'
+            : recentExecution.status === 'cancelled'
+              ? '最近停止'
+              : '最近结束',
+        detail: recentExecution.error || recentExecution.currentPlatform || '可查看最近一次详细记录',
+        progress: recentExecution.status === 'completed' ? 100 : recentProgress,
       }
     }
 
     return statusMap
-  }, [activeExecution, lastExecution, progressPercent, runningStepLabel, workflowCards])
+  }, [activeExecutions, getExecutionProgress, getExecutionRunningStepLabel, orderedExecutions, workflowCards])
   const resolvedPreparationCount = allPreparationChecks.filter((item) => item.tone === 'pass' || item.tone === 'saved').length
   const blockingPreparationCount = allPreparationChecks.filter((item) => item.tone === 'risk').length
   const readyPlatformCount = catalog.filter((item) => Boolean(resolveDefaultAccountForPlatform(item.key) && resolveDefaultJobForPlatform(item.key))).length
@@ -754,9 +801,16 @@ export default function JilingRecruit() {
   }, [platformConfigs, selectedAccountId, selectedPlatform, selectedPlatformAccounts])
 
   useEffect(() => {
-    if (!activeExecution?.workflowId) return
-    setSelectedWorkflowId(activeExecution.workflowId)
-  }, [activeExecution?.workflowId])
+    if (selectedExecutionId && executions[selectedExecutionId]) return
+    const nextExecution = activeExecutions[0] || orderedExecutions[0] || null
+    if (nextExecution?.executionId) {
+      setSelectedExecutionId(nextExecution.executionId)
+      return
+    }
+    if (selectedExecutionId) {
+      setSelectedExecutionId(null)
+    }
+  }, [activeExecutions, executions, orderedExecutions, selectedExecutionId])
 
   useEffect(() => {
     textEndRef.current?.scrollIntoView({behavior: 'smooth'})
@@ -815,78 +869,93 @@ export default function JilingRecruit() {
       return
     }
 
-    if (completeExecutionGroups.length > 1) {
-      setWorkflowError('多组执行编排的前端已就绪，但后端接口尚未适配；当前请先保留 1 组完整方案后执行。')
+    const occupiedAccountGroups = completeExecutionGroups
+      .map(({group}, index) => ({
+        index: index + 1,
+        group,
+        account: accounts.find((item) => item.id === group.accountId),
+      }))
+      .filter((item) => Boolean(item.group.accountId) && runningAccountIds.has(item.group.accountId))
+
+    if (occupiedAccountGroups.length > 0) {
+      const detail = occupiedAccountGroups
+        .map((item) => `第 ${item.index} 组 ${item.account?.name || '所选账号'}`)
+        .join('、')
+      setWorkflowError(`${detail} 当前已有运行中的任务，请先停止对应任务或改用其他账号后再发起。`)
       return
     }
 
-    const primaryGroup = completeExecutionGroups[0]?.group
-    if (!primaryGroup) {
-      setWorkflowError('未找到可执行的执行组，请重新配置。')
-      return
-    }
+    setLaunchingWorkflowIds((prev) => prev.includes(workflowId) ? prev : [...prev, workflowId])
 
-    const firstPlatform = primaryGroup.platform
-    const firstJobId = primaryGroup.jobId
-    const {data: firstJobData, error: firstJobError} = await supabase
-      .from('jobs')
-      .select('id, title, location, salary_min, salary_max, employment_type, department, description, requirements, benefits')
-      .eq('id', firstJobId)
-      .single()
+    try {
+      const preparedPayloads = await Promise.all(completeExecutionGroups.map(async ({group}, index) => {
+        const {data: jobData, error: jobError} = await supabase
+          .from('jobs')
+          .select('id, title, location, salary_min, salary_max, employment_type, department, description, requirements, benefits')
+          .eq('id', group.jobId)
+          .single()
 
-    if (firstJobError) {
-      setWorkflowError(`加载岗位详情失败：${firstJobError.message}`)
-      return
-    }
+        if (jobError) {
+          throw new Error(`第 ${index + 1} 组加载岗位详情失败：${jobError.message}`)
+        }
 
-    const firstJob = firstJobData as RecruitJobDetail | null
-    if (!firstJob) {
-      setWorkflowError('未找到选择的岗位信息，请重新选择。')
-      return
-    }
-    const firstAccountId = primaryGroup.accountId
-    const firstAccount = accounts.find((a) => a.id === firstAccountId)
-    const platformAccountIds: Record<string, string> = {
-      [firstPlatform]: firstAccountId,
-    }
+        const job = jobData as RecruitJobDetail | null
+        if (!job) {
+          throw new Error(`第 ${index + 1} 组未找到选择的岗位信息，请重新选择。`)
+        }
 
-    const workflowPayload = {
-      workflow_id: workflowId,
-      tenant_id: user?.tenantId || '',
-      user_id: user?.id || '',
-      platform: firstPlatform,
-      account_id: firstAccountId,
-      account_name: firstAccount?.accountName || firstAccount?.name || '',
-      platforms: [firstPlatform],
-      platform_account_ids: platformAccountIds,
-      job_id: firstJob.id,
-      job_title: firstJob.title,
-      job_location: firstJob.location || '',
-      job_salary_min: firstJob.salary_min || undefined,
-      job_salary_max: firstJob.salary_max || undefined,
-      job_employment_type: firstJob.employment_type,
-      job_department: firstJob.department || '',
-      job_description: firstJob.description || '',
-      job_requirements: firstJob.requirements || '',
-      job_benefits: firstJob.benefits || '',
-      company_name: platformConfigs[firstPlatform]?.nickname || safeCompanyProfile.name || '我们公司',
-      company_address: safeCompanyProfile.address,
-      company_size: safeCompanyProfile.size,
-      company_overview: safeCompanyProfile.overview,
-      min_match_score: matchThreshold,
-      max_results: 30,
-      message_send_limit: messageSendLimit,
-      custom_message: customMessage,
-    }
+        const account = accounts.find((item) => item.id === group.accountId)
+        if (!account) {
+          throw new Error(`第 ${index + 1} 组未找到绑定账号，请重新选择。`)
+        }
 
-    const validation = await validateWorkflowTemplate(workflowId, workflowPayload)
-    if (!validation.valid) {
-      setWorkflowError(validation.errors[0] || '当前工作流配置未通过校验，请先完成配置。')
-      return
-    }
+        const workflowPayload = {
+          workflow_id: workflowId,
+          tenant_id: user?.tenantId || '',
+          user_id: user?.id || '',
+          platform: group.platform,
+          account_id: group.accountId,
+          account_name: account.accountName || account.name || '',
+          platforms: [group.platform],
+          platform_account_ids: {[group.platform]: group.accountId},
+          job_id: job.id,
+          job_title: job.title,
+          job_location: job.location || '',
+          job_salary_min: job.salary_min || undefined,
+          job_salary_max: job.salary_max || undefined,
+          job_employment_type: job.employment_type,
+          job_department: job.department || '',
+          job_description: job.description || '',
+          job_requirements: job.requirements || '',
+          job_benefits: job.benefits || '',
+          company_name: platformConfigs[group.platform]?.nickname || safeCompanyProfile.name || '我们公司',
+          company_address: safeCompanyProfile.address,
+          company_size: safeCompanyProfile.size,
+          company_overview: safeCompanyProfile.overview,
+          min_match_score: matchThreshold,
+          max_results: 30,
+          message_send_limit: messageSendLimit,
+          custom_message: customMessage,
+        }
 
-    await startWorkflow(workflowPayload)
-  }, [accounts, backendReady, completeExecutionGroups, customMessage, executionMode, hasDuplicateAccountGroups, matchThreshold, messageSendLimit, platformConfigs, safeCompanyProfile, startWorkflow, user])
+        const validation = await validateWorkflowTemplate(workflowId, workflowPayload)
+        if (!validation.valid) {
+          throw new Error(validation.errors[0] || `第 ${index + 1} 组配置未通过校验，请先完成配置。`)
+        }
+
+        return workflowPayload
+      }))
+
+      const executionIds = await Promise.all(preparedPayloads.map((payload) => startWorkflow(payload)))
+      if (executionIds[0]) {
+        setSelectedExecutionId(executionIds[0])
+      }
+    } catch (error) {
+      setWorkflowError(error instanceof Error ? error.message : '启动工作流失败')
+    } finally {
+      setLaunchingWorkflowIds((prev) => prev.filter((id) => id !== workflowId))
+    }
+  }, [accounts, backendReady, completeExecutionGroups, customMessage, executionMode, hasDuplicateAccountGroups, matchThreshold, messageSendLimit, platformConfigs, runningAccountIds, safeCompanyProfile, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
     if (type === 'verify') {
@@ -931,6 +1000,14 @@ export default function JilingRecruit() {
     setBindDialogOpen(true)
   }, [])
 
+  const handleAccountCreated = useCallback(async (createdAccount?: PlatformAccountApiRow) => {
+    await reloadPlatformAccounts()
+    if (createdAccount) {
+      setSelectedPlatform(createdAccount.platform)
+      setSelectedAccountId(createdAccount.id)
+    }
+  }, [reloadPlatformAccounts])
+
   const copyText = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedText(true)
@@ -938,9 +1015,19 @@ export default function JilingRecruit() {
     })
   }
 
+  const handleDeleteAccount = async (accountId: string) => {
+    if (!confirm('确定要删除此账号吗？删除后不可恢复。')) return
+    try {
+      await deleteAccount(accountId)
+      await reloadPlatformAccounts()
+    } catch (e) {
+      setWorkflowError(e instanceof Error ? e.message : '删除账号失败')
+    }
+  }
+
   const renderAccountActionButtons = (
     account: PlatformAccountApiRow,
-    variant: 'selected' | 'row',
+    variant: 'selected',
   ) => {
     const latestVerifySession = getLatestVerifySession(account)
     const canReopenVerify = Boolean(latestVerifySession)
@@ -949,15 +1036,11 @@ export default function JilingRecruit() {
     const canUnbindAccount = account.status === 'active' || account.status === 'verifying'
     const isBoundAccount = isBoundPlatformAccount(account)
     const pending = actionPendingAccountId === account.id
-    const size = variant === 'selected' ? 'sm' : 'sm'
-    const viewClassName = variant === 'selected' ? 'gap-2' : 'h-7 gap-1.5 px-2.5 text-xs'
-    const primaryClassName = variant === 'selected' ? 'gap-2 shadow-sm' : 'h-7 gap-1.5 px-2.5 text-xs shadow-sm'
-    const verifyClassName = variant === 'selected'
-      ? 'gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950'
-      : 'h-7 gap-1.5 border-emerald-200 px-2.5 text-xs text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950'
-    const unbindClassName = variant === 'selected'
-      ? 'gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950'
-      : 'h-7 gap-1.5 border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950'
+    const size = 'sm'
+    const viewClassName = 'gap-2'
+    const primaryClassName = 'gap-2 shadow-sm'
+    const verifyClassName = 'gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950'
+    const unbindClassName = 'gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950'
 
     if (!isBoundAccount) {
       return (
@@ -966,9 +1049,9 @@ export default function JilingRecruit() {
           className={primaryClassName}
           onClick={() => openBindDialogForAccount(account.id)}
           disabled={pending}
-          data-testid={variant === 'selected' ? (canRebindAccount ? 'rebind-account' : 'open-bind-dialog') : undefined}
+          data-testid={canRebindAccount ? 'rebind-account' : 'open-bind-dialog'}
         >
-          <LogIn className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+          <LogIn className='h-3.5 w-3.5'/>
           {pending ? '处理中...' : canRebindAccount ? '重新绑定' : '开始绑定'}
         </Button>
       )
@@ -982,9 +1065,9 @@ export default function JilingRecruit() {
             variant="outline"
             className={viewClassName}
             onClick={() => reopenActionSession(latestVerifySession, account.id)}
-            data-testid={variant === 'selected' ? 'reopen-verify-dialog' : `account-view-verify-${account.id}`}
+            data-testid='reopen-verify-dialog'
           >
-            <Search className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+            <Search className='h-3.5 w-3.5'/>
             {verifySessionViewLabel(latestVerifySession)}
           </Button>
         )}
@@ -995,9 +1078,9 @@ export default function JilingRecruit() {
             className={verifyClassName}
             onClick={() => handleAction('verify', account.id)}
             disabled={pending}
-            data-testid={variant === 'selected' ? 'verify-account' : undefined}
+            data-testid='verify-account'
           >
-            <ShieldCheck className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+            <ShieldCheck className='h-3.5 w-3.5'/>
             {pending ? '验证中...' : verifySessionActionLabel(latestVerifySession)}
           </Button>
         )}
@@ -1008,9 +1091,9 @@ export default function JilingRecruit() {
             className={unbindClassName}
             onClick={() => handleAction('unbind', account.id)}
             disabled={pending}
-            data-testid={variant === 'selected' ? 'unbind-account' : undefined}
+            data-testid='unbind-account'
           >
-            <Unplug className={variant === 'selected' ? 'h-3.5 w-3.5' : 'h-3 w-3'}/>
+            <Unplug className='h-3.5 w-3.5'/>
             {pending ? '解绑中...' : '解绑账号'}
           </Button>
         )}
@@ -1029,7 +1112,6 @@ export default function JilingRecruit() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">机灵招聘</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">平台账号绑定、持久登录、招聘工作流统一编排</p>
             </div>
           </div>
         </div>
@@ -1101,22 +1183,18 @@ export default function JilingRecruit() {
                 <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3 shadow-sm">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">平台总数</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{catalog.length}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">当前统一管理的平台数量</p>
                 </div>
                 <div className="rounded-[24px] border border-emerald-200/60 bg-emerald-50/70 px-4 py-3 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">生效平台</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{activePlatformAssetCount}</p>
-                  <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-200/80">至少有 1 个可用账号的平台</p>
                 </div>
                 <div className="rounded-[24px] border border-primary/15 bg-primary/[0.06] px-4 py-3 shadow-sm">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">生效账号</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeAccounts}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">可直接参与执行的账号</p>
                 </div>
                 <div className="rounded-[24px] border border-amber-200/70 bg-amber-50/75 px-4 py-3 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">失效账号</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-amber-800 dark:text-amber-100">{inactiveAccounts}</p>
-                  <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-200/80">建议优先重新验证或解绑清理</p>
                 </div>
               </div>
             </div>
@@ -1130,14 +1208,13 @@ export default function JilingRecruit() {
           </TabsList>
 
           <TabsContent value="assets" className="mt-0 space-y-5">
-        <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
 
         {/* Platform Catalog */}
         <Card className="overflow-hidden" data-testid="platform-catalog-panel">
           <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Platform Picker</p>
             <CardTitle className="mt-2 text-base">选择平台</CardTitle>
-            <CardDescription className="mt-1">先选平台，再查看和管理该平台下的账号。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2.5 pt-4">
             {accountsLoading && catalog.length === 0 ? Array.from({length: 6}).map((_, index) => (
@@ -1199,7 +1276,6 @@ export default function JilingRecruit() {
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Account Roster</p>
                 <CardTitle className="mt-2 text-base">{selectedPlatformLabel}账号列表</CardTitle>
-                <CardDescription className="mt-1">查看状态，绑定新账号，或对现有账号做验证、解绑、删除。</CardDescription>
               </div>
               <Button size="sm" className="gap-2 shadow-sm shrink-0" onClick={() => setAddAccountOpen(true)} data-testid="open-add-account-dialog">
                 <UserPlus className="h-4 w-4"/>新增平台账号
@@ -1219,21 +1295,15 @@ export default function JilingRecruit() {
                   <UserPlus className="h-5 w-5 text-muted-foreground"/>
                 </div>
                 <p className="text-sm font-medium text-muted-foreground">当前平台暂无账号</p>
-                <p className="mt-1 text-xs text-muted-foreground/70">点击上方「新增平台账号」添加</p>
                 <Button variant="outline" size="sm" className="mt-4 gap-2" onClick={() => setAddAccountOpen(true)}>
                   <UserPlus className="h-3.5 w-3.5"/>添加账号
                 </Button>
               </div>
             ) : selectedPlatformAccounts.map((account) => {
               const isSelected = selectedAccountId === account.id
-              const isActive = account.status === 'active'
               const isDefaultAccount = platformConfigs[selectedPlatform]?.boundProfileId === account.id
               const latestVerifySession = getLatestVerifySession(account)
-              const canReopenVerify = Boolean(latestVerifySession)
               const isBoundAccount = isBoundPlatformAccount(account)
-              const canVerifyAccount = account.status === 'active'
-              const verifyEntryLabel = verifySessionViewLabel(latestVerifySession)
-              const verifyActionText = verifySessionActionLabel(latestVerifySession)
               const verificationStateLabel = !isBoundAccount
                 ? account.status === 'expired' ? '登录失效' : '未绑定'
                 : latestVerifySession
@@ -1251,164 +1321,181 @@ export default function JilingRecruit() {
                     isSelected ? 'border-primary/30 bg-primary/[0.03] shadow-sm shadow-primary/5' : 'border-border hover:shadow-sm hover:border-border/80',
                   )}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <button type="button" className="flex-1 text-left" onClick={() => setSelectedAccountId(account.id)}>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium">{account.name}</p>
-                        {statusBadge(account.status)}
-                        {isDefaultAccount && <Badge variant="outline" className="text-[10px]">默认执行</Badge>}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
-                          登录名 {account.accountName || account.loginIdentifierMasked || '未填写'}
-                        </span>
-                        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
-                          最近会话 {bindingStatus(account.latestBindingSession?.status)}
-                        </span>
-                        {isDefaultAccount && (
-                          <span className="rounded-full bg-primary/8 px-2.5 py-1 text-[11px] text-primary">
-                            将作为当前平台默认执行账号
-                          </span>
-                        )}
-                      </div>
-                      {latestVerifySession && (
-                        <>
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            上次验证：{formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at)}
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            验证结果：{trimInlineText(verifySessionSummary(latestVerifySession))}
-                          </p>
-                        </>
-                      )}
-                      <p className="mt-2 text-xs text-muted-foreground/80">{accountStatusHint(account)}</p>
-                      {account.lastError && <p className="mt-2 text-xs text-red-500">{account.lastError}</p>}
-                    </button>
-
-                    <div className="flex items-center gap-1.5">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid={`account-actions-${account.id}`}>
-                            <MoreHorizontal className="h-4 w-4"/>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          {!isBoundAccount && (
-                            <DropdownMenuItem onClick={() => openBindDialogForAccount(account.id)}>
-                              <LogIn className="mr-2 h-4 w-4"/>{account.status === 'expired' ? '重新绑定' : '开始绑定'}
-                            </DropdownMenuItem>
-                          )}
-                          {isBoundAccount && (
-                            <>
-                              {canReopenVerify && latestVerifySession && (
-                                <DropdownMenuItem
-                                  data-testid={`account-view-verify-${account.id}`}
-                                  onClick={() => reopenActionSession(latestVerifySession, account.id)}
-                                >
-                                  <Search className="mr-2 h-4 w-4"/>{verifyEntryLabel}
-                                </DropdownMenuItem>
-                              )}
-                              {canVerifyAccount && (
-                                <DropdownMenuItem
-                                  data-testid={`account-verify-${account.id}`}
-                                  onClick={() => handleAction('verify', account.id)}
-                                  disabled={actionPendingAccountId === account.id}
-                                >
-                                  <ShieldCheck className="mr-2 h-4 w-4"/>{verifyActionText}
-                                </DropdownMenuItem>
-                              )}
-                              {isActive && (
-                                <DropdownMenuItem
-                                  data-testid={`account-set-default-${account.id}`}
-                                  onClick={() => { updatePlatformConfig(selectedPlatform, {boundProfileId: account.id}); setSelectedAccountId(account.id) }}
-                                >
-                                  <Check className="mr-2 h-4 w-4"/>设为默认
-                                </DropdownMenuItem>
-                              )}
-                              {(isActive || account.status === 'verifying') && (
-                                <>
-                                  <DropdownMenuSeparator/>
-                                  <DropdownMenuItem
-                                    data-testid={`account-unbind-${account.id}`}
-                                    className="text-red-600 focus:text-red-600 dark:text-red-400"
-                                    onClick={() => handleAction('unbind', account.id)}
-                                    disabled={actionPendingAccountId === account.id}
-                                  >
-                                    <Unplug className="mr-2 h-4 w-4"/>解绑账号
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                            </>
-                          )}
-                          <DropdownMenuItem
-                            data-testid={`account-delete-${account.id}`}
-                            className="text-red-600 focus:text-red-600 dark:text-red-400"
-                            onClick={async () => {
-                              if (!confirm('确定要删除此账号吗？删除后不可恢复。')) return
-                              try {
-                                await deleteAccount(account.id)
-                                await reloadPlatformAccounts()
-                              } catch (e) {
-                                setWorkflowError(e instanceof Error ? e.message : '删除账号失败')
-                              }
-                            }}
-                            disabled={actionPendingAccountId === account.id}
+                  <button type="button" className="w-full text-left" onClick={() => setSelectedAccountId(account.id)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-foreground">{account.name}</p>
+                          {statusBadge(account.status)}
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-[10px] uppercase tracking-[0.16em]',
+                              !isBoundAccount
+                                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+                                : latestVerifySession?.status === 'running'
+                                  ? 'border-primary/20 bg-primary/[0.06] text-primary'
+                                  : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
+                            )}
                           >
-                            <Trash2 className="mr-2 h-4 w-4"/>删除账号
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-[20px] border border-border/70 bg-background/80 px-3.5 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">验证状态</p>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            'text-[10px] uppercase tracking-[0.16em]',
-                            !isBoundAccount
-                              ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
-                              : latestVerifySession?.status === 'running'
-                                ? 'border-primary/20 bg-primary/[0.06] text-primary'
-                                : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
-                          )}
-                        >
-                          {verificationStateLabel}
-                        </Badge>
+                            {verificationStateLabel}
+                          </Badge>
+                          {isDefaultAccount && <Badge variant="outline" className="text-[10px]">默认执行</Badge>}
+                        </div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">登录名</p>
+                            <p className="mt-1 truncate text-sm text-foreground">{account.accountName || account.loginIdentifierMasked || '未填写'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">最近会话</p>
+                            <p className="mt-1 text-sm text-foreground">{bindingStatus(account.latestBindingSession?.status)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">上次验证</p>
+                            <p className="mt-1 text-sm text-foreground">{latestVerifySession ? formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at) : '-'}</p>
+                          </div>
+                        </div>
+                        {account.lastError && <p className="mt-3 text-xs text-red-500 line-clamp-2">{account.lastError}</p>}
                       </div>
-                      {latestVerifySession && (
-                        <p className="text-[11px] text-muted-foreground">
-                          {formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at)}
-                        </p>
-                      )}
+                      {isSelected && <Badge variant="outline" className="text-[10px] text-primary">当前</Badge>}
                     </div>
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                      {latestVerifySession ? verifySessionSummary(latestVerifySession) : account.status === 'expired' ? '该账号需要重新绑定后才能继续执行。' : '该账号还没有验证记录，先完成一次绑定。'}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    {renderAccountActionButtons(account, 'row')}
-                    {isActive && !isDefaultAccount && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 gap-1.5 px-2.5 text-xs"
-                        onClick={() => {
-                          updatePlatformConfig(selectedPlatform, {boundProfileId: account.id})
-                          setSelectedAccountId(account.id)
-                        }}
-                      >
-                        <Check className="h-3 w-3"/>设为默认
-                      </Button>
-                    )}
-                  </div>
+                  </button>
                 </motion.div>
               )
             })}
+          </CardContent>
+        </Card>
+
+        <Card className="overflow-hidden" data-testid="selected-account-panel">
+          <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Selected Account</p>
+            <CardTitle className="mt-2 text-base">账号详情</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-4">
+            {selectedAccount ? (
+              <>
+                <div className="rounded-[22px] border border-border/70 bg-background/85 p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-base font-semibold text-foreground">{selectedAccount.name}</p>
+                        {statusBadge(selectedAccount.status)}
+                        {platformConfigs[selectedPlatform]?.boundProfileId === selectedAccount.id && (
+                          <Badge variant="outline" className="text-[10px]">默认执行</Badge>
+                        )}
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        登录名：{selectedAccount.accountName || selectedAccount.loginIdentifierMasked || '未填写'}
+                      </p>
+                      <p className="mt-2 text-sm text-muted-foreground">{selectedAccountStatusHint}</p>
+                      {selectedAccount.lastError && (
+                        <p className="mt-2 text-sm text-red-600 dark:text-red-400">{selectedAccount.lastError}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {renderAccountActionButtons(selectedAccount, 'selected')}
+                    {selectedAccount.status === 'active' && platformConfigs[selectedPlatform]?.boundProfileId !== selectedAccount.id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => {
+                          updatePlatformConfig(selectedPlatform, {boundProfileId: selectedAccount.id})
+                          setSelectedAccountId(selectedAccount.id)
+                        }}
+                      >
+                        <Check className="h-3.5 w-3.5"/>设为默认
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+                      onClick={() => handleDeleteAccount(selectedAccount.id)}
+                      disabled={actionPendingAccountId === selectedAccount.id}
+                    >
+                      <Trash2 className="h-3.5 w-3.5"/>删除账号
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-[22px] border border-border/70 bg-background/85 p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">验证状态</p>
+                      <p className="mt-2 text-sm font-medium text-foreground">
+                        {selectedAccountIsBound
+                          ? selectedLatestVerifySession
+                            ? bindingStatus(selectedLatestVerifySession.status)
+                            : '已绑定'
+                          : selectedAccount.status === 'expired'
+                            ? '已失效'
+                            : '未绑定'}
+                      </p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'text-[10px] uppercase tracking-[0.16em]',
+                        !selectedAccountIsBound
+                          ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+                          : selectedLatestVerifySession?.status === 'running'
+                            ? 'border-primary/20 bg-primary/[0.06] text-primary'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
+                      )}
+                    >
+                      {selectedLatestVerifySession?.status === 'running'
+                        ? '验证中'
+                        : selectedAccountIsBound
+                          ? '可复用'
+                          : selectedAccount.status === 'expired'
+                            ? '需重绑'
+                            : '待绑定'}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>最近会话</span>
+                      <span>{bindingStatus(selectedAccount.latestBindingSession?.status)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span>上次更新时间</span>
+                      <span>{formatSessionTime(selectedLatestVerifySession?.updated_at || selectedLatestVerifySession?.created_at || selectedAccount.lastVerified)}</span>
+                    </div>
+                  </div>
+
+                  <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                    {selectedLatestVerifySession
+                      ? verifySessionSummary(selectedLatestVerifySession)
+                      : selectedAccount.status === 'expired'
+                        ? '该账号最近一次登录态已经失效，请重新绑定后再进行验证。'
+                        : '当前账号还没有验证记录，完成绑定后即可查看验证结果。'}
+                  </p>
+
+                  {selectedLatestVerifySession?.latest_screenshot_url && (
+                    <div className="mt-4 overflow-hidden rounded-xl border bg-muted/20">
+                      <img
+                        src={selectedLatestVerifySession.latest_screenshot_url}
+                        alt={`${selectedAccount.name} 最近验证截图`}
+                        className="h-48 w-full object-cover object-top"
+                      />
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="flex min-h-[280px] flex-col items-center justify-center rounded-[22px] border border-dashed px-6 text-center">
+                <Circle className="h-10 w-10 text-muted-foreground/40"/>
+                <p className="mt-4 text-sm font-medium text-muted-foreground">请选择一个账号查看详情</p>
+                <p className="mt-2 text-xs leading-6 text-muted-foreground/80">
+                  右侧会显示当前账号的验证状态、最近结果，以及可执行的绑定/验证/解绑动作。
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1421,7 +1508,6 @@ export default function JilingRecruit() {
                 <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Global Presets</p>
                   <CardTitle className="mt-2 text-base">全局执行预设</CardTitle>
-                  <CardDescription className="mt-1">这里保存跨平台、跨工作流的长期默认值。执行页会直接引用这些配置作为起始方案。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5 pt-4">
                   <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
@@ -1489,7 +1575,6 @@ export default function JilingRecruit() {
                 <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Preset Coverage</p>
                   <CardTitle className="mt-2 text-base">预设覆盖范围</CardTitle>
-                  <CardDescription className="mt-1">让使用者知道哪些内容属于长期配置，哪些内容要在执行页临时决定。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 pt-4">
                   <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
@@ -1521,16 +1606,13 @@ export default function JilingRecruit() {
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Workflow Selector</p>
                       <CardTitle className="mt-2 text-base">三大工作流</CardTitle>
-                      <CardDescription className="mt-2 text-sm leading-6">
-                        先选工作流，再补本次执行编排。启动按钮的解锁条件会在右侧实时同步。
-                      </CardDescription>
                     </div>
                     <div className="flex items-center gap-3 rounded-full border border-border/70 bg-background/80 px-3 py-2 shadow-sm shrink-0">
                       <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.18em] whitespace-nowrap">
                         筛选阈值 <span className="ml-1 text-foreground font-bold">{matchThreshold}分</span>
                       </Label>
                       <div className="w-24">
-                        <Slider value={[matchThreshold]} onValueChange={([value]) => setMatchThreshold(value)} min={0} max={100} step={5} disabled={!!activeExecution}/>
+                        <Slider value={[matchThreshold]} onValueChange={([value]) => setMatchThreshold(value)} min={0} max={100} step={5}/>
                       </div>
                     </div>
                   </div>
@@ -1546,7 +1628,7 @@ export default function JilingRecruit() {
                           key={workflow.id}
                           type="button"
                           data-testid={`workflow-card-${workflow.id}`}
-                          whileHover={!activeExecution || activeExecution.workflowId === workflow.id ? {y: -2} : undefined}
+                          whileHover={{y: -2}}
                           transition={{duration: 0.2}}
                           onClick={() => setSelectedWorkflowId(workflow.id)}
                           className={cn(
@@ -1600,9 +1682,6 @@ export default function JilingRecruit() {
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Execution Composer</p>
                       <CardTitle className="mt-2 text-base">{selectedWorkflowCard.title}</CardTitle>
-                      <CardDescription className="mt-2 text-sm leading-6">
-                        一次执行前可以配置多组“平台 + 账号 + 岗位”。平台允许重复，账号必须唯一，岗位允许重复。
-                      </CardDescription>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
                       <button type="button" onClick={() => setExecutionMode('immediate')} className={cn('rounded-[24px] border px-4 py-3 text-left transition-all', executionMode === 'immediate' ? 'border-primary/35 bg-primary/[0.08] shadow-sm' : 'border-border/70 bg-background/82')}>
@@ -1663,7 +1742,7 @@ export default function JilingRecruit() {
                     <div className="grid gap-4 rounded-[28px] border border-border/70 bg-background/82 p-4 shadow-sm lg:grid-cols-[minmax(0,1fr)_280px]">
                       <div className="space-y-2">
                         <Label htmlFor="custom-message" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">本次主动沟通覆盖</Label>
-                        <Textarea id="custom-message" placeholder="留空则沿用平台与账号页中的全局预设。" value={customMessage} onChange={(e) => setCustomMessage(e.target.value)} disabled={!!activeExecution} rows={4} maxLength={500} className="rounded-[22px] border-border/70 bg-background/95 text-sm resize-none"/>
+                        <Textarea id="custom-message" placeholder="留空则沿用平台与账号页中的全局预设。" value={customMessage} onChange={(e) => setCustomMessage(e.target.value)} rows={4} maxLength={500} className="rounded-[22px] border-border/70 bg-background/95 text-sm resize-none"/>
                         <p className={cn('text-[11px]', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>
                           {customMessage.length}/500 字符。填写后仅覆盖本次运行。
                         </p>
@@ -1671,9 +1750,9 @@ export default function JilingRecruit() {
                       <div className="space-y-2">
                         <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">单次发送上限 <span className="ml-1 text-foreground font-bold">{messageSendLimit} 条</span></Label>
                         <div className="rounded-[22px] border border-border/70 bg-background/95 p-4">
-                          <Slider value={[messageSendLimit]} onValueChange={([value]) => setMessageSendLimit(value)} min={1} max={50} step={1} disabled={!!activeExecution}/>
+                          <Slider value={[messageSendLimit]} onValueChange={([value]) => setMessageSendLimit(value)} min={1} max={50} step={1}/>
                           <div className="mt-4 flex items-center gap-3">
-                            <Input type="number" min={1} max={50} value={messageSendLimit} onChange={(e) => { const value = Math.max(1, Math.min(50, Number(e.target.value) || 10)); setMessageSendLimit(value) }} disabled={!!activeExecution} className="h-10 rounded-2xl text-center text-sm"/>
+                            <Input type="number" min={1} max={50} value={messageSendLimit} onChange={(e) => { const value = Math.max(1, Math.min(50, Number(e.target.value) || 10)); setMessageSendLimit(value) }} className="h-10 rounded-2xl text-center text-sm"/>
                             <p className="text-[11px] leading-5 text-muted-foreground">限制一次运行内最多发送多少条消息。</p>
                           </div>
                         </div>
@@ -1684,12 +1763,12 @@ export default function JilingRecruit() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-semibold text-foreground">执行组编排</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">至少保留 1 组完整方案。可先按业务要求编好多组，后端适配后再真正并行下发。</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">至少保留 1 组完整方案。开始执行后会立即下发当前完整执行组，并允许继续发起新的并行任务。</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">完整 {completeExecutionGroups.length}</Badge>
                       <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">草稿 {draftExecutionGroups.length}</Badge>
-                      <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => addExecutionGroup({ platform: selectedPlatform || catalog[0]?.key || '', accountId: selectedPlatform ? resolveDefaultAccountForPlatform(selectedPlatform) : '', jobId: selectedPlatform ? resolveDefaultJobForPlatform(selectedPlatform) : '' })} disabled={!!activeExecution}>
+                      <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => addExecutionGroup({ platform: selectedPlatform || catalog[0]?.key || '', accountId: selectedPlatform ? resolveDefaultAccountForPlatform(selectedPlatform) : '', jobId: selectedPlatform ? resolveDefaultJobForPlatform(selectedPlatform) : '' })}>
                         <Layers className="h-3.5 w-3.5"/>新增执行组
                       </Button>
                     </div>
@@ -1717,10 +1796,10 @@ export default function JilingRecruit() {
                               </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => duplicateExecutionGroup(item.group.id)} disabled={!!activeExecution}>
+                              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => duplicateExecutionGroup(item.group.id)}>
                                 <ClipboardCopy className="h-3.5 w-3.5"/>复制
                               </Button>
-                              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full text-destructive hover:text-destructive" onClick={() => removeExecutionGroup(item.group.id)} disabled={!!activeExecution || executionGroups.length <= 1}>
+                              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full text-destructive hover:text-destructive" onClick={() => removeExecutionGroup(item.group.id)} disabled={executionGroups.length <= 1}>
                                 <Trash2 className="h-3.5 w-3.5"/>删除
                               </Button>
                             </div>
@@ -1729,7 +1808,7 @@ export default function JilingRecruit() {
                           <div className="mt-4 grid gap-3 lg:grid-cols-3">
                             <div className="space-y-1.5">
                               <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台</Label>
-                              <Select value={item.group.platform || ''} onValueChange={(value) => applyPlatformToExecutionGroup(item.group.id, value)} disabled={!!activeExecution}>
+                              <Select value={item.group.platform || ''} onValueChange={(value) => applyPlatformToExecutionGroup(item.group.id, value)}>
                                 <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                                   <SelectValue placeholder="选择平台"/>
                                 </SelectTrigger>
@@ -1740,7 +1819,7 @@ export default function JilingRecruit() {
                             </div>
                             <div className="space-y-1.5">
                               <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号</Label>
-                              <Select value={item.group.accountId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {accountId: value})} disabled={!!activeExecution || !item.group.platform || accountsLoading}>
+                              <Select value={item.group.accountId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {accountId: value})} disabled={!item.group.platform || accountsLoading}>
                                 <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                                   <SelectValue placeholder={item.group.platform ? '选择账号' : '先选择平台'}/>
                                 </SelectTrigger>
@@ -1760,7 +1839,7 @@ export default function JilingRecruit() {
                             </div>
                             <div className="space-y-1.5">
                               <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">岗位</Label>
-                              <Select value={item.group.jobId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {jobId: value})} disabled={!!activeExecution || jobsLoading}>
+                              <Select value={item.group.jobId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {jobId: value})} disabled={jobsLoading}>
                                 <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                                   <SelectValue placeholder="选择岗位"/>
                                 </SelectTrigger>
@@ -1804,7 +1883,6 @@ export default function JilingRecruit() {
                 <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Launch Gate</p>
                   <CardTitle className="mt-2 text-base">启动条件</CardTitle>
-                  <CardDescription className="mt-2 text-sm leading-6">按钮是否可点，完全由这里的条件决定，让使用者在点击前就知道还差什么。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-5">
                   <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
@@ -1816,12 +1894,10 @@ export default function JilingRecruit() {
                     <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">完整执行组</p>
                       <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">至少需要 1 组完整方案</p>
                     </div>
                     <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台长期就绪度</p>
                       <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{readyPlatformCount}/{catalog.length}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">表示平台默认账号与岗位是否已备好</p>
                     </div>
                   </div>
 
@@ -1850,16 +1926,22 @@ export default function JilingRecruit() {
                     </div>
                   </div>
 
-                  {activeExecution && activeExecution.workflowId === selectedWorkflowCard.id ? (
-                    <Button data-testid={`workflow-action-${selectedWorkflowCard.id}`} className="h-12 w-full gap-2 rounded-full" variant="destructive" onClick={() => cancelWorkflow()}>
-                      <Square className="h-4 w-4"/>停止当前执行
-                    </Button>
-                  ) : (
-                    <Button data-testid={`workflow-action-${selectedWorkflowCard.id}`} className="h-12 w-full gap-2 rounded-full" onClick={() => handleStartWorkflow(selectedWorkflowCard.id)} disabled={!canStartSelectedWorkflow}>
-                      {executionMode === 'scheduled'
-                        ? <><RefreshCw className="h-4 w-4"/>保存并启用定时任务</>
+                  <Button
+                    data-testid={`workflow-action-${selectedWorkflowCard.id}`}
+                    className="h-12 w-full gap-2 rounded-full"
+                    onClick={() => handleStartWorkflow(selectedWorkflowCard.id)}
+                    disabled={!canStartSelectedWorkflow || isSelectedWorkflowLaunching}
+                  >
+                    {executionMode === 'scheduled'
+                      ? <><RefreshCw className="h-4 w-4"/>保存并启用定时任务</>
+                      : isSelectedWorkflowLaunching
+                        ? <><Loader2 className="h-4 w-4 animate-spin"/>正在下发 {completeExecutionGroups.length} 组任务</>
                         : <><Play className="h-4 w-4"/>开始执行（{completeExecutionGroups.length} 组）</>}
-                    </Button>
+                  </Button>
+                  {selectedWorkflowRunningCount > 0 && (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      当前该工作流仍有 {selectedWorkflowRunningCount} 个任务在运行，可在下方运行队列中单独停止。
+                    </p>
                   )}
                 </CardContent>
               </Card>
@@ -1868,7 +1950,6 @@ export default function JilingRecruit() {
                 <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.04),transparent_72%)] pb-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Parallel Overview</p>
                   <CardTitle className="mt-2 text-base">并行进度概览</CardTitle>
-                  <CardDescription className="mt-2 text-sm leading-6">简版看状态，详细进度继续看下方执行监控区。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 pt-4">
                   {workflowCards.map((workflow) => {
@@ -1897,6 +1978,71 @@ export default function JilingRecruit() {
             </div>
           </div>
 
+          {activeExecutions.length > 0 && (
+            <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-running-queue">
+              <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Running Queue</p>
+                    <CardTitle className="mt-2 text-base">运行中的并行任务</CardTitle>
+                  </div>
+                  <Badge variant="outline" className="border-primary/15 bg-primary/[0.06] text-primary">
+                    {activeExecutionCount} 个任务
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-3 pt-4 xl:grid-cols-2">
+                {activeExecutions.map((execution) => {
+                  const isSelected = displayExec?.executionId === execution.executionId
+                  const isCancelling = execution.status === 'cancelling'
+                  const progress = getExecutionProgress(execution)
+                  return (
+                    <button
+                      key={execution.executionId}
+                      type="button"
+                      onClick={() => setSelectedExecutionId(execution.executionId)}
+                      className={cn(
+                        'rounded-[24px] border bg-background/82 p-4 text-left transition-all',
+                        isSelected ? 'border-primary/30 bg-primary/[0.05]' : 'border-border/70 hover:border-border',
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">{execution.workflowName || execution.workflowId}</p>
+                          <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                            {execution.currentPlatform || getExecutionRunningStepLabel(execution)}
+                          </p>
+                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">{execution.executionId}</p>
+                        </div>
+                        <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px] uppercase tracking-[0.16em]">
+                          {isCancelling ? '停止中' : '执行中'}
+                        </Badge>
+                      </div>
+                      <Progress value={progress} className="mt-4 h-2 rounded-full"/>
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <p className="text-[11px] text-muted-foreground">{progress}% · {execution.steps.filter((step) => step.status === 'done').length}/{Math.max(execution.totalSteps, 1)}</p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          className="h-8 gap-1.5 rounded-full"
+                          disabled={isCancelling}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            cancelWorkflow(execution.executionId)
+                          }}
+                        >
+                          {isCancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Square className="h-3.5 w-3.5"/>}
+                          {isCancelling ? '停止中' : '停止'}
+                        </Button>
+                      </div>
+                    </button>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Execution Monitor */}
           {displayExec && (
             <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-monitor">
@@ -1905,28 +2051,33 @@ export default function JilingRecruit() {
                   <div className="max-w-2xl">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Monitor</p>
                     <CardTitle className="mt-2 text-base">{displayExec.workflowName || '执行监控'}</CardTitle>
-                    <CardDescription className="mt-2 text-sm leading-6">
-                      {displayExec.error || '实时监控当前执行步骤、截图节点与 AI 完整输出，便于定位失败点和人工接管。'}
-                    </CardDescription>
                     <p className="mt-3 text-xs text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
+                    <p className="mt-2 font-mono text-[11px] text-muted-foreground">{displayExec.executionId}</p>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
                       <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(displayExec.totalSteps, 1)} 步骤完成</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(displayExec.totalSteps, 1)}</p>
                     </div>
                     <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
                       <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{displayExec.actionNodes.length}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">用于核验执行过程的视觉证据</p>
                     </div>
                     <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
                       <div className="mt-2">
                         <Badge variant="outline" className="gap-1.5 border-primary/15 bg-primary/[0.06] text-primary">
-                          {activeExecution ? <><Loader2 className="h-3 w-3 animate-spin" />执行中</> : '已完成'}
+                          {displayExec.status === 'cancelling'
+                            ? <><Loader2 className="h-3 w-3 animate-spin" />停止中</>
+                            : isDisplayExecActive
+                              ? <><Loader2 className="h-3 w-3 animate-spin" />执行中</>
+                              : displayExec.status === 'cancelled'
+                                ? '已停止'
+                                : displayExec.status === 'failed'
+                                  ? '已失败'
+                                  : '已完成'}
                         </Badge>
                       </div>
                       <p className="mt-2 text-xs text-muted-foreground">{displayExec.accumulatedText ? '已收到 AI 输出流' : '等待输出返回'}</p>
@@ -2090,7 +2241,7 @@ export default function JilingRecruit() {
       </AnimatePresence>
 
       {/* ── Dialogs ── */}
-      <AddProfileDialog open={addAccountOpen} onOpenChange={setAddAccountOpen} onCreated={reloadPlatformAccounts}/>
+      <AddProfileDialog open={addAccountOpen} onOpenChange={setAddAccountOpen} defaultPlatform={(selectedPlatform || catalog[0]?.key || 'boss_zhipin') as keyof typeof PLATFORMS} onCreated={handleAccountCreated}/>
       <PlatformLoginDialog open={bindDialogOpen} onOpenChange={setBindDialogOpen} profileId={bindAccountId} onDataChanged={reloadPlatformAccounts}/>
       <PlatformActionDialog
         open={actionDialogOpen}

@@ -9,12 +9,14 @@ from services.platform_catalog import get_platform_catalog_item, get_platform_na
 
 
 def _browser_rules(profile: str) -> str:
-    normalized = "openclaw"
+    normalized = (profile or "openclaw").strip() or "openclaw"
     return (
         "【浏览器工具强制要求】\n"
         f"- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"{normalized}\"`\n"
         "- 禁止使用默认 sandbox browser\n"
-        "- 优先使用 browser snapshot / browser act / browser screenshot 完成检查"
+        "- 如果当前 profile 还没有活动标签页，第一步必须先用 browser navigate 打开目标地址，再执行 snapshot / click / type\n"
+        "- 导航成功前不要调用 browser snapshot、browser click、browser type 等依赖现有页面上下文的工具\n"
+        "- 打开目标页后优先使用 browser snapshot / browser act / browser screenshot 完成检查"
     )
 
 
@@ -33,6 +35,7 @@ def _structured_output_contract() -> str:
 - [LOGIN_STEP:当前步骤英文标识]
 - [LOGIN_REASON:20字以内原因或下一步提示]
 - [LOGIN_IDENTIFIER:手机号或账号的脱敏形式，可选]
+- [LOGIN_ACCOUNT_NAME:页面上读取到的账号名，可选]
 
 如有截图，必须遵守以下规则：
 - 只能使用浏览器内置截图能力，不要使用 shell、exec 或 /tmp 临时截图
@@ -72,8 +75,9 @@ def build_verify_prompt(account: dict) -> str:
    - 退出登录/切换账号入口
    - 企业名称或企业工作台菜单
    - 招聘相关的功能入口（发布职位、候选人列表等）
-4. 若登录有效且能确认企业身份，输出 LOGGED_IN。
-5. 若会话失效、跳回登录页或需要重新认证，输出 FAILED。
+4. 如果页面上能明确读取到当前登录账号名、昵称或手机号展示，请一并输出到 [LOGIN_ACCOUNT_NAME:...]。
+5. 若登录有效且能确认企业身份，输出 LOGGED_IN。
+6. 若会话失效、跳回登录页或需要重新认证，输出 FAILED。
 
 {_browser_rules(browser_profile)}
 
@@ -90,6 +94,7 @@ def build_correction_prompt(
     last_state: str,
     browser_profile: str = "openclaw",
 ) -> str:
+    normalized = (browser_profile or "openclaw").strip() or "openclaw"
     return f"""{original_prompt}
 
 【纠偏要求 - 第 {attempt} 次尝试】
@@ -97,13 +102,14 @@ def build_correction_prompt(
 上一次输出状态：{last_state or '无'}
 
 请按以下优先级纠偏：
-1. 刷新页面快照以获取最新 DOM 状态。
+1. 如果报错包含 `tab not found`、空白 profile 或没有活动标签页，先 browser navigate 到企业端地址，再继续后续步骤。
 2. 确认只有一个标签页处于活跃状态，多余标签页应关闭。
-3. 若页面有弹窗、遮罩层或滑块验证，先处理弹窗再继续主流程。
-4. 重新选择目标元素，不要复用上次的选择器。
-5. 务必在输出末尾包含结构化标记。
-6. 所有 browser 工具调用都必须显式使用 `target="host"` 和 `profile="openclaw"`，禁止使用默认 sandbox browser。
-7. 若需要截图，优先返回截图工具生成的 image_url，不要输出本地路径。
+3. 刷新页面快照以获取最新 DOM 状态。
+4. 若页面有弹窗、遮罩层或滑块验证，先处理弹窗再继续主流程。
+5. 重新选择目标元素，不要复用上次的选择器。
+6. 务必在输出末尾包含结构化标记。
+7. 所有 browser 工具调用都必须显式使用 `target="host"` 和 `profile="{normalized}"`，禁止使用默认 sandbox browser。
+8. 若需要截图，优先返回截图工具生成的 image_url，不要输出本地路径。
 
 {_structured_output_contract()}
 """

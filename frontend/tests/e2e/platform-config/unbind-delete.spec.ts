@@ -63,7 +63,7 @@ test.describe('平台配置 - 解绑验证删除 @platform-config', () => {
     await app.gotoRecruit('platform-config')
     await page.getByTestId('verify-account').click()
     await expect(page.getByTestId('platform-login-dialog')).toBeVisible()
-    await expect(page.getByTestId('bind-status-badge')).toHaveText('失败')
+    await expect(page.getByTestId('bind-status-badge')).toHaveText('验证失败')
   })
 
   test('解绑成功后状态变为待绑定', async ({ app, page }) => {
@@ -86,7 +86,7 @@ test.describe('平台配置 - 解绑验证删除 @platform-config', () => {
     await app.gotoRecruit('platform-config')
     await page.getByTestId('unbind-account').click()
     await expect(page.getByTestId('platform-login-dialog')).toBeVisible()
-    await expect(page.getByTestId('bind-status-badge')).toHaveText('已完成')
+    await expect(page.getByTestId('bind-status-badge')).toHaveText('已解绑')
     await page.getByRole('button', { name: '关闭' }).click()
 
     // 解绑完成后账号状态回到 needsLogin，绑定按钮应可用

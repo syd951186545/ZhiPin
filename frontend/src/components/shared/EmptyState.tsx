@@ -13,7 +13,7 @@ interface EmptyStateProps {
 export default function EmptyState({
   icon: Icon = Inbox,
   title,
-  description,
+  description: _description,
   actionLabel,
   onAction,
 }: EmptyStateProps) {
@@ -23,9 +23,6 @@ export default function EmptyState({
         <Icon className="w-8 h-8 text-muted-foreground" />
       </div>
       <h3 className="text-lg font-semibold mb-1">{title}</h3>
-      {description && (
-        <p className="text-sm text-muted-foreground max-w-sm mb-4">{description}</p>
-      )}
       {actionLabel && onAction && (
         <Button onClick={onAction}>{actionLabel}</Button>
       )}

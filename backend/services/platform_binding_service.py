@@ -145,6 +145,7 @@ def _account_patch_for_status(
     session_id: str,
     parsed_state: str,
     identifier_masked: Optional[str],
+    account_name: Optional[str],
 ) -> dict[str, Any]:
     patch: dict[str, Any] = {
         "login_state": parsed_state,
@@ -152,6 +153,8 @@ def _account_patch_for_status(
     }
     if identifier_masked:
         patch["login_identifier_masked"] = identifier_masked
+    if account_name:
+        patch["account_name"] = account_name
 
     if action == "bind":
         patch["last_bind_task_id"] = session_id
@@ -305,6 +308,7 @@ async def _execute_openclaw_with_retries(
                 "step_key": parsed.step_key,
                 "reason": parsed.reason,
                 "identifier_masked": parsed.identifier_masked,
+                "account_name": parsed.account_name,
             }
             if parsed
             else None
@@ -403,6 +407,7 @@ async def _run_action(
             session_id,
             parsed["state"],
             parsed.get("identifier_masked"),
+            parsed.get("account_name"),
         )
 
         if action == "unbind":
@@ -424,6 +429,7 @@ async def _run_action(
                 "step_key": parsed["step_key"],
                 "reason": parsed["reason"],
                 "identifier_masked": parsed.get("identifier_masked"),
+                "account_name": parsed.get("account_name"),
                 "latest_screenshot": latest_screenshot,
                 "screenshots": screenshots,
                 "accumulated_text": result.accumulated_text or "",

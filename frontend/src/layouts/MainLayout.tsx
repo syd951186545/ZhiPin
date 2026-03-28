@@ -189,7 +189,6 @@ function SidebarContent({
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Digital Workforce</p>
             <p className="mt-1 text-base font-semibold tracking-tight text-foreground">机灵平台</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">招聘与运营流程的统一执行入口。</p>
           </div>
         </div>
 
@@ -228,7 +227,6 @@ function SidebarContent({
             <LayoutDashboard className="h-4 w-4 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
               <div className="font-medium">{t('nav.dashboard')}</div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">连接、结果与任务进度</div>
             </div>
             <NavStatusBadge tone={navBadges.dashboard.tone}>{navBadges.dashboard.label}</NavStatusBadge>
           </NavLink>
@@ -237,7 +235,6 @@ function SidebarContent({
             <Briefcase className="h-4 w-4 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
               <div className="font-medium">{t('nav.enterpriseInfo')}</div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">企业资料与发布信息</div>
             </div>
             <NavStatusBadge tone={navBadges.enterprise.tone}>{navBadges.enterprise.label}</NavStatusBadge>
           </NavLink>
@@ -267,7 +264,6 @@ function SidebarContent({
               <div className={cn('text-sm font-semibold', isDigitalActive ? 'text-foreground' : 'text-foreground/85')}>
                 {t('nav.digitalEmployee')}
               </div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">正在运行的业务代理</div>
             </div>
             <NavStatusBadge tone={navBadges.digital.tone}>{navBadges.digital.label}</NavStatusBadge>
             {digitalExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
@@ -292,7 +288,6 @@ function SidebarContent({
             <Settings className="h-4 w-4 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
               <div className="font-medium">{t('nav.settings')}</div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">语言、主题与全局参数</div>
             </div>
             <NavStatusBadge tone={navBadges.settings.tone}>{navBadges.settings.label}</NavStatusBadge>
           </NavLink>
@@ -407,7 +402,6 @@ export default function MainLayout() {
                     企业执行工作台
                   </Badge>
                 </div>
-                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{pageMeta.description}</p>
               </div>
             </div>
 

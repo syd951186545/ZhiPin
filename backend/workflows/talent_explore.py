@@ -7,7 +7,13 @@ login_check → search_candidates → collect_profiles → initiate_contact → 
 
 import logging
 
-from workflows.base import WorkflowState, StepDefinition, finalize_persisted_screenshots, run_workflow_graph
+from workflows.base import (
+    WorkflowState,
+    StepDefinition,
+    build_execution_session_id,
+    finalize_persisted_screenshots,
+    run_workflow_graph,
+)
 from workflows.contracts import RetryPolicy
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
@@ -106,10 +112,14 @@ async def run(execution_id: str, req):
         except Exception as e:
             logger.warning(f"创建任务记录失败: {e}")
 
+    persistent_session_key = req.platform_accounts[0].get("browser_session_key", "")
+    runtime_session_id = build_execution_session_id(persistent_session_key, execution_id, req.platform)
+
     initial_state: WorkflowState = {
         "execution_id": execution_id,
         "workflow_id": "talent_explore",
-        "session_id": req.platform_accounts[0].get("browser_session_key", ""),
+        "session_id": runtime_session_id,
+        "browser_profile": persistent_session_key,
         "current_step": "",
         "step_index": 0,
         "total_steps": len(STEPS),
@@ -117,7 +127,7 @@ async def run(execution_id: str, req):
         "platform_url": req.platform_accounts[0].get("platform_url", ""),
         "account_id": req.account_id,
         "account_name": req.account_name,
-        "browser_session_key": req.platform_accounts[0].get("browser_session_key", ""),
+        "browser_session_key": persistent_session_key,
         "platform_accounts": req.platform_accounts,
         "job_id": req.job_id or "",
         "job_title": req.job_title,
@@ -211,10 +221,11 @@ async def run(execution_id: str, req):
         ),
     ]
 
+    workflow_openclaw = OpenClawClient()
     final_state = await run_workflow_graph(
         state=initial_state,
         steps=runtime_steps,
-        openclaw=OpenClawClient(),
+        openclaw=workflow_openclaw,
         emit_event=emit_event,
         is_cancelled=is_cancelled,
     )

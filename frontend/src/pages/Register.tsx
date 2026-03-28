@@ -46,7 +46,6 @@ export default function Register() {
         <h1 className="mt-1.5 text-[1.75rem] font-bold tracking-[-0.03em]">
           {t('register.title')}
         </h1>
-        <p className="mt-2 text-[14px] leading-6 text-muted-foreground">{t('register.desc')}</p>
       </div>
 
       {/* Form — no Card wrapper */}

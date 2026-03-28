@@ -190,8 +190,6 @@ class PlatformAccountCreateRequest(BaseModel):
     supabase_auth_token: str = ""
 
 
-
-
 class PlatformAccountActionRequest(BaseModel):
     supabase_auth_token: str = ""
 

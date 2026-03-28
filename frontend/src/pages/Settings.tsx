@@ -3,7 +3,7 @@ import {
   AlertCircle, CheckCircle2, Download, Loader2, RefreshCw, Save, Server,
 } from 'lucide-react'
 import {Button} from '@/components/ui/button'
-import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
+import {Card, CardContent, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue} from '@/components/ui/select'
@@ -399,7 +399,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title={t('settings.title')} description={t('settings.desc')}/>
+      <PageHeader title={t('settings.title')}/>
 
       <Tabs defaultValue="ai" className="space-y-5">
         <TabsList className="flex flex-wrap h-auto gap-1">
@@ -410,16 +410,14 @@ export default function Settings() {
 
         <TabsContent value="ai">
           <Card>
-            <CardHeader className="pb-4">
-              <CardTitle>{t('settings.ai.title')}</CardTitle>
-              <CardDescription>{t('settings.ai.desc')}</CardDescription>
-            </CardHeader>
+              <CardHeader className="pb-4">
+                <CardTitle>{t('settings.ai.title')}</CardTitle>
+              </CardHeader>
             <CardContent className="space-y-5">
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
                 <div className="space-y-5">
                   <div className="space-y-2">
                 <Label>{t('settings.ai.model')}</Label>
-                <p className="text-xs text-muted-foreground">选择当前执行环境使用的模型；保存后会同步写入数据库与 OpenClaw。</p>
                 <Select
                   value={selectedModelValue}
                   onValueChange={setEditModel}
@@ -448,7 +446,6 @@ export default function Settings() {
 
               <div className="space-y-2">
                 <Label>当前已配对 API Key</Label>
-                <p className="text-xs text-muted-foreground">默认沿用当前已保存配置；切换供应商时再替换对应 Key。</p>
                 <div
                   className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-mono select-none"
                   onCopy={(event) => event.preventDefault()}
@@ -460,7 +457,6 @@ export default function Settings() {
 
               <div className="space-y-2">
                 <Label>更新 API Key</Label>
-                <p className="text-xs text-muted-foreground">留空表示沿用当前 Key；填写后会先校验再保存。</p>
                 <Input
                   type="password"
                   value={editApiKey}
@@ -536,10 +532,9 @@ export default function Settings() {
 
         <TabsContent value="proxy">
           <Card>
-            <CardHeader className="pb-4">
-              <CardTitle>{t('settings.proxy.title')}</CardTitle>
-              <CardDescription>{t('settings.proxy.desc')}</CardDescription>
-            </CardHeader>
+              <CardHeader className="pb-4">
+                <CardTitle>{t('settings.proxy.title')}</CardTitle>
+              </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
                 <Label>{t('settings.proxy.pool')}</Label>
@@ -555,21 +550,18 @@ export default function Settings() {
                 <div className="flex items-center justify-between rounded-lg border p-4">
                   <div>
                     <p className="font-medium text-sm">{t('settings.proxy.delay')}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.proxy.delayDesc')}</p>
                   </div>
                   <Switch checked={delayEnabled} onCheckedChange={(v) => updateProxy({delayEnabled: v})}/>
                 </div>
                 <div className="flex items-center justify-between rounded-lg border p-4">
                   <div>
                     <p className="font-medium text-sm">{t('settings.proxy.mouse')}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.proxy.mouseDesc')}</p>
                   </div>
                   <Switch checked={mouseSimulation} onCheckedChange={(v) => updateProxy({mouseSimulation: v})}/>
                 </div>
                 <div className="flex items-center justify-between rounded-lg border p-4">
                   <div>
                     <p className="font-medium text-sm">{t('settings.proxy.headless')}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.proxy.headlessDesc')}</p>
                   </div>
                   <Switch checked={headless} onCheckedChange={(v) => updateProxy({headless: v})}/>
                 </div>
@@ -580,17 +572,15 @@ export default function Settings() {
 
         <TabsContent value="notifications">
           <Card>
-            <CardHeader className="pb-4">
-              <CardTitle>{t('settings.notifications.title')}</CardTitle>
-              <CardDescription>{t('settings.notifications.desc')}</CardDescription>
-            </CardHeader>
+              <CardHeader className="pb-4">
+                <CardTitle>{t('settings.notifications.title')}</CardTitle>
+              </CardHeader>
             <CardContent className="space-y-5">
               <div>
                 <h3 className="mb-4 text-sm font-medium">{t('settings.notifications.channels')}</h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label>{t('settings.notifications.wecom')}</Label>
-                    <p className="text-xs text-muted-foreground">{t('settings.notifications.wecomDesc')}</p>
                     <Input
                       value={wecomUrl}
                       onChange={(e) => updateNotifications({wecomUrl: e.target.value})}
@@ -599,7 +589,6 @@ export default function Settings() {
                   </div>
                   <div className="space-y-2">
                     <Label>{t('settings.notifications.email')}</Label>
-                    <p className="text-xs text-muted-foreground">{t('settings.notifications.emailDesc')}</p>
                     <Input
                       type="email"
                       value={notifEmail}
@@ -615,7 +604,6 @@ export default function Settings() {
                   <div className="flex items-center justify-between rounded-lg border p-4">
                     <div>
                       <p className="font-medium text-sm">{t('settings.notifications.audit')}</p>
-                      <p className="text-xs text-muted-foreground">{t('settings.notifications.auditDesc')}</p>
                     </div>
                     <Switch checked={auditLogging} onCheckedChange={(v) => updateNotifications({auditLogging: v})}/>
                   </div>
@@ -623,7 +611,6 @@ export default function Settings() {
                     <div className="flex items-center justify-between">
                       <div>
                         <Label>{t('settings.notifications.retention')}</Label>
-                        <p className="text-xs text-muted-foreground">{t('settings.notifications.retentionDesc')}</p>
                       </div>
                       <span className="text-sm font-mono font-medium">{retentionDays} 天</span>
                     </div>

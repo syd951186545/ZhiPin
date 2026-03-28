@@ -18,7 +18,7 @@ import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Textarea} from '@/components/ui/textarea'
-import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
+import {Card, CardContent, CardFooter, CardHeader, CardTitle} from '@/components/ui/card'
 import {Skeleton} from '@/components/ui/skeleton'
 import {Badge} from '@/components/ui/badge'
 import {
@@ -30,7 +30,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
-import PageHeader from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
 import EmptyState from '@/components/shared/EmptyState'
 import {useI18n} from '@/contexts/I18nContext'
@@ -378,6 +377,15 @@ export default function EnterpriseManagement() {
   const safeCompanyProfile = companyProfile || {name: '', address: '', size: '', overview: ''}
   const [companyForm, setCompanyForm] = useState(safeCompanyProfile)
   const [companySaveStatus, setCompanySaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const completionItems = [
+    {key: 'name', label: t('enterprise.overview.name'), value: companyForm.name},
+    {key: 'size', label: t('enterprise.overview.size'), value: companyForm.size},
+    {key: 'address', label: t('enterprise.overview.address'), value: companyForm.address},
+    {key: 'overview', label: t('enterprise.overview.summary'), value: companyForm.overview},
+  ]
+  const completedCount = completionItems.filter((item) => item.value.trim()).length
+  const completionPercent = Math.round((completedCount / completionItems.length) * 100)
+  const summaryLength = companyForm.overview.trim().length
 
   // Sync form when Supabase data loads
   React.useEffect(() => {
@@ -405,27 +413,58 @@ export default function EnterpriseManagement() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title={t('enterprise.title')} description={t('enterprise.desc')}/>
-
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_280px]">
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border/70 bg-[linear-gradient(180deg,rgba(21,94,99,0.08),rgba(21,94,99,0.02))]">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Company Profile</p>
-            <CardTitle className="text-lg">{t('enterprise.overview.title')}</CardTitle>
-            <CardDescription className="max-w-2xl leading-6">
-              {t('enterprise.overview.desc')} 这些信息会被数字员工复用到发岗、账号展示与沟通话术中。
-            </CardDescription>
+            <CardTitle className="text-lg">统一企业资料</CardTitle>
           </CardHeader>
 
           <CardContent className="space-y-4 pt-5">
             <div className="rounded-[20px] border border-border/70 bg-background/70 p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">资料概览</p>
+                  <h3 className="mt-2 text-base font-semibold tracking-[-0.03em] text-foreground">保留一份统一企业资料，其他流程直接复用</h3>
+                </div>
+                <div className="min-w-[180px] rounded-2xl border border-border/70 bg-background/85 px-4 py-3">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">完整度</p>
+                      <p className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-foreground">{completionPercent}%</p>
+                    </div>
+                    <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">
+                      {completedCount}/{completionItems.length} 已填写
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                {completionItems.map((item) => (
+                  <div
+                    key={item.key}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                      item.value.trim()
+                        ? 'border-[rgba(23,123,92,0.18)] bg-[rgba(23,123,92,0.08)] text-[#177B5C]'
+                        : 'border-border/70 bg-muted/35 text-muted-foreground'
+                    }`}
+                  >
+                    {item.value.trim()
+                      ? <CheckCircle2 className="h-3.5 w-3.5" />
+                      : <AlertCircle className="h-3.5 w-3.5" />
+                    }
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[20px] border border-border/70 bg-background/70 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">企业主体信息</p>
-                  <h3 className="mt-2 text-base font-semibold tracking-[-0.03em] text-foreground">先把平台识别所需信息补齐</h3>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    企业名称、规模与地址会直接影响平台展示和后续执行稳定性。
-                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">基础资料</p>
+                  <h3 className="mt-2 text-base font-semibold tracking-[-0.03em] text-foreground">平台识别最依赖的三项信息</h3>
                 </div>
                 <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary sm:flex">
                   <Building2 className="h-5 w-5" />
@@ -463,11 +502,8 @@ export default function EnterpriseManagement() {
             <div className="rounded-[20px] border border-border/70 bg-background/70 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">对外介绍</p>
-                  <h3 className="mt-2 text-base font-semibold tracking-[-0.03em] text-foreground">告诉数字员工如何介绍你的企业</h3>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    建议包含主营业务、团队规模、服务区域和岗位吸引力。
-                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">企业介绍</p>
+                  <h3 className="mt-2 text-base font-semibold tracking-[-0.03em] text-foreground">保留一段可直接复用的标准介绍</h3>
                 </div>
                 <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[rgba(216,155,43,0.16)] text-[#8b6417] sm:flex">
                   <FileText className="h-5 w-5" />
@@ -482,9 +518,9 @@ export default function EnterpriseManagement() {
                   placeholder={t('enterprise.overview.summaryPlaceholder')}
                   rows={6}
                 />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  建议格式：我们是谁、主要做什么、服务哪些客户、当前在招什么类型的人、为什么值得加入。
-                </p>
+                <div className="flex justify-end text-xs text-muted-foreground">
+                  <span className="shrink-0">{summaryLength} 字</span>
+                </div>
               </div>
             </div>
 
@@ -510,9 +546,7 @@ export default function EnterpriseManagement() {
           </CardContent>
 
           <CardFooter className="justify-between gap-4 border-t border-border/70 bg-muted/20">
-            <p className="text-xs leading-5 text-muted-foreground">
-              保存后会同步更新本地企业资料和 Supabase 租户设置，供后续执行流程直接使用。
-            </p>
+            <div />
             <Button onClick={handleSaveCompany} disabled={companySaving} size="sm" className="shrink-0">
               {companySaving
                 ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin"/>保存中...</>
@@ -527,47 +561,27 @@ export default function EnterpriseManagement() {
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
                 <ShieldAlert className="h-3.5 w-3.5" />
-                执行前检查
+                使用提示
               </div>
-              <CardTitle className="text-base">避免把空白资料带进自动化流程</CardTitle>
+              <CardTitle className="text-base">这份资料会被哪些流程复用</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
-                企业名称建议使用平台实际对外展示名称，避免简称与全称混用。
-              </div>
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
-                企业规模和地址会影响 AI 生成的话术可信度，建议保持真实且稳定。
-              </div>
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
-                企业简介不是装饰文案，它会进入岗位发布和候选人沟通链路。
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base">这些字段会影响什么</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-start gap-3 rounded-2xl bg-muted/30 px-4 py-3">
+              <div className="flex items-start gap-3 rounded-2xl bg-background/70 px-4 py-3">
                 <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <div>
-                  <p className="text-sm font-medium text-foreground">平台展示名称</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">用于发岗时的企业抬头、默认公司名与账号资料同步。</p>
+                  <p className="text-sm font-medium text-foreground">平台资料与账号展示</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-2xl bg-muted/30 px-4 py-3">
+              <div className="flex items-start gap-3 rounded-2xl bg-background/70 px-4 py-3">
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#8b6417]" />
                 <div>
-                  <p className="text-sm font-medium text-foreground">城市与办公地址</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">影响岗位落点、候选人筛选和平台侧地理信息展示。</p>
+                  <p className="text-sm font-medium text-foreground">岗位发布与候选人筛选</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-2xl bg-muted/30 px-4 py-3">
+              <div className="flex items-start gap-3 rounded-2xl bg-background/70 px-4 py-3">
                 <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <div>
-                  <p className="text-sm font-medium text-foreground">企业简介</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">会被数字员工复用到岗位描述、沟通开场与品牌介绍中。</p>
+                  <p className="text-sm font-medium text-foreground">自动化沟通与介绍文案</p>
                 </div>
               </div>
             </CardContent>

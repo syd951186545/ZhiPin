@@ -7,13 +7,19 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from services.openclaw_client import StepResult
-from workflows.base import StepDefinition, execute_step
+from workflows.base import (
+    StepDefinition,
+    build_execution_browser_profile,
+    build_execution_session_id,
+    execute_step,
+)
 
 
 def _base_state() -> dict:
     return {
         "execution_id": "exec-001",
         "session_id": "sess-001",
+        "browser_profile": "sess-001",
         "step_index": 0,
         "total_steps": 1,
         "step_results": {},
@@ -32,6 +38,19 @@ def _step() -> StepDefinition:
         name_zh="检查登录",
         prompt_builder=lambda state: "prompt",
     )
+
+
+def test_build_execution_session_and_browser_profile_are_execution_scoped():
+    session_a = build_execution_session_id("shared-account", "execution-aaa", "58")
+    session_b = build_execution_session_id("shared-account", "execution-bbb", "58")
+    profile_a = build_execution_browser_profile(session_a)
+    profile_b = build_execution_browser_profile(session_b)
+
+    assert session_a != session_b
+    assert session_a.startswith("shared-account--58--")
+    assert profile_a != profile_b
+    assert profile_a.startswith("wf-")
+    assert len(profile_a) == 23
 
 
 @pytest.mark.asyncio

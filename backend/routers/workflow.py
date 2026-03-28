@@ -43,6 +43,12 @@ def is_cancelled(execution_id: str) -> bool:
     return _cancelled.get(execution_id, False)
 
 
+def _get_runtime_status(execution_id: str) -> str:
+    run = runtime_store.get_run(execution_id) or {}
+    status = run.get("status")
+    return status if isinstance(status, str) else ""
+
+
 def register_execution_task(execution_id: str, task_id: str, auth_token: Optional[str] = None):
     _task_records[execution_id] = {
         "task_id": task_id,
@@ -60,6 +66,7 @@ async def emit_event(execution_id: str, event_type: str, data: dict):
 
 def _emit_event_sync(execution_id: str, event_type: str, data: dict):
     """同步方式推送事件（用于 CancelledError 处理，不能 await）"""
+    runtime_store.record_event(execution_id, event_type, data)
     queue = _event_queues.get(execution_id)
     if queue:
         with contextlib.suppress(Exception):
@@ -232,20 +239,28 @@ async def start_workflow(req: WorkflowStartRequest):
 @router.post("/cancel/{execution_id}")
 async def cancel_workflow(execution_id: str):
     """取消工作流 - 立即中断 httpx 流式请求"""
+    runtime_status = _get_runtime_status(execution_id)
     if (
         execution_id not in _event_queues
         and execution_id not in _running_tasks
         and execution_id not in _task_records
+        and not runtime_status
     ):
         raise HTTPException(status_code=404, detail="执行不存在")
 
+    if runtime_status in {"completed", "failed", "cancelled"} and execution_id not in _running_tasks:
+        return {"message": f"工作流已结束({runtime_status})"}
+
     _cancelled[execution_id] = True
+    runtime_store.record_event(execution_id, "cancel_requested", {"message": "已发送取消请求"})
 
     # 取消实际运行的 asyncio Task，这会中断 httpx 的 async for 流式读取
     task = _running_tasks.get(execution_id)
     if task and not task.done():
         task.cancel()
         logger.info(f"已发送取消信号: {execution_id}")
+    elif runtime_status and runtime_status not in {"completed", "failed", "cancelled"}:
+        runtime_store.record_event(execution_id, "cancelled", {"message": "工作流已取消"})
 
     return {"message": "已发送取消请求"}
 
@@ -278,8 +293,6 @@ async def stream_progress(execution_id: str):
             task = _running_tasks.get(execution_id)
             if task and not task.done():
                 task.cancel()
-        finally:
-            _event_queues.pop(execution_id, None)
 
     return EventSourceResponse(event_generator())
 
@@ -296,9 +309,10 @@ async def check_openclaw_connection():
 @router.get("/status/{execution_id}", response_model=WorkflowStatusResponse)
 async def get_status(execution_id: str):
     """查询执行状态"""
+    runtime_status = _get_runtime_status(execution_id)
     return WorkflowStatusResponse(
         execution_id=execution_id,
-        cancelled=is_cancelled(execution_id),
+        cancelled=is_cancelled(execution_id) or runtime_status == "cancelled",
     )
 
 
@@ -338,8 +352,8 @@ async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartReques
             "message": f"工作流执行异常: {str(e)}",
         })
     finally:
+        _emit_done_sync(execution_id)
         _cancelled.pop(execution_id, None)
         _running_tasks.pop(execution_id, None)
         _task_records.pop(execution_id, None)
         _event_queues.pop(execution_id, None)
-        _emit_done_sync(execution_id)

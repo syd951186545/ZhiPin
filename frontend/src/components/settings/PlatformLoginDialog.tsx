@@ -160,7 +160,6 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
   const [confirmMessage, setConfirmMessage] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // 会话活跃时阻止浏览器标签页被意外关闭
   useEffect(() => {
     if (phase !== 'running' && phase !== 'confirming') return
     const handler = (e: BeforeUnloadEvent) => {
@@ -178,7 +177,6 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     }
   }, [])
 
-  // Reset on dialog open/close
   useEffect(() => {
     if (!open) {
       cleanup()
@@ -190,7 +188,6 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     }
   }, [open, cleanup])
 
-  // Poll session status while running
   useEffect(() => {
     if (phase !== 'running' || !liveSession) return
     cleanup()
@@ -316,7 +313,6 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
         </div>
 
         <div className="space-y-4">
-          {/* noVNC iframe area */}
           {phase === 'running' || phase === 'confirming' ? (
             <div className="rounded-xl border bg-black overflow-hidden shadow-inner" data-testid="novnc-panel">
               <iframe
@@ -363,7 +359,6 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
             </div>
           )}
 
-          {/* Error display */}
           <AnimatePresence>
             {error && (
               <motion.div
@@ -380,7 +375,6 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
             )}
           </AnimatePresence>
 
-          {/* Instructions */}
           {phase === 'running' && (
             <div className="rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/50 p-3 text-sm text-blue-700 dark:text-blue-300">
               <p className="font-medium mb-1">操作指南</p>
