@@ -169,7 +169,6 @@ prepare_artifacts() {
     ensure_env_value "OPENCLAW_GATEWAY_TOOLS_ALLOW" "gateway"
     ensure_env_value "OPENCLAW_RESPONSES_API_ENABLED" "true"
     ensure_env_value "OPENCLAW_BROWSER_BASE_URL" "http://127.0.0.1:18791"
-    ensure_env_value "OPENCLAW_PLAYWRIGHT_SKILL_REF" "v4.1.0"
     ensure_env_value "OPENCLAW_APT_MIRROR_HOST" "mirrors.tuna.tsinghua.edu.cn"
     ensure_env_value "OPENCLAW_NPM_REGISTRY" "https://registry.npmmirror.com"
     ensure_env_value "OPENCLAW_PLAYWRIGHT_DOWNLOAD_HOST" "https://npmmirror.com/mirrors/playwright"

@@ -25,7 +25,6 @@ services:
       dockerfile: deploy/docker/backopenclaw.Dockerfile
       args:
         OPENCLAW_BASE_IMAGE: ${OPENCLAW_IMAGE}
-        PLAYWRIGHT_SKILL_REF: ${OPENCLAW_PLAYWRIGHT_SKILL_REF:-v4.1.0}
         APT_MIRROR_HOST: ${OPENCLAW_APT_MIRROR_HOST:-mirrors.tuna.tsinghua.edu.cn}
         NPM_REGISTRY: ${OPENCLAW_NPM_REGISTRY:-https://registry.npmmirror.com}
         PLAYWRIGHT_DOWNLOAD_HOST: ${OPENCLAW_PLAYWRIGHT_DOWNLOAD_HOST:-https://npmmirror.com/mirrors/playwright}
