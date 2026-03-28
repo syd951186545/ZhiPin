@@ -184,7 +184,6 @@ prepare_artifacts() {
     ensure_env_value "OPENCLAW_MODEL_COST_CACHE_WRITE" "0.12"
     ensure_env_value "OPENCLAW_MODEL_CONTEXT_WINDOW" "200000"
     ensure_env_value "OPENCLAW_MODEL_MAX_TOKENS" "8192"
-    ensure_env_value "OPENCLAW_PLAYWRIGHT_SKILL_REF" "v4.1.0"
     ensure_env_value "OPENCLAW_APT_MIRROR_HOST" "mirrors.tuna.tsinghua.edu.cn"
     ensure_env_value "OPENCLAW_NPM_REGISTRY" "https://registry.npmmirror.com"
     ensure_env_value "OPENCLAW_PLAYWRIGHT_DOWNLOAD_HOST" "https://npmmirror.com/mirrors/playwright"
