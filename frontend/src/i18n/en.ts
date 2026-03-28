@@ -91,6 +91,7 @@ export const en = {
   'jobs.table.applicants': 'Applicants',
   'jobs.table.status': 'Status',
   'jobs.table.actions': 'Actions',
+  'jobs.table.delete': 'Delete',
   'jobs.form.title': 'Post New Job',
   'jobs.form.editTitle': 'Edit Job',
   'jobs.form.name': 'Job Title',

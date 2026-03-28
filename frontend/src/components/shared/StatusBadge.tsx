@@ -1,5 +1,6 @@
 import React from 'react';
 import {cn} from '@/lib/utils';
+import {useI18n} from '@/contexts/I18nContext';
 
 interface StatusBadgeProps {
   status: string;
@@ -33,17 +34,26 @@ const colorMap: Record<string, Record<string, string>> = {
 
 const defaultColor = 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700';
 
+const i18nKeyMap: Record<string, string> = {
+  job: 'jobs.status',
+  task: 'tasks.status',
+  candidate: 'candidates.status',
+};
+
 export default function StatusBadge({ status, type = 'job' }: StatusBadgeProps) {
+  const {t} = useI18n();
   const colors = colorMap[type]?.[status] || defaultColor;
+  const prefix = i18nKeyMap[type] || 'jobs.status';
+  const label = t(`${prefix}.${status}` as any) || status;
 
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize',
+        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold',
         colors
       )}
     >
-      {status}
+      {label}
     </span>
   );
 }

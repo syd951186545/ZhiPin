@@ -221,10 +221,10 @@ export function JobManagementPanel() {
                     </td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(job)}>
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(job)} title={t('jobs.form.editTitle')} aria-label={t('jobs.form.editTitle')}>
                           <Pencil className="h-4 w-4"/>
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(job.id)}>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(job.id)} title={t('jobs.table.delete')} aria-label={t('jobs.table.delete')}>
                           <Trash2 className="h-4 w-4 text-destructive"/>
                         </Button>
                       </div>
