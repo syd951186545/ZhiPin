@@ -17,8 +17,8 @@
 - 非必要不要在回复里回显密码、token、anon key、登录口令
 - 测试环境（同生产部署）只有 `frontend` 与 `backopenclaw` 两个服务，`backopenclaw` 容器内同时运行 FastAPI 与 OpenClaw
 
-## gstack
-Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools directly.
+## 浏览器调试
+Use the `/browse` skill from gstack for all web browsing. 仅当/browse无法使用时才调用  `Playwright MCP MCP Browser *` 工具.
 
 ### Setup
 If you don't have gstack installed, run:
@@ -28,3 +28,9 @@ git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~
 
 ### Available skills
 /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade
+
+## Design System
+Always read DESIGN.md before making any visual or UI decisions.
+All font choices, colors, spacing, and aesthetic direction are defined there.
+Do not deviate without explicit user approval.
+In QA mode, flag any code that doesn't match DESIGN.md.
