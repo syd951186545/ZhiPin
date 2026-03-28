@@ -31,6 +31,10 @@
 ## 2. 生产部署
   暂不涉及，当前项目处于开发调测中。
 
+补充说明（网络受限环境）：
+- 默认无需声明镜像加速参数，`deploy/docker-compose.yml` 已内置默认值。
+- 仅在网络受限导致构建拉取失败时，再在 `deploy/.env.production` 中按需增加 `OPENCLAW_APT_MIRROR_HOST`、`OPENCLAW_NPM_REGISTRY`、`OPENCLAW_PLAYWRIGHT_DOWNLOAD_HOST` 覆盖默认行为。
+
 ## 3. 常见联调入口
 
 ### 前后端
@@ -63,5 +67,4 @@
 2. 检查前端登录态和用户 JWT 是否存在
 3. 检查后端 `validate_supabase_user` 是否通过
 4. 再检查对应表结构与 RLS / 迁移是否匹配
-
 
