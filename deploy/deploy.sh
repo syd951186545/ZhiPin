@@ -12,6 +12,11 @@ PULL_BASE=false
 FORCE_OPENCLAW_STATE=false
 IMAGE_TAG=""
 
+# OpenClaw 网关/浏览器默认值（与 backopenclaw 单容器网络拓扑一致）
+DEFAULT_OPENCLAW_GATEWAY_TOOLS_ALLOW="gateway"
+DEFAULT_OPENCLAW_RESPONSES_API_ENABLED="true"
+DEFAULT_OPENCLAW_BROWSER_BASE_URL="http://127.0.0.1:18791"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -112,6 +117,22 @@ ensure_env_value() {
     fi
 }
 
+resolve_env_or_default() {
+    local key="$1"
+    local default_value="$2"
+
+    if env_has_key "$ENV_FILE" "$key"; then
+        local override_value
+        override_value="$(read_env_value "$key")"
+        if [ -n "$override_value" ]; then
+            echo "$override_value"
+            return 0
+        fi
+    fi
+
+    echo "$default_value"
+}
+
 require_nonempty() {
     local key="$1"
     local value="$2"
@@ -166,9 +187,6 @@ prepare_artifacts() {
     ensure_env_value "OPENCLAW_MODEL_COST_CACHE_WRITE" "0.12"
     ensure_env_value "OPENCLAW_MODEL_CONTEXT_WINDOW" "200000"
     ensure_env_value "OPENCLAW_MODEL_MAX_TOKENS" "8192"
-    ensure_env_value "OPENCLAW_GATEWAY_TOOLS_ALLOW" "gateway"
-    ensure_env_value "OPENCLAW_RESPONSES_API_ENABLED" "true"
-    ensure_env_value "OPENCLAW_BROWSER_BASE_URL" "http://127.0.0.1:18791"
     ensure_env_value "OPENCLAW_PLAYWRIGHT_SKILL_REF" "v4.1.0"
     ensure_env_value "OPENCLAW_APT_MIRROR_HOST" "mirrors.tuna.tsinghua.edu.cn"
     ensure_env_value "OPENCLAW_NPM_REGISTRY" "https://registry.npmmirror.com"
@@ -192,6 +210,15 @@ prepare_artifacts() {
     require_nonempty OPENCLAW_MODEL_API_KEY "$(read_env_value OPENCLAW_MODEL_API_KEY)"
 
     load_env_exports
+
+    local OPENCLAW_GATEWAY_TOOLS_ALLOW
+    local OPENCLAW_RESPONSES_API_ENABLED
+    local OPENCLAW_BROWSER_BASE_URL
+    OPENCLAW_GATEWAY_TOOLS_ALLOW="$(resolve_env_or_default "OPENCLAW_GATEWAY_TOOLS_ALLOW" "$DEFAULT_OPENCLAW_GATEWAY_TOOLS_ALLOW")"
+    OPENCLAW_RESPONSES_API_ENABLED="$(resolve_env_or_default "OPENCLAW_RESPONSES_API_ENABLED" "$DEFAULT_OPENCLAW_RESPONSES_API_ENABLED")"
+    OPENCLAW_BROWSER_BASE_URL="$(resolve_env_or_default "OPENCLAW_BROWSER_BASE_URL" "$DEFAULT_OPENCLAW_BROWSER_BASE_URL")"
+
+    export OPENCLAW_GATEWAY_TOOLS_ALLOW OPENCLAW_RESPONSES_API_ENABLED OPENCLAW_BROWSER_BASE_URL
 
     require_nonempty SUPABASE_URL "${SUPABASE_URL}"
     require_nonempty SUPABASE_ANON_KEY "${SUPABASE_ANON_KEY}"
@@ -248,13 +275,17 @@ import json
 import os
 import sys
 
+default_gateway_tools_allow = 'gateway'
+default_responses_api_enabled = 'true'
+
 provider = os.environ['OPENCLAW_MODEL_PROVIDER']
 model_id = os.environ['OPENCLAW_MODEL_ID']
 qualified_model = f"{provider}/{model_id}"
 reasoning = os.environ['OPENCLAW_MODEL_REASONING'].strip().lower() in {'1', 'true', 'yes', 'on'}
-responses_enabled = os.environ['OPENCLAW_RESPONSES_API_ENABLED'].strip().lower() in {'1', 'true', 'yes', 'on'}
+responses_enabled = os.getenv('OPENCLAW_RESPONSES_API_ENABLED', default_responses_api_enabled).strip().lower() in {'1', 'true', 'yes', 'on'}
 input_types = [item.strip() for item in os.environ['OPENCLAW_MODEL_INPUT_TYPES'].split(',') if item.strip()]
-gateway_tools_allow = [item.strip() for item in os.environ['OPENCLAW_GATEWAY_TOOLS_ALLOW'].split(',') if item.strip()]
+gateway_tools_allow_raw = os.getenv('OPENCLAW_GATEWAY_TOOLS_ALLOW', default_gateway_tools_allow)
+gateway_tools_allow = [item.strip() for item in gateway_tools_allow_raw.split(',') if item.strip()]
 if 'gateway' not in gateway_tools_allow:
     gateway_tools_allow.append('gateway')
 config = {
