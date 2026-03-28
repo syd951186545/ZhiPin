@@ -37,7 +37,6 @@ export default function Login() {
       {/* Form header */}
       <div className="mb-8">
         <h2 className="text-[1.75rem] font-bold tracking-[-0.03em]">{t('login.title')}</h2>
-        <p className="mt-2 text-[14px] leading-6 text-muted-foreground">{t('login.desc')}</p>
       </div>
 
       {/* Form — no Card wrapper */}

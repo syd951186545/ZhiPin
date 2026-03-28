@@ -1,7 +1,7 @@
 /**
  * 工作流执行状态管理 (Zustand)
  *
- * 管理工作流的执行生命周期，并在页面刷新后从后端运行态恢复监控数据。
+ * 支持多执行实例并行跟踪，并在页面刷新后从后端运行态恢复监控数据。
  */
 
 import {create} from 'zustand'
@@ -19,7 +19,7 @@ import {
 } from '@/services/workflowService'
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed'
-export type WorkflowStatus = 'idle' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type WorkflowStatus = 'idle' | 'starting' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
 
 export interface StepState {
   id: string
@@ -46,6 +46,7 @@ export interface WorkflowExecution {
   workflowId: WorkflowId
   workflowName: string
   status: WorkflowStatus
+  accountIds?: string[]
   steps: StepState[]
   currentStepIndex: number
   totalSteps: number
@@ -64,6 +65,7 @@ interface RuntimeWorkflowRun {
   workflow_id: WorkflowId
   workflow_name?: string
   status?: string
+  request?: WorkflowStartRequest
   steps?: Record<string, Record<string, unknown>>
   step_order?: string[]
   accumulated_output?: string
@@ -80,34 +82,55 @@ interface RuntimeWorkflowRun {
 }
 
 interface WorkflowStore {
-  activeExecution: WorkflowExecution | null
-  lastExecution: WorkflowExecution | null
+  executions: Record<string, WorkflowExecution>
+  executionOrder: string[]
   backendReady: boolean
-  startWorkflow: (req: WorkflowStartRequest) => Promise<void>
-  cancelWorkflow: () => void
-  clearExecution: () => void
+  startWorkflow: (req: WorkflowStartRequest) => Promise<string>
+  cancelWorkflow: (executionId: string) => void
+  clearExecution: (executionId?: string) => void
   setBackendReady: (ready: boolean) => void
   restoreExecution: () => Promise<void>
 }
 
-const EXECUTION_STORAGE_KEY = 'jiling-recruit:last-execution-id'
+type WorkflowSetState = WorkflowStore | Partial<WorkflowStore> | ((state: WorkflowStore) => WorkflowStore | Partial<WorkflowStore>)
+type WorkflowSet = (partial: WorkflowSetState, replace?: false) => void
+type WorkflowGet = () => WorkflowStore
+
+const EXECUTION_STORAGE_KEY = 'jiling-recruit:execution-ids'
+const MAX_PERSISTED_EXECUTIONS = 20
 const _cancelledStepError = '已停止'
 
-let _unsubscribeSSE: (() => void) | null = null
+const _unsubscribeSSE = new Map<string, () => void>()
 
-function readStoredExecutionId(): string | null {
-  if (typeof window === 'undefined') return null
-  return window.localStorage.getItem(EXECUTION_STORAGE_KEY)
+function readStoredExecutionIds(): string[] {
+  if (typeof window === 'undefined') return []
+  const raw = window.localStorage.getItem(EXECUTION_STORAGE_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return parsed.filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+    }
+  } catch {
+    if (raw.trim()) {
+      return [raw.trim()]
+    }
+  }
+  return []
 }
 
-function persistExecutionPointer(activeExecution: WorkflowExecution | null, lastExecution: WorkflowExecution | null) {
+function persistExecutionPointers(executionOrder: string[]) {
   if (typeof window === 'undefined') return
-  const executionId = activeExecution?.executionId || lastExecution?.executionId
-  if (executionId) {
-    window.localStorage.setItem(EXECUTION_STORAGE_KEY, executionId)
+  const payload = executionOrder.slice(0, MAX_PERSISTED_EXECUTIONS)
+  if (payload.length > 0) {
+    window.localStorage.setItem(EXECUTION_STORAGE_KEY, JSON.stringify(payload))
     return
   }
   window.localStorage.removeItem(EXECUTION_STORAGE_KEY)
+}
+
+function prioritizeExecution(executionOrder: string[], executionId: string): string[] {
+  return [executionId, ...executionOrder.filter((id) => id !== executionId)].slice(0, MAX_PERSISTED_EXECUTIONS)
 }
 
 function normalizeStepStatus(status?: string): StepStatus {
@@ -119,6 +142,7 @@ function normalizeWorkflowStatus(status?: string): WorkflowStatus {
   switch (status) {
     case 'starting':
     case 'running':
+    case 'cancelling':
     case 'completed':
     case 'failed':
     case 'cancelled':
@@ -129,13 +153,12 @@ function normalizeWorkflowStatus(status?: string): WorkflowStatus {
 }
 
 function setAndPersist(
-  set: Parameters<typeof create<WorkflowStore>>[0],
-  get: () => WorkflowStore,
-  updater: Parameters<Parameters<typeof create<WorkflowStore>>[0]>[0],
+  set: WorkflowSet,
+  get: WorkflowGet,
+  updater: WorkflowSetState,
 ) {
   set(updater)
-  const state = get()
-  persistExecutionPointer(state.activeExecution, state.lastExecution)
+  persistExecutionPointers(get().executionOrder)
 }
 
 function collectArtifactImageUrls(source: {
@@ -229,12 +252,17 @@ function mapRuntimeRunToExecution(run: RuntimeWorkflowRun): WorkflowExecution {
   const actionNodes = artifacts
     .map(buildActionNodeFromArtifact)
     .filter((item): item is ActionNode => Boolean(item))
+  const requestAccountIds = Array.from(new Set([
+    ...(typeof run.request?.account_id === 'string' ? [run.request.account_id] : []),
+    ...Object.values(run.request?.platform_account_ids || {}).filter((value): value is string => typeof value === 'string' && Boolean(value.trim())),
+  ]))
 
   return {
     executionId: run.execution_id,
     workflowId: run.workflow_id,
     workflowName: run.workflow_name || run.workflow_id,
     status: normalizeWorkflowStatus(run.status),
+    accountIds: requestAccountIds,
     steps,
     currentStepIndex,
     totalSteps: steps.length,
@@ -249,273 +277,22 @@ function mapRuntimeRunToExecution(run: RuntimeWorkflowRun): WorkflowExecution {
   }
 }
 
-function cleanupSSE() {
-  if (_unsubscribeSSE) {
-    _unsubscribeSSE()
-    _unsubscribeSSE = null
+function cleanupSSE(executionId?: string) {
+  if (executionId) {
+    const unsubscribe = _unsubscribeSSE.get(executionId)
+    if (!unsubscribe) return
+    unsubscribe()
+    _unsubscribeSSE.delete(executionId)
+    return
   }
+
+  for (const unsubscribe of _unsubscribeSSE.values()) {
+    unsubscribe()
+  }
+  _unsubscribeSSE.clear()
 }
 
-function bindWorkflowSubscription(
-  executionId: string,
-  set: Parameters<typeof create<WorkflowStore>>[0],
-  get: () => WorkflowStore,
-) {
-  cleanupSSE()
-
-  _unsubscribeSSE = subscribeWorkflow(executionId, {
-    onWorkflowMeta: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        return {
-          activeExecution: {
-            ...state.activeExecution,
-            workflowName: data.workflow_name,
-            totalSteps: data.steps.length,
-            multiPlatform: data.multi_platform,
-            steps: data.steps.map((s: StepMeta) => ({
-              id: s.id,
-              nameZh: s.name_zh,
-              status: 'pending' as StepStatus,
-              platform: s.platform,
-            })),
-          },
-        }
-      })
-    },
-
-    onStepChange: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        const steps = state.activeExecution.steps.map((s) =>
-          s.id === data.step_id
-            ? {...s, status: data.status as StepStatus, error: data.error}
-            : s,
-        )
-        const separator = data.status === 'running' ? `\n${'─'.repeat(36)}\n▶ ${data.step_name}\n` : ''
-        return {
-          activeExecution: {
-            ...state.activeExecution,
-            steps,
-            currentStepIndex: data.step_index ?? state.activeExecution.currentStepIndex,
-            totalSteps: data.total_steps ?? state.activeExecution.totalSteps,
-            accumulatedText: state.activeExecution.accumulatedText + separator,
-          },
-        }
-      })
-    },
-
-    onProgress: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        return {
-          activeExecution: {
-            ...state.activeExecution,
-            accumulatedText: state.activeExecution.accumulatedText + (data.delta || ''),
-          },
-        }
-      })
-    },
-
-    onScreenshot: (data) => {
-      setAndPersist(set, get, (state) => {
-        const target = state.activeExecution || state.lastExecution
-        if (!target) return state
-        const exists = target.actionNodes.some((n) => n.artifactId === data.artifact_id || n.screenshot === data.screenshot)
-        if (exists) return state
-
-        const node: ActionNode = {
-          id: data.artifact_id || `screenshot-${data.step_id}-${Date.now()}`,
-          time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
-          action: data.action || '操作截图',
-          screenshot: data.screenshot,
-          stepId: data.step_id,
-          artifactId: data.artifact_id,
-        }
-        const updated = {...target, actionNodes: [...target.actionNodes, node]}
-        return state.activeExecution ? {activeExecution: updated} : {lastExecution: updated}
-      })
-    },
-
-    onComplete: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        const existingScreenshots = new Set(state.activeExecution.actionNodes.map((n) => n.screenshot).filter(Boolean))
-        const completionNodes: ActionNode[] = (data.screenshots || [])
-          .filter((s) => s && !existingScreenshots.has(s))
-          .map((s) => ({
-            id: `complete-screenshot-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
-            action: '完成截图',
-            screenshot: s,
-            stepId: 'complete',
-          }))
-
-        const completed: WorkflowExecution = {
-          ...state.activeExecution,
-          status: 'completed',
-          result: data,
-          actionNodes: [...state.activeExecution.actionNodes, ...completionNodes],
-        }
-        return {
-          activeExecution: null,
-          lastExecution: completed,
-        }
-      })
-      cleanupSSE()
-    },
-
-    onError: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        const failed: WorkflowExecution = {
-          ...state.activeExecution,
-          status: 'failed',
-          error: data.message,
-        }
-        return {
-          activeExecution: null,
-          lastExecution: failed,
-        }
-      })
-      cleanupSSE()
-    },
-
-    onPlatformChange: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        return {
-          activeExecution: {
-            ...state.activeExecution,
-            currentPlatform: data.platform_name,
-            currentPlatformIndex: data.platform_index,
-            totalPlatforms: data.total_platforms,
-          },
-        }
-      })
-    },
-
-    onCancelled: () => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        const cancelled: WorkflowExecution = {
-          ...state.activeExecution,
-          status: 'cancelled',
-          steps: state.activeExecution.steps.map((s) =>
-            s.status === 'running' ? {...s, status: 'failed', error: _cancelledStepError} : s,
-          ),
-        }
-        return {
-          activeExecution: null,
-          lastExecution: cancelled,
-        }
-      })
-      cleanupSSE()
-    },
-
-    onStepRetrying: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        return {
-          activeExecution: {
-            ...state.activeExecution,
-            accumulatedText:
-              state.activeExecution.accumulatedText
-              + `\n[重试] ${data.step_name} -> 第 ${data.attempt} 次尝试`
-              + (data.previous_error ? `，原因：${data.previous_error}` : '')
-              + '\n',
-          },
-        }
-      })
-    },
-
-    onStepVerified: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        return {
-          activeExecution: {
-            ...state.activeExecution,
-            accumulatedText:
-              state.activeExecution.accumulatedText
-              + `\n[校验] ${data.step_name} -> ${data.verified ? '通过' : '失败'}`
-              + (data.error_code ? ` (${data.error_code})` : '')
-              + (data.message ? `：${data.message}` : '')
-              + '\n',
-          },
-        }
-      })
-    },
-
-    onHandoffRequired: (data) => {
-      setAndPersist(set, get, (state) => {
-        if (!state.activeExecution) return state
-        const handoffError = `登录态已失效。请前往「平台和账号配置」先执行“重新验证”；若仍失败，再执行“重新绑定”后重试当前工作流。（步骤：${data.step_name}）`
-        const handoffExecution: WorkflowExecution = {
-          ...state.activeExecution,
-          status: 'failed',
-          error: handoffError,
-          accumulatedText:
-            state.activeExecution.accumulatedText
-            + `\n[需要重新登录] ${data.step_name} -> ${data.reason}`
-            + (data.error_code ? ` (${data.error_code})` : '')
-            + '\n',
-        }
-        return {
-          activeExecution: null,
-          lastExecution: handoffExecution,
-        }
-      })
-      cleanupSSE()
-    },
-
-    onArtifactCreated: (data) => {
-      setAndPersist(set, get, (state) => {
-        const target = state.activeExecution || state.lastExecution
-        if (!target) return state
-        const exists = target.actionNodes.some((node) => node.artifactId === data.artifact_id)
-        if (exists) return state
-
-        const imageState = buildActionNodeImageState(data)
-        const node: ActionNode = {
-          id: data.artifact_id,
-          time: new Date(data.captured_at).toLocaleTimeString('zh-CN', {hour12: false}),
-          action: `截图(${data.capture_phase})`,
-          screenshot: imageState.screenshot,
-          imageUrls: imageState.imageUrls,
-          stepId: data.step_id,
-          artifactId: data.artifact_id,
-          contentUrl: data.content_url,
-          persisted: Boolean(data.content_url || data.signed_url || data.storage_key),
-        }
-        const updated = {...target, actionNodes: [...target.actionNodes, node]}
-        return state.activeExecution ? {activeExecution: updated} : {lastExecution: updated}
-      })
-    },
-
-    onArtifactPersisted: (data) => {
-      setAndPersist(set, get, (state) => {
-        const apply = (execution: WorkflowExecution | null): WorkflowExecution | null => {
-          if (!execution) return execution
-          return {
-            ...execution,
-            actionNodes: execution.actionNodes.map((node) =>
-              node.artifactId === data.artifact_id
-                ? updateActionNodeFromArtifact(node, data)
-                : node,
-            ),
-          }
-        }
-
-        return {
-          activeExecution: apply(state.activeExecution),
-          lastExecution: apply(state.lastExecution),
-        }
-      })
-    },
-  })
-}
-
-function updateActionNodeFromArtifact(node: ActionNode, data: ArtifactEvent): ActionNode {
+function updateExecutionActionNodeFromArtifact(node: ActionNode, data: ArtifactEvent): ActionNode {
   const nextUrls = mergeImageUrls(
     collectArtifactImageUrls(data),
     node.imageUrls,
@@ -531,133 +308,359 @@ function updateActionNodeFromArtifact(node: ActionNode, data: ArtifactEvent): Ac
   }
 }
 
+function bindWorkflowSubscription(
+  executionId: string,
+  set: WorkflowSet,
+  get: WorkflowGet,
+) {
+  cleanupSSE(executionId)
+
+  const updateExecution = (
+    updater: (execution: WorkflowExecution) => WorkflowExecution,
+  ) => {
+    setAndPersist(set, get, (state) => {
+      const current = state.executions[executionId]
+      if (!current) return state
+      return {
+        executions: {
+          ...state.executions,
+          [executionId]: updater(current),
+        },
+        executionOrder: prioritizeExecution(state.executionOrder, executionId),
+      }
+    })
+  }
+
+  _unsubscribeSSE.set(executionId, subscribeWorkflow(executionId, {
+    onWorkflowMeta: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        workflowName: data.workflow_name,
+        totalSteps: data.steps.length,
+        multiPlatform: data.multi_platform,
+        steps: data.steps.map((step: StepMeta) => ({
+          id: step.id,
+          nameZh: step.name_zh,
+          status: 'pending' as StepStatus,
+          platform: step.platform,
+        })),
+      }))
+    },
+
+    onStepChange: (data) => {
+      updateExecution((execution) => {
+        const steps = execution.steps.map((step) =>
+          step.id === data.step_id
+            ? {...step, status: data.status as StepStatus, error: data.error}
+            : step,
+        )
+        const separator = data.status === 'running' ? `\n${'─'.repeat(36)}\n▶ ${data.step_name}\n` : ''
+        return {
+          ...execution,
+          status: data.status === 'failed' ? 'failed' : execution.status === 'cancelling' ? 'cancelling' : 'running',
+          steps,
+          currentStepIndex: data.step_index ?? execution.currentStepIndex,
+          totalSteps: data.total_steps ?? execution.totalSteps,
+          accumulatedText: execution.accumulatedText + separator,
+          error: data.status === 'failed' ? data.error : execution.error,
+        }
+      })
+    },
+
+    onProgress: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        accumulatedText: execution.accumulatedText + (data.delta || ''),
+      }))
+    },
+
+    onScreenshot: (data) => {
+      updateExecution((execution) => {
+        const exists = execution.actionNodes.some((node) => node.artifactId === data.artifact_id || node.screenshot === data.screenshot)
+        if (exists) return execution
+
+        const node: ActionNode = {
+          id: data.artifact_id || `screenshot-${data.step_id}-${Date.now()}`,
+          time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
+          action: data.action || '操作截图',
+          screenshot: data.screenshot,
+          stepId: data.step_id,
+          artifactId: data.artifact_id,
+        }
+        return {...execution, actionNodes: [...execution.actionNodes, node]}
+      })
+    },
+
+    onComplete: (data) => {
+      updateExecution((execution) => {
+        const existingScreenshots = new Set(execution.actionNodes.map((node) => node.screenshot).filter(Boolean))
+        const completionNodes: ActionNode[] = (data.screenshots || [])
+          .filter((s) => s && !existingScreenshots.has(s))
+          .map((s) => ({
+            id: `complete-screenshot-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
+            action: '完成截图',
+            screenshot: s,
+            stepId: 'complete',
+          }))
+
+        return {
+          ...execution,
+          status: 'completed',
+          result: data,
+          error: undefined,
+          actionNodes: [...execution.actionNodes, ...completionNodes],
+        }
+      })
+      cleanupSSE(executionId)
+    },
+
+    onError: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        status: 'failed',
+        error: data.message,
+      }))
+      cleanupSSE(executionId)
+    },
+
+    onPlatformChange: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        currentPlatform: data.platform_name,
+        currentPlatformIndex: data.platform_index,
+        totalPlatforms: data.total_platforms,
+      }))
+    },
+
+    onCancelled: () => {
+      updateExecution((execution) => ({
+        ...execution,
+        status: 'cancelled',
+        error: undefined,
+        steps: execution.steps.map((step) =>
+          step.status === 'running' ? {...step, status: 'failed', error: _cancelledStepError} : step,
+        ),
+      }))
+      cleanupSSE(executionId)
+    },
+
+    onStepRetrying: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        accumulatedText:
+          execution.accumulatedText
+          + `\n[重试] ${data.step_name} -> 第 ${data.attempt} 次尝试`
+          + (data.previous_error ? `，原因：${data.previous_error}` : '')
+          + '\n',
+      }))
+    },
+
+    onStepVerified: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        accumulatedText:
+          execution.accumulatedText
+          + `\n[校验] ${data.step_name} -> ${data.verified ? '通过' : '失败'}`
+          + (data.error_code ? ` (${data.error_code})` : '')
+          + (data.message ? `：${data.message}` : '')
+          + '\n',
+      }))
+    },
+
+    onHandoffRequired: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        status: 'failed',
+        error: `登录态已失效。请前往「平台和账号配置」先执行“重新验证”；若仍失败，再执行“重新绑定”后重试当前工作流。（步骤：${data.step_name}）`,
+        accumulatedText:
+          execution.accumulatedText
+          + `\n[需要重新登录] ${data.step_name} -> ${data.reason}`
+          + (data.error_code ? ` (${data.error_code})` : '')
+          + '\n',
+      }))
+      cleanupSSE(executionId)
+    },
+
+    onArtifactCreated: (data) => {
+      updateExecution((execution) => {
+        const exists = execution.actionNodes.some((node) => node.artifactId === data.artifact_id)
+        if (exists) return execution
+
+        const imageState = buildActionNodeImageState(data)
+        const node: ActionNode = {
+          id: data.artifact_id,
+          time: new Date(data.captured_at).toLocaleTimeString('zh-CN', {hour12: false}),
+          action: `截图(${data.capture_phase})`,
+          screenshot: imageState.screenshot,
+          imageUrls: imageState.imageUrls,
+          stepId: data.step_id,
+          artifactId: data.artifact_id,
+          contentUrl: data.content_url,
+          persisted: Boolean(data.content_url || data.signed_url || data.storage_key),
+        }
+        return {...execution, actionNodes: [...execution.actionNodes, node]}
+      })
+    },
+
+    onArtifactPersisted: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        actionNodes: execution.actionNodes.map((node) =>
+          node.artifactId === data.artifact_id
+            ? updateExecutionActionNodeFromArtifact(node, data)
+            : node,
+        ),
+      }))
+    },
+  }))
+}
+
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
-  activeExecution: null,
-  lastExecution: null,
+  executions: {},
+  executionOrder: [],
   backendReady: false,
 
   setBackendReady: (ready) => set({backendReady: ready}),
 
   restoreExecution: async () => {
-    if (get().activeExecution || get().lastExecution) return
+    const storedExecutionIds = readStoredExecutionIds()
+    if (storedExecutionIds.length === 0) return
 
-    const executionId = readStoredExecutionId()
-    if (!executionId) return
-
-    try {
-      const run = await getWorkflowRun(executionId) as RuntimeWorkflowRun
-      const restored = mapRuntimeRunToExecution(run)
-      const isActive = restored.status === 'starting' || restored.status === 'running'
-
-      setAndPersist(set, get, {
-        activeExecution: isActive ? restored : null,
-        lastExecution: isActive ? null : restored,
-      })
-
-      if (isActive) {
-        bindWorkflowSubscription(executionId, set, get)
+    const restoredEntries = await Promise.all(storedExecutionIds.map(async (executionId) => {
+      try {
+        const run = await getWorkflowRun(executionId) as unknown as RuntimeWorkflowRun
+        return {executionId, execution: mapRuntimeRunToExecution(run)}
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('(404)')) {
+          return {executionId, execution: null}
+        }
+        console.error('恢复工作流执行失败', executionId, error)
+        return null
       }
-    } catch (error) {
-      console.error('恢复工作流执行失败', error)
-      if (error instanceof Error && error.message.includes('(404)')) {
-        persistExecutionPointer(null, null)
+    }))
+
+    setAndPersist(set, get, (state) => {
+      const nextExecutions = {...state.executions}
+      let nextOrder = [...state.executionOrder]
+
+      for (const entry of restoredEntries) {
+        if (!entry) continue
+        if (!entry.execution) {
+          delete nextExecutions[entry.executionId]
+          nextOrder = nextOrder.filter((id) => id !== entry.executionId)
+          continue
+        }
+
+        nextExecutions[entry.executionId] = entry.execution
+        nextOrder = prioritizeExecution(nextOrder, entry.executionId)
+      }
+
+      nextOrder = nextOrder.filter((id) => Boolean(nextExecutions[id]))
+      return {
+        executions: nextExecutions,
+        executionOrder: nextOrder,
+      }
+    })
+
+    for (const entry of restoredEntries) {
+      if (!entry?.execution) continue
+      if (entry.execution.status === 'starting' || entry.execution.status === 'running' || entry.execution.status === 'cancelling') {
+        bindWorkflowSubscription(entry.executionId, set, get)
       }
     }
   },
 
   startWorkflow: async (req) => {
-    cleanupSSE()
+    const {data: sessionData} = await supabase.auth.getSession()
+    const authToken = sessionData?.session?.access_token
+    const reqWithAuth: WorkflowStartRequest = authToken ? {...req, supabase_auth_token: authToken} : req
+    const executionId = await apiStartWorkflow(reqWithAuth)
 
-    setAndPersist(set, get, {
-      activeExecution: {
-        executionId: '',
-        workflowId: req.workflow_id,
-        workflowName: '',
-        status: 'starting',
-        steps: [],
-        currentStepIndex: 0,
-        totalSteps: 0,
-        accumulatedText: '',
-        actionNodes: [],
-      },
-      lastExecution: null,
-    })
-
-    try {
-      const {data: sessionData} = await supabase.auth.getSession()
-      const authToken = sessionData?.session?.access_token
-      const reqWithAuth: WorkflowStartRequest = authToken ? {...req, supabase_auth_token: authToken} : req
-      const executionId = await apiStartWorkflow(reqWithAuth)
-
-      if (!get().activeExecution) {
-        apiCancelWorkflow(executionId).catch(() => {})
-        return
-      }
-
-      setAndPersist(set, get, (state) => ({
-        activeExecution: state.activeExecution
-          ? {...state.activeExecution, executionId, status: 'running'}
-          : null,
-      }))
-
-      bindWorkflowSubscription(executionId, set, get)
-    } catch (err) {
-      setAndPersist(set, get, (state) => ({
-        activeExecution: null,
-        lastExecution: state.activeExecution
-          ? {
-              ...state.activeExecution,
-              status: 'failed' as WorkflowStatus,
-              error: err instanceof Error ? err.message : '启动失败',
-            }
-          : null,
-      }))
+    const optimisticExecution: WorkflowExecution = {
+      executionId,
+      workflowId: req.workflow_id,
+      workflowName: req.workflow_id,
+      status: 'running',
+      accountIds: Array.from(new Set([
+        ...(typeof req.account_id === 'string' ? [req.account_id] : []),
+        ...Object.values(req.platform_account_ids || {}).filter((value): value is string => typeof value === 'string' && Boolean(value.trim())),
+      ])),
+      steps: [],
+      currentStepIndex: 0,
+      totalSteps: 0,
+      accumulatedText: '',
+      actionNodes: [],
     }
+
+    setAndPersist(set, get, (state) => ({
+      executions: {
+        ...state.executions,
+        [executionId]: optimisticExecution,
+      },
+      executionOrder: prioritizeExecution(state.executionOrder, executionId),
+    }))
+
+    bindWorkflowSubscription(executionId, set, get)
+    return executionId
   },
 
-  cancelWorkflow: () => {
-    const exec = get().activeExecution
-    if (!exec) return
+  cancelWorkflow: (executionId) => {
+    const execution = get().executions[executionId]
+    if (!execution) return
 
-    if (!exec.executionId) {
-      const cancelled: WorkflowExecution = {
-        ...exec,
-        status: 'cancelled',
-      }
-      setAndPersist(set, get, {activeExecution: null, lastExecution: cancelled})
-      return
-    }
-
-    setAndPersist(set, get, {
-      activeExecution: null,
-      lastExecution: {
-        ...exec,
-        status: 'cancelled',
-        steps: exec.steps.map((s) =>
-          s.status === 'running' ? {...s, status: 'failed', error: _cancelledStepError} : s,
-        ),
-      },
-    })
-    cleanupSSE()
-
-    apiCancelWorkflow(exec.executionId).catch((err) => {
-      console.error(err)
-      setAndPersist(set, get, (state) => {
-        if (!state.lastExecution || state.lastExecution.executionId !== exec.executionId) {
-          return state
-        }
-        return {
-          lastExecution: {
-            ...state.lastExecution,
-            error: '取消请求失败，请稍后刷新确认状态。',
+    setAndPersist(set, get, (state) => {
+      const current = state.executions[executionId]
+      if (!current) return state
+      return {
+        executions: {
+          ...state.executions,
+          [executionId]: {
+            ...current,
+            status: current.status === 'cancelled' ? 'cancelled' : 'cancelling',
+            error: undefined,
           },
+        },
+        executionOrder: prioritizeExecution(state.executionOrder, executionId),
+      }
+    })
+
+    apiCancelWorkflow(executionId).catch((error) => {
+      console.error(error)
+      setAndPersist(set, get, (state) => {
+        const current = state.executions[executionId]
+        if (!current || current.status === 'cancelled') return state
+        return {
+          executions: {
+            ...state.executions,
+            [executionId]: {
+              ...current,
+              status: 'running',
+              error: '取消请求失败，请稍后刷新确认状态。',
+            },
+          },
+          executionOrder: prioritizeExecution(state.executionOrder, executionId),
         }
       })
     })
   },
 
-  clearExecution: () => {
-    cleanupSSE()
-    setAndPersist(set, get, {activeExecution: null, lastExecution: null})
+  clearExecution: (executionId) => {
+    if (!executionId) {
+      cleanupSSE()
+      setAndPersist(set, get, {executions: {}, executionOrder: []})
+      return
+    }
+
+    cleanupSSE(executionId)
+    setAndPersist(set, get, (state) => {
+      if (!state.executions[executionId]) return state
+      const nextExecutions = {...state.executions}
+      delete nextExecutions[executionId]
+      return {
+        executions: nextExecutions,
+        executionOrder: state.executionOrder.filter((id) => id !== executionId),
+      }
+    })
   },
 }))

@@ -9,9 +9,10 @@ from prompts import screenshot_instruction
 
 
 def _browser_rules(state: dict) -> str:
+    browser_profile = state.get("browser_profile") or state.get("session_id") or state.get("browser_session_key") or "openclaw"
     return (
         "【浏览器工具强制要求】\n"
-        "- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"openclaw\"`\n"
+        f"- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"{browser_profile}\"`\n"
         "- 禁止使用默认 sandbox browser"
     )
 

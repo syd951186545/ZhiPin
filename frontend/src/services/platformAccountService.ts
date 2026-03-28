@@ -3,6 +3,7 @@ import type {
   PlatformBindingSession,
   PlatformCatalogItem,
   PlatformLoginMethod,
+  PlatformLoginState,
   PlatformProfile,
 } from '@/types/openclaw'
 
@@ -35,7 +36,7 @@ async function readErrorDetail(resp: Response): Promise<string> {
 export interface PlatformAccountApiRow extends PlatformProfile {
   platformUrl?: string
   loginMethod?: PlatformLoginMethod
-  loginState?: string
+  loginState?: PlatformLoginState
   loginIdentifierMasked?: string
   lastError?: string
   browserSessionKey?: string
@@ -53,7 +54,7 @@ function mapAccount(row: Record<string, unknown>): PlatformAccountApiRow {
     lastLogin: row.last_login ? String(row.last_login) : undefined,
     platformUrl: row.platform_url ? String(row.platform_url) : undefined,
     loginMethod: row.login_method ? String(row.login_method) as PlatformLoginMethod : undefined,
-    loginState: row.login_state ? String(row.login_state) : undefined,
+    loginState: row.login_state ? String(row.login_state) as PlatformLoginState : undefined,
     loginIdentifierMasked: row.login_identifier_masked ? String(row.login_identifier_masked) : undefined,
     lastError: row.last_error ? String(row.last_error) : undefined,
     browserSessionKey: row.browser_session_key ? String(row.browser_session_key) : undefined,

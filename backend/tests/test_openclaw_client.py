@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from services.openclaw_client import OpenClawClient, StepResult
+from services.openclaw_client import BrowserReadyResult, OpenClawClient, StepResult
 from services.session_crypto import encrypt_storage_state
 
 
@@ -105,6 +105,82 @@ async def test_ensure_host_browser_ready_succeeds_after_smoke_test(tmp_path):
 
     assert result.ready is True
     assert result.detail == "host browser 可用"
+
+
+@pytest.mark.asyncio
+async def test_ensure_host_browser_ready_creates_missing_runtime_profile_on_404(tmp_path):
+    config_dir = tmp_path / ".openclaw"
+    config_dir.mkdir(parents=True)
+    (config_dir / "openclaw.json").write_text(
+        (
+            '{"agents":{"defaults":{"model":{"primary":"demo/model"},'
+            '"sandbox":{"browser":{"allowHostControl":true}}}}}'
+        ),
+        encoding="utf-8",
+    )
+
+    missing_status = BrowserReadyResult(
+        ready=False,
+        detail="OpenClaw browser profile 不存在: runtime-profile-001",
+        http_status=404,
+    )
+    stopped_status = BrowserReadyResult(
+        ready=False,
+        detail="OpenClaw host browser 尚未启动，系统将尝试自动拉起",
+        http_status=503,
+        status_snapshot={"running": False, "cdpReady": False},
+    )
+    ready_status = BrowserReadyResult(
+        ready=True,
+        detail="ok",
+        http_status=200,
+        status_snapshot={"running": True, "cdpReady": True, "cdpUrl": "http://127.0.0.1:18800"},
+    )
+
+    with (
+        patch("services.openclaw_client.get_settings", return_value=_settings(tmp_path)),
+        patch.object(
+            OpenClawClient,
+            "_ensure_host_browser_control_runtime",
+            new=AsyncMock(return_value=BrowserReadyResult(ready=True, detail="ok", http_status=200)),
+        ),
+        patch.object(
+            OpenClawClient,
+            "_fetch_host_browser_status",
+            new=AsyncMock(side_effect=[missing_status, stopped_status]),
+        ) as mock_fetch,
+        patch.object(
+            OpenClawClient,
+            "_ensure_runtime_browser_profile",
+            new=AsyncMock(return_value=BrowserReadyResult(ready=True, detail="created", http_status=200)),
+        ) as mock_create,
+        patch.object(OpenClawClient, "_start_host_browser", new=AsyncMock(return_value=ready_status)) as mock_start,
+        patch.object(
+            OpenClawClient,
+            "_restore_persisted_session",
+            new=AsyncMock(return_value=SimpleNamespace(ready=True, detail="ok", status_snapshot={})),
+        ),
+        patch(
+            "services.openclaw_client.OpenClawClient.execute_step",
+            new=AsyncMock(
+                return_value=StepResult(
+                    success=True,
+                    accumulated_text="[BROWSER_READY:OK]\n[BROWSER_REASON:host browser 可用]",
+                )
+            ),
+        ),
+    ):
+        client = OpenClawClient()
+        result = await client.ensure_host_browser_ready(
+            session_id="session-key-001",
+            platform_url="https://example.com",
+            profile="runtime-profile-001",
+        )
+
+    assert result.ready is True
+    mock_create.assert_awaited_once_with("runtime-profile-001")
+    mock_start.assert_awaited_once()
+    assert mock_fetch.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -471,7 +547,7 @@ async def test_ensure_host_browser_ready_restores_persisted_session_with_host_pr
     mock_restore.assert_awaited_once()
     _, kwargs = mock_restore.await_args
     assert kwargs["session_id"] == "session-key-001"
-    assert kwargs["profile"] == "openclaw"
+    assert kwargs["profile"] == "session-key-001"
     assert kwargs["encrypted_session_state"] == "ciphertext"
 
 
@@ -682,3 +758,26 @@ async def test_capture_host_browser_screenshot_retries_transient_cdp_close(tmp_p
     assert mock_capture.await_count == 2
     assert mock_status.await_count == 2
     mock_start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_runtime_browser_profiles_deletes_created_profiles(tmp_path):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client_instance = AsyncMock()
+    mock_client_instance.delete = AsyncMock(return_value=mock_response)
+    mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+    mock_client_instance.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("services.openclaw_client.get_settings", return_value=_settings(tmp_path)),
+        patch("services.openclaw_client.httpx.AsyncClient", return_value=mock_client_instance),
+    ):
+        client = OpenClawClient()
+        client._runtime_profiles_created.update({"runtime-profile-001", "runtime-profile-002"})
+        await client.cleanup_runtime_browser_profiles()
+
+    assert client._runtime_profiles_created == set()
+    assert mock_client_instance.delete.await_count == 2

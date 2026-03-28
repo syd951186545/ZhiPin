@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from prompts.platform_binding import build_correction_prompt
 from services.openclaw_client import StepResult
 from services.platform_binding_service import _execute_openclaw_with_retries
 
@@ -30,3 +31,16 @@ async def test_execute_openclaw_with_retries_marks_timeout_as_failed(sample_acco
     assert result.success is False
     assert "OpenClaw 执行超时" in (result.error or "")
     assert parsed is None
+
+
+def test_correction_prompt_keeps_original_browser_profile():
+    prompt = build_correction_prompt(
+        original_prompt="orig",
+        attempt=2,
+        last_error="timeout",
+        last_state="FAILED",
+        browser_profile="tenant-001-platform-boss-account-001",
+    )
+
+    assert 'profile="tenant-001-platform-boss-account-001"' in prompt
+    assert 'profile="openclaw"' not in prompt

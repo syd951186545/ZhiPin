@@ -23,6 +23,7 @@ _STATE_RE = re.compile(r"\[LOGIN_STATE:(LOGGED_IN|AWAIT_SMS|AWAIT_QR|AWAIT_PASSW
 _STEP_RE = re.compile(r"\[LOGIN_STEP:([A-Z0-9_:-]+)\]")
 _REASON_RE = re.compile(r"\[LOGIN_REASON:([^\]]{1,300})\]")
 _IDENTIFIER_RE = re.compile(r"\[LOGIN_IDENTIFIER:([^\]]{1,120})\]")
+_ACCOUNT_NAME_RE = re.compile(r"\[LOGIN_ACCOUNT_NAME:([^\]]{1,120})\]")
 
 
 @dataclass
@@ -31,6 +32,7 @@ class PlatformBindingParseResult:
     step_key: str
     reason: str
     identifier_masked: Optional[str] = None
+    account_name: Optional[str] = None
 
 
 def parse_platform_binding_output(text: str) -> Optional[PlatformBindingParseResult]:
@@ -41,10 +43,12 @@ def parse_platform_binding_output(text: str) -> Optional[PlatformBindingParseRes
     step_match = _STEP_RE.search(text or "")
     reason_match = _REASON_RE.search(text or "")
     identifier_match = _IDENTIFIER_RE.search(text or "")
+    account_name_match = _ACCOUNT_NAME_RE.search(text or "")
 
     return PlatformBindingParseResult(
         state=state_match.group(1),  # type: ignore[arg-type]
         step_key=(step_match.group(1) if step_match else "UNKNOWN"),
         reason=(reason_match.group(1).strip() if reason_match else ""),
         identifier_masked=(identifier_match.group(1).strip() if identifier_match else None),
+        account_name=(account_name_match.group(1).strip() if account_name_match else None),
     )

@@ -1,7 +1,7 @@
-import {useEffect, useMemo, useState} from 'react'
+import {useEffect, useState} from 'react'
 import {AlertTriangle, CheckCircle2, Loader2, ShieldCheck, Unplug} from 'lucide-react'
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {Badge} from '@/components/ui/badge'
 import {Button} from '@/components/ui/button'
@@ -248,13 +248,6 @@ export default function PlatformActionDialog({
   }, [open, session, onDataChanged])
 
   const actionLabel = session?.action === 'unbind' ? '解绑账号' : '验证登录'
-  const intro = useMemo(() => {
-    if (session?.action === 'unbind') {
-      return 'OpenClaw 正在后台清理该账号的登录态并确认已退出，不会打开远程桌面。'
-    }
-    return 'OpenClaw 正在后台复用该账号的持久会话，直接检查企业端是否仍处于已登录状态，不会打开远程桌面。'
-  }, [session?.action])
-
   const phase: ActionPhase = status === 'completed' ? 'success' : ['failed', 'expired'].includes(status) ? 'error' : 'running'
   const Icon = session?.action === 'unbind' ? Unplug : ShieldCheck
   const latestUpdateAt = session?.updated_at || session?.created_at
@@ -271,9 +264,6 @@ export default function PlatformActionDialog({
               {actionLabel}
               <Badge data-testid="bind-status-badge" className={cn('border-0', statusTone(status))}>{badgeLabel}</Badge>
             </DialogTitle>
-            <DialogDescription>
-              {platformName || '-'} · {accountName || '-'} · {intro}
-            </DialogDescription>
           </DialogHeader>
 
           <div className={cn('rounded-2xl border p-4', statusPanelTone(status))}>

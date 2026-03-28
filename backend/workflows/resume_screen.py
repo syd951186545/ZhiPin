@@ -8,7 +8,14 @@
 
 import logging
 
-from workflows.base import WorkflowState, StepDefinition, execute_step, finalize_persisted_screenshots, run_workflow_graph
+from workflows.base import (
+    WorkflowState,
+    StepDefinition,
+    build_execution_session_id,
+    execute_step,
+    finalize_persisted_screenshots,
+    run_workflow_graph,
+)
 from workflows.contracts import RetryPolicy
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
@@ -127,6 +134,7 @@ async def run(execution_id: str, req):
         "execution_id": execution_id,
         "workflow_id": "resume_screen",
         "session_id": "",
+        "browser_profile": "",
         "current_step": "",
         "step_index": 0,
         "total_steps": total_steps,
@@ -176,6 +184,7 @@ async def run(execution_id: str, req):
         "_persisted_screenshots": [],
     }
 
+    workflow_openclaw = OpenClawClient()
     runtime_steps: list[StepDefinition] = []
 
     for platform_index, platform in enumerate(platforms):
@@ -198,8 +207,15 @@ async def run(execution_id: str, req):
                     (item for item in req.platform_accounts if item.get("platform") == current_platform),
                     {},
                 )
-                new_state["session_id"] = platform_account.get("browser_session_key", "")
-                new_state["browser_session_key"] = platform_account.get("browser_session_key", "")
+                persistent_session_key = platform_account.get("browser_session_key", "")
+                runtime_session_id = build_execution_session_id(
+                    persistent_session_key,
+                    execution_id,
+                    current_platform,
+                )
+                new_state["session_id"] = runtime_session_id
+                new_state["browser_profile"] = persistent_session_key
+                new_state["browser_session_key"] = persistent_session_key
                 new_state["platform_url"] = platform_account.get("platform_url", "")
                 new_state["account_id"] = platform_account.get("id", "")
                 new_state["account_name"] = platform_account.get("account_name") or platform_account.get("name") or ""
@@ -239,8 +255,7 @@ async def run(execution_id: str, req):
                         retry_policy=RetryPolicy(max_attempts=2) if current_step_id.startswith("login_check_") else RetryPolicy(max_attempts=1),
                     )
 
-                    openclaw = OpenClawClient()
-                    result_state = await execute_step(state, step, openclaw, emit_event)
+                    result_state = await execute_step(state, step, workflow_openclaw, emit_event)
                     if result_state.get("error"):
                         logger.error(
                             f"[{execution_id}] 平台 {current_pname} 步骤 {current_step_id} 失败: {result_state['error']}"
@@ -350,7 +365,7 @@ async def run(execution_id: str, req):
     final_state = await run_workflow_graph(
         state=initial_state,
         steps=runtime_steps,
-        openclaw=OpenClawClient(),
+        openclaw=workflow_openclaw,
         emit_event=emit_event,
         is_cancelled=is_cancelled,
     )

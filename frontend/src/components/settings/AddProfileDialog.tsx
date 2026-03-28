@@ -1,23 +1,24 @@
 import React, {useState} from 'react'
 import {AlertTriangle, ExternalLink, Loader2, Smartphone, UserPlus} from 'lucide-react'
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Badge} from '@/components/ui/badge'
 import {useI18n} from '@/contexts/I18nContext'
 import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
 import type {PlatformKey} from '@/types/openclaw'
 import {PLATFORMS} from '@/lib/constants'
 import {cn} from '@/lib/utils'
+import type {PlatformAccountApiRow} from '@/services/platformAccountService'
 
 interface AddProfileDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated?: () => Promise<void> | void
+  defaultPlatform: PlatformKey
+  onCreated?: (createdAccount?: PlatformAccountApiRow) => Promise<void> | void
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -39,50 +40,43 @@ const LOGIN_METHODS: Record<string, string> = {
 }
 
 function resetForm(
-  setPlatform: (v: PlatformKey | '') => void,
   setName: (v: string) => void,
-  setAccountName: (v: string) => void,
   setError: (v: string | null) => void,
 ) {
-  setPlatform('')
   setName('')
-  setAccountName('')
   setError(null)
 }
 
-export default function AddProfileDialog({open, onOpenChange, onCreated}: AddProfileDialogProps) {
+export default function AddProfileDialog({open, onOpenChange, defaultPlatform, onCreated}: AddProfileDialogProps) {
   const {t} = useI18n()
   const {createAccount} = usePlatformAccounts()
 
-  const [platform, setPlatform] = useState<PlatformKey | ''>('')
   const [name, setName] = useState('')
-  const [accountName, setAccountName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const selectedPlatform = platform ? PLATFORMS[platform] : null
+  const selectedPlatform = PLATFORMS[defaultPlatform]
 
   // 关闭时重置表单（BUG-06）
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && !saving) {
-      resetForm(setPlatform, setName, setAccountName, setError)
+      resetForm(setName, setError)
     }
     onOpenChange(nextOpen)
   }
 
   const handleSubmit = async () => {
-    if (!platform || !name.trim()) return
+    if (!defaultPlatform || !name.trim()) return
     setSaving(true)
     setError(null)
     try {
-      await createAccount({
-        platform,
+      const created = await createAccount({
+        platform: defaultPlatform,
         name: name.trim(),
-        account_name: accountName.trim() || undefined,
-        platform_url: PLATFORMS[platform]?.loginUrl,
+        platform_url: selectedPlatform?.loginUrl,
       })
-      resetForm(setPlatform, setName, setAccountName, setError)
-      await onCreated?.()
+      resetForm(setName, setError)
+      await onCreated?.(created)
       onOpenChange(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : '添加账号失败，请重试')
@@ -101,35 +95,24 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
             </div>
             {t('settings.profiles.add.title')}
           </DialogTitle>
-          <DialogDescription>
-            {t('settings.profiles.desc')}
-          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
             <Label className="text-xs">{t('settings.profiles.add.platform')}</Label>
-            <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformKey)}>
-              <SelectTrigger data-testid="add-account-platform-select">
-                <SelectValue placeholder={t('settings.profiles.add.platform')}/>
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(PLATFORMS).map(([key, {name: pName}]) => (
-                  <SelectItem key={key} value={key}>
-                    <span className="flex items-center gap-2">
-                      <span className={cn('inline-block h-2.5 w-2.5 rounded-full', PLATFORM_COLORS[key] || 'bg-zinc-400')}/>
-                      {pName}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div
+              className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-foreground"
+              data-testid="add-account-platform-select"
+            >
+              <span className={cn('mr-2 inline-block h-2.5 w-2.5 rounded-full', PLATFORM_COLORS[defaultPlatform] || 'bg-zinc-400')}/>
+              {selectedPlatform?.name || defaultPlatform}
+            </div>
           </div>
 
           {/* Platform preview card */}
-          {selectedPlatform && platform && (
+          {selectedPlatform && (
             <div className="rounded-xl border bg-gradient-to-br from-muted/30 to-muted/10 p-4" data-testid="add-account-platform-preview">
               <div className="flex items-center gap-3">
-                <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm', PLATFORM_COLORS[platform] || 'bg-zinc-500')}>
+                <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm', PLATFORM_COLORS[defaultPlatform] || 'bg-zinc-500')}>
                   {selectedPlatform.name.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -143,9 +126,8 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
               <div className="mt-3 flex items-center gap-2">
                 <Badge variant="outline" className="gap-1 text-[10px]">
                   <Smartphone className="h-2.5 w-2.5"/>
-                  {LOGIN_METHODS[platform] || '手机号登录'}
+                  {LOGIN_METHODS[defaultPlatform] || '手机号登录'}
                 </Badge>
-                <span className="text-[10px] text-muted-foreground">推荐登录方式</span>
               </div>
             </div>
           )}
@@ -158,17 +140,6 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：华东招聘账号"
             />
-            <p className="text-[11px] text-muted-foreground">用于在列表中区分不同账号的显示名称</p>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs">登录名（可选）</Label>
-            <Input
-              data-testid="add-account-login-name"
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-              placeholder="手机号或账号名"
-            />
-            <p className="text-[11px] text-muted-foreground">预填登录时使用的手机号或账号名，可后续在绑定时修改</p>
           </div>
         </div>
         {error && (
@@ -181,7 +152,7 @@ export default function AddProfileDialog({open, onOpenChange, onCreated}: AddPro
           <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
             {t('common.cancel')}
           </Button>
-          <Button className="gap-2 shadow-sm" onClick={handleSubmit} disabled={!platform || !name.trim() || saving} data-testid="add-account-submit">
+          <Button className="gap-2 shadow-sm" onClick={handleSubmit} disabled={!name.trim() || saving} data-testid="add-account-submit">
             {saving ? <Loader2 className="h-4 w-4 animate-spin"/> : <UserPlus className="h-4 w-4"/>}
             {saving ? '保存中...' : t('settings.profiles.add.submit')}
           </Button>

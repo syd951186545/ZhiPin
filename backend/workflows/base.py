@@ -5,7 +5,9 @@
 """
 
 import asyncio
+import hashlib
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional, TypedDict
@@ -28,6 +30,26 @@ from workflows.contracts import (
 logger = logging.getLogger(__name__)
 
 
+def _normalize_runtime_token(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", (value or "").strip())
+    normalized = normalized.strip("-._")
+    return normalized or "workflow"
+
+
+def build_execution_session_id(browser_session_key: str, execution_id: str, platform: str = "") -> str:
+    base_key = _normalize_runtime_token(browser_session_key)
+    exec_suffix = _normalize_runtime_token(execution_id)[:12]
+    platform_suffix = _normalize_runtime_token(platform) if platform else ""
+    if platform_suffix:
+        return f"{base_key}--{platform_suffix}--{exec_suffix}"
+    return f"{base_key}--{exec_suffix}"
+
+
+def build_execution_browser_profile(session_id: str) -> str:
+    digest = hashlib.sha1((session_id or "workflow").encode("utf-8")).hexdigest()[:20]
+    return f"wf-{digest}"
+
+
 # ── 工作流状态 (LangGraph State) ──────────────────────────
 
 
@@ -37,6 +59,7 @@ class WorkflowState(TypedDict, total=False):
     execution_id: str
     workflow_id: str
     session_id: str
+    browser_profile: str
 
     # 当前执行位置
     current_step: str
@@ -426,6 +449,7 @@ async def execute_step(
                 capture_result = await asyncio.wait_for(
                     openclaw.capture_host_browser_screenshot(
                         session_id=state["session_id"],
+                        profile=state.get("browser_profile"),
                         on_screenshot=emit_capture_screenshot,
                         screenshot_uploader=uploader,
                     ),

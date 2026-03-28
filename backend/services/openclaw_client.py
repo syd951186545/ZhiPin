@@ -12,11 +12,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
@@ -79,6 +81,7 @@ class OpenClawClient:
         self.browser_base_url = (settings.openclaw_browser_base_url or "").rstrip("/")
         self.auth_token = auth_token or settings.openclaw_auth_token
         self.agent_id = agent_id or settings.openclaw_agent_id
+        self._runtime_profiles_created: set[str] = set()
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -93,6 +96,10 @@ class OpenClawClient:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         return headers
 
+    def _is_builtin_browser_profile(self, profile: str) -> bool:
+        normalized = self._browser_profile(profile)
+        return normalized in {HOST_BROWSER_PROFILE, "user"}
+
     def _runtime_config_path(self) -> Path:
         settings = get_settings()
         return Path(settings.openclaw_home_mount) / ".openclaw" / "openclaw.json"
@@ -102,8 +109,23 @@ class OpenClawClient:
         return Path(settings.openclaw_home_mount) / ".openclaw" / "workspace" / session_id / "storage_state.json"
 
     def _browser_profile(self, profile: str | None) -> str:
-        normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", (profile or "").strip())
-        return normalized or HOST_BROWSER_PROFILE
+        raw = (profile or "").strip()
+        if not raw:
+            return HOST_BROWSER_PROFILE
+
+        lowered = raw.lower()
+        if lowered in {HOST_BROWSER_PROFILE, "user"}:
+            return lowered
+
+        normalized = re.sub(r"[^a-z0-9-]+", "-", lowered).strip("-")
+        if normalized and len(normalized) <= 48:
+            return normalized
+
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+        return f"sess-{digest}"
+
+    def _resolve_runtime_profile(self, session_id: str, profile: str | None = None) -> str:
+        return self._browser_profile(profile or session_id or HOST_BROWSER_PROFILE)
 
     def _host_browser_user_data_dir(self, profile: str = HOST_BROWSER_PROFILE) -> Path:
         settings = get_settings()
@@ -344,9 +366,19 @@ class OpenClawClient:
             status_code = exc.response.status_code
             if status_code in (401, 403):
                 detail = "OpenClaw browser 服务认证失败，请检查 token 配置"
+            elif status_code == 404:
+                detail_text = ""
+                with contextlib.suppress(Exception):
+                    payload = exc.response.json()
+                    if isinstance(payload, dict):
+                        detail_text = str(payload.get("error") or "")
+                if "BrowserProfileNotFoundError" in detail_text:
+                    detail = f"OpenClaw browser profile 不存在: {self._browser_profile(profile)}"
+                else:
+                    detail = "OpenClaw browser profile 不存在"
             else:
                 detail = f"OpenClaw browser 服务不可用 ({status_code})"
-            return BrowserReadyResult(ready=False, detail=detail, http_status=503)
+            return BrowserReadyResult(ready=False, detail=detail, http_status=status_code)
         except Exception as exc:
             return BrowserReadyResult(
                 ready=False,
@@ -416,6 +448,87 @@ class OpenClawClient:
         if status_snapshot and status_snapshot.get("detectError"):
             return f"OpenClaw host browser 检测失败：{status_snapshot.get('detectError')}"
         return text or "OpenClaw host browser 启动失败"
+
+    async def _ensure_runtime_browser_profile(self, profile: str) -> BrowserReadyResult:
+        normalized = self._browser_profile(profile)
+        if self._is_builtin_browser_profile(normalized):
+            return BrowserReadyResult(ready=True, status_snapshot={"profile": normalized})
+        if not self.browser_base_url:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw browser 状态地址未配置",
+                http_status=503,
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    f"{self.browser_base_url}/profiles/create",
+                    headers={
+                        **self._browser_headers(),
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "name": normalized,
+                        "driver": "openclaw",
+                    },
+                )
+                if response.status_code == 409:
+                    self._runtime_profiles_created.add(normalized)
+                    return BrowserReadyResult(ready=True, status_snapshot={"profile": normalized})
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"创建 OpenClaw browser profile 失败 ({exc.response.status_code})",
+                http_status=exc.response.status_code,
+            )
+        except Exception as exc:
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"创建 OpenClaw browser profile 失败：{exc}",
+                http_status=503,
+            )
+
+        if isinstance(payload, dict) and payload.get("error"):
+            error = str(payload.get("error"))
+            if "already exists" in error.lower():
+                self._runtime_profiles_created.add(normalized)
+                return BrowserReadyResult(ready=True, status_snapshot={"profile": normalized})
+            return BrowserReadyResult(
+                ready=False,
+                detail=f"创建 OpenClaw browser profile 失败：{error}",
+                http_status=503,
+            )
+
+        self._runtime_profiles_created.add(normalized)
+        return BrowserReadyResult(
+            ready=True,
+            status_snapshot=payload if isinstance(payload, dict) else {"profile": normalized},
+        )
+
+    async def delete_runtime_browser_profile(self, profile: str) -> None:
+        normalized = self._browser_profile(profile)
+        if self._is_builtin_browser_profile(normalized) or not self.browser_base_url:
+            return
+
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                response = await client.delete(
+                    f"{self.browser_base_url}/profiles/{quote(normalized, safe='')}",
+                    headers=self._browser_headers(),
+                )
+                if response.status_code in (200, 404):
+                    return
+                response.raise_for_status()
+        except Exception:
+            print(f"[OpenClawClient] 删除 runtime profile 失败: {normalized}", flush=True)
+
+    async def cleanup_runtime_browser_profiles(self) -> None:
+        for profile in list(self._runtime_profiles_created):
+            await self.delete_runtime_browser_profile(profile)
+            self._runtime_profiles_created.discard(profile)
 
     async def _start_host_browser(
         self,
@@ -716,6 +829,7 @@ class OpenClawClient:
         session_id: str,
         platform_url: str = "",
         encrypted_session_state: str = "",
+        profile: str | None = None,
     ) -> BrowserReadyResult:
         if not session_id:
             return BrowserReadyResult(
@@ -724,20 +838,28 @@ class OpenClawClient:
                 http_status=400,
             )
 
-        profile = HOST_BROWSER_PROFILE
+        resolved_profile = self._resolve_runtime_profile(session_id, profile)
         host_target_result = await self._ensure_host_browser_control_runtime()
         if not host_target_result.ready:
             return host_target_result
 
-        status_result = await self._fetch_host_browser_status(profile=profile)
+        status_result = await self._fetch_host_browser_status(profile=resolved_profile)
+        if status_result.http_status == 404:
+            profile_result = await self._ensure_runtime_browser_profile(resolved_profile)
+            if not profile_result.ready:
+                return profile_result
+            status_result = await self._fetch_host_browser_status(profile=resolved_profile)
         if not status_result.ready:
-            status_result = await self._start_host_browser(status_snapshot=status_result.status_snapshot, profile=profile)
+            status_result = await self._start_host_browser(
+                status_snapshot=status_result.status_snapshot,
+                profile=resolved_profile,
+            )
             if not status_result.ready:
                 return status_result
 
         restore_result = await self._restore_persisted_session(
             session_id=session_id,
-            profile=profile,
+            profile=resolved_profile,
             status_snapshot=status_result.status_snapshot,
             encrypted_session_state=encrypted_session_state,
         )
@@ -747,7 +869,7 @@ class OpenClawClient:
         try:
             smoke_result = await asyncio.wait_for(
                 self.execute_step(
-                    prompt=self._browser_ready_prompt(platform_url, profile=profile),
+                    prompt=self._browser_ready_prompt(platform_url, profile=resolved_profile),
                     session_id=session_id,
                     step_id="browser_ready",
                 ),
@@ -1002,13 +1124,19 @@ class OpenClawClient:
         session_id: str,
         on_screenshot: Optional[Callable[[str], Awaitable[None] | None]] = None,
         screenshot_uploader: Optional[Callable[[bytes, str, str], Awaitable[Optional[str]]]] = None,
-        profile: str = HOST_BROWSER_PROFILE,
+        profile: str | None = None,
     ) -> StepResult:
-        status_result = await self._fetch_host_browser_status(profile=profile)
+        resolved_profile = self._resolve_runtime_profile(session_id, profile)
+        status_result = await self._fetch_host_browser_status(profile=resolved_profile)
+        if status_result.http_status == 404:
+            profile_result = await self._ensure_runtime_browser_profile(resolved_profile)
+            if not profile_result.ready:
+                return StepResult(success=False, error=profile_result.detail)
+            status_result = await self._fetch_host_browser_status(profile=resolved_profile)
         if not status_result.ready:
             status_result = await self._start_host_browser(
                 status_snapshot=status_result.status_snapshot,
-                profile=profile,
+                profile=resolved_profile,
             )
             if not status_result.ready:
                 return StepResult(
@@ -1035,11 +1163,11 @@ class OpenClawClient:
                 if attempt >= HOST_BROWSER_SCREENSHOT_RETRIES or not self._is_transient_restore_error(exc):
                     return StepResult(success=False, error=f"CDP 截图失败：{exc}")
                 await asyncio.sleep(1)
-                refreshed_status = await self._fetch_host_browser_status(profile=profile)
+                refreshed_status = await self._fetch_host_browser_status(profile=resolved_profile)
                 if not refreshed_status.ready:
                     refreshed_status = await self._start_host_browser(
                         status_snapshot=refreshed_status.status_snapshot,
-                        profile=profile,
+                        profile=resolved_profile,
                     )
                     if not refreshed_status.ready:
                         return StepResult(success=False, error=refreshed_status.detail)

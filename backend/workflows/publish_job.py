@@ -7,7 +7,13 @@ login_check → generate_announcement → fill_and_publish → verify_result
 
 import logging
 
-from workflows.base import WorkflowState, StepDefinition, finalize_persisted_screenshots, run_workflow_graph
+from workflows.base import (
+    WorkflowState,
+    StepDefinition,
+    build_execution_session_id,
+    finalize_persisted_screenshots,
+    run_workflow_graph,
+)
 from workflows.contracts import (
     ERROR_DATA_MISSING,
     ERROR_UNKNOWN,
@@ -160,10 +166,14 @@ async def run(execution_id: str, req):
             logger.warning(f"创建任务记录失败: {e}")
 
     # 初始化状态
+    persistent_session_key = req.platform_accounts[0].get("browser_session_key", "")
+    runtime_session_id = build_execution_session_id(persistent_session_key, execution_id, req.platform)
+
     initial_state: WorkflowState = {
         "execution_id": execution_id,
         "workflow_id": "publish_job",
-        "session_id": req.platform_accounts[0].get("browser_session_key", ""),
+        "session_id": runtime_session_id,
+        "browser_profile": persistent_session_key,
         "current_step": "",
         "step_index": 0,
         "total_steps": len(STEPS),
@@ -171,7 +181,7 @@ async def run(execution_id: str, req):
         "platform_url": req.platform_accounts[0].get("platform_url", ""),
         "account_id": req.account_id,
         "account_name": req.account_name,
-        "browser_session_key": req.platform_accounts[0].get("browser_session_key", ""),
+        "browser_session_key": persistent_session_key,
         "platform_accounts": req.platform_accounts,
         "job_id": req.job_id or "",
         "job_title": req.job_title,
@@ -209,82 +219,87 @@ async def run(execution_id: str, req):
         "_persisted_screenshots": [],
     }
 
-    final_state = await run_workflow_graph(
-        state=initial_state,
-        steps=STEPS,
-        openclaw=OpenClawClient(),
-        emit_event=emit_event,
-        is_cancelled=is_cancelled,
-    )
-
-    # 提取结果
-    announcement = parse_announcement(final_state.get("accumulated_text", ""))
-    publish_result = parse_publish_result(final_state.get("accumulated_text", ""))
-
-    # 发送完成事件
-    if final_state.get("error"):
-        await emit_event(execution_id, "error", {
-            "step_id": final_state.get("current_step", ""),
-            "message": final_state["error"],
-            "error_code": final_state.get("current_error_code"),
-        })
-        await emit_event(execution_id, "run_failed", {
-            "execution_id": execution_id,
-            "workflow_id": "publish_job",
-            "message": final_state["error"],
-            "error_code": final_state.get("current_error_code"),
-            "latest_checkpoint": final_state.get("latest_checkpoint"),
-        })
-        final_state = await finalize_persisted_screenshots(final_state)
-        if task_record.get("id"):
-            complete_automation_task(
-                task_record["id"], "failed",
-                error_message=final_state["error"],
-                full_output=final_state.get("accumulated_text", ""),
-                screenshot_urls=final_state.get("_persisted_screenshots", []),
-                auth_token=auth_token,
-            )
-    else:
-        structured_result = {
-            "workflow_id": "publish_job",
-            "job_title": req.job_title,
-            "platform": req.platform,
-            "announcement": announcement,
-            "publish_result": publish_result,
-            "screenshots_count": len(final_state.get("all_screenshots", [])),
-        }
-        await emit_event(execution_id, "complete", {
-            "announcement": announcement,
-            "publish_result": publish_result,
-            "screenshots": final_state.get("all_screenshots", []),
-            "artifacts": final_state.get("artifacts", []),
-            "latest_checkpoint": final_state.get("latest_checkpoint"),
-        })
-        await emit_event(execution_id, "run_completed", {
-            "execution_id": execution_id,
-            "workflow_id": "publish_job",
-            "latest_checkpoint": final_state.get("latest_checkpoint"),
-            "artifacts_count": len(final_state.get("artifacts", [])),
-        })
-        final_state = await finalize_persisted_screenshots(final_state)
-        if task_record.get("id"):
-            complete_automation_task(
-                task_record["id"],
-                "completed",
-                result_summary={"jobs_posted": 1, **publish_result, **structured_result},
-                full_output=final_state.get("accumulated_text", ""),
-                screenshot_urls=final_state.get("_persisted_screenshots", []),
-                auth_token=auth_token,
-            )
-
-    # 写入日志
-    if task_record.get("id") and req.tenant_id:
-        level = "success" if final_state.get("completed") else "error"
-        insert_task_log(
-            task_id=task_record["id"],
-            tenant_id=req.tenant_id,
-            level=level,
-            message=f"发布招聘公告{'完成' if final_state.get('completed') else '失败'}",
-            metadata={"publish_result": publish_result},
-            auth_token=auth_token,
+    workflow_openclaw = OpenClawClient()
+    try:
+        final_state = await run_workflow_graph(
+            state=initial_state,
+            steps=STEPS,
+            openclaw=workflow_openclaw,
+            emit_event=emit_event,
+            is_cancelled=is_cancelled,
         )
+
+        # 提取结果
+        announcement = parse_announcement(final_state.get("accumulated_text", ""))
+        publish_result = parse_publish_result(final_state.get("accumulated_text", ""))
+
+        # 发送完成事件
+        if final_state.get("error"):
+            await emit_event(execution_id, "error", {
+                "step_id": final_state.get("current_step", ""),
+                "message": final_state["error"],
+                "error_code": final_state.get("current_error_code"),
+            })
+            await emit_event(execution_id, "run_failed", {
+                "execution_id": execution_id,
+                "workflow_id": "publish_job",
+                "message": final_state["error"],
+                "error_code": final_state.get("current_error_code"),
+                "latest_checkpoint": final_state.get("latest_checkpoint"),
+            })
+            final_state = await finalize_persisted_screenshots(final_state)
+            if task_record.get("id"):
+                complete_automation_task(
+                    task_record["id"], "failed",
+                    error_message=final_state["error"],
+                    full_output=final_state.get("accumulated_text", ""),
+                    screenshot_urls=final_state.get("_persisted_screenshots", []),
+                    auth_token=auth_token,
+                )
+        else:
+            structured_result = {
+                "workflow_id": "publish_job",
+                "job_title": req.job_title,
+                "platform": req.platform,
+                "announcement": announcement,
+                "publish_result": publish_result,
+                "screenshots_count": len(final_state.get("all_screenshots", [])),
+            }
+            await emit_event(execution_id, "complete", {
+                "announcement": announcement,
+                "publish_result": publish_result,
+                "screenshots": final_state.get("all_screenshots", []),
+                "artifacts": final_state.get("artifacts", []),
+                "latest_checkpoint": final_state.get("latest_checkpoint"),
+            })
+            await emit_event(execution_id, "run_completed", {
+                "execution_id": execution_id,
+                "workflow_id": "publish_job",
+                "latest_checkpoint": final_state.get("latest_checkpoint"),
+                "artifacts_count": len(final_state.get("artifacts", [])),
+            })
+            final_state = await finalize_persisted_screenshots(final_state)
+            if task_record.get("id"):
+                complete_automation_task(
+                    task_record["id"],
+                    "completed",
+                    result_summary={"jobs_posted": 1, **publish_result, **structured_result},
+                    full_output=final_state.get("accumulated_text", ""),
+                    screenshot_urls=final_state.get("_persisted_screenshots", []),
+                    auth_token=auth_token,
+                )
+
+        # 写入日志
+        if task_record.get("id") and req.tenant_id:
+            level = "success" if final_state.get("completed") else "error"
+            insert_task_log(
+                task_id=task_record["id"],
+                tenant_id=req.tenant_id,
+                level=level,
+                message=f"发布招聘公告{'完成' if final_state.get('completed') else '失败'}",
+                metadata={"publish_result": publish_result},
+                auth_token=auth_token,
+            )
+    finally:
+        # 账号级 browser profile 需要跨运行复用，这里不主动删除。
+        pass
