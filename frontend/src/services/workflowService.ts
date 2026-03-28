@@ -50,6 +50,16 @@ export interface WorkflowStartRequest {
   custom_message?: string      // 自定义消息话术（空 = 使用默认）
 }
 
+export interface WorkflowStartResponse {
+  execution_id: string
+  workflow_id: WorkflowId
+  status: string
+  queued: boolean
+  queue_position: number
+  blocking_execution_count: number
+  message: string
+}
+
 export interface StepMeta {
   id: string
   name_zh: string
@@ -64,6 +74,12 @@ export interface WorkflowMetaEvent {
   platform?: string
   platforms?: string[]
   multi_platform?: boolean
+}
+
+export interface RunStartedEvent {
+  execution_id: string
+  workflow_id: WorkflowId
+  workflow_name: string
 }
 
 export interface StepChangeEvent {
@@ -191,7 +207,10 @@ export interface WorkflowTemplate {
 // ── SSE 事件回调 ─────────────────────────────────────────
 
 export interface WorkflowEventHandlers {
+  onRunStarted?: (data: RunStartedEvent) => void
   onWorkflowMeta?: (data: WorkflowMetaEvent) => void
+  onQueued?: (data: { message: string; queue_position: number; blocking_execution_count: number; blocking_account_ids?: string[] }) => void
+  onQueueStatus?: (data: { message: string; queue_position: number; blocking_execution_count: number; blocking_account_ids?: string[] }) => void
   onStepChange?: (data: StepChangeEvent) => void
   onProgress?: (data: ProgressEvent) => void
   onScreenshot?: (data: ScreenshotEvent) => void
@@ -232,7 +251,7 @@ async function getOptionalAuthHeaders(): Promise<Record<string, string> | undefi
 /**
  * 启动工作流
  */
-export async function startWorkflow(req: WorkflowStartRequest): Promise<string> {
+export async function startWorkflow(req: WorkflowStartRequest): Promise<WorkflowStartResponse> {
   const resp = await fetch(`${getApiBase()}/start`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -244,8 +263,7 @@ export async function startWorkflow(req: WorkflowStartRequest): Promise<string> 
     throw new Error(`启动工作流失败 (${resp.status}): ${text}`)
   }
 
-  const data = await resp.json()
-  return data.execution_id
+  return resp.json()
 }
 
 /**
@@ -270,7 +288,10 @@ export function subscribeWorkflow(
   const eventSource = new EventSource(url)
 
   const eventMap: Record<string, keyof WorkflowEventHandlers> = {
+    run_started: 'onRunStarted',
     workflow_meta: 'onWorkflowMeta',
+    queued: 'onQueued',
+    queue_status: 'onQueueStatus',
     step_change: 'onStepChange',
     progress: 'onProgress',
     screenshot: 'onScreenshot',

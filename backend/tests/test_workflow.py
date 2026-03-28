@@ -57,6 +57,8 @@ async def test_start_publish_job_success(client):
     body = resp.json()
     assert "execution_id" in body
     assert body["workflow_id"] == "publish_job"
+    assert body["queued"] is False
+    assert body["status"] == "starting"
 
 
 @pytest.mark.asyncio
@@ -231,6 +233,77 @@ async def test_start_resume_screen_missing_account(client):
         })
     assert resp.status_code == 400
     assert "zhilian" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_start_same_account_enters_queue(client):
+    release_runner = asyncio.Event()
+    runner_started = asyncio.Event()
+
+    async def blocking_runner(execution_id, req):
+        from routers.workflow import emit_event
+
+        await emit_event(execution_id, "run_started", {
+            "execution_id": execution_id,
+            "workflow_id": "publish_job",
+            "workflow_name": "发布招聘公告",
+        })
+        runner_started.set()
+        await release_runner.wait()
+
+    with (
+        patch("routers.workflow.get_platform_account", return_value=_active_account()),
+        patch("workflows.publish_job.run", side_effect=blocking_runner),
+    ):
+        first = await client.post("/api/workflow/start", json=_start_body())
+        assert first.status_code == 200
+        await asyncio.wait_for(runner_started.wait(), timeout=1)
+
+        second = await client.post("/api/workflow/start", json=_start_body(job_title="后端工程师"))
+        assert second.status_code == 200
+        second_body = second.json()
+        assert second_body["queued"] is True
+        assert second_body["status"] == "queued"
+        assert second_body["queue_position"] == 1
+        assert second_body["blocking_execution_count"] >= 1
+
+        release_runner.set()
+        await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_cancel_queued_execution(client):
+    release_runner = asyncio.Event()
+    runner_started = asyncio.Event()
+
+    async def blocking_runner(execution_id, req):
+        from routers.workflow import emit_event
+
+        await emit_event(execution_id, "run_started", {
+            "execution_id": execution_id,
+            "workflow_id": "publish_job",
+            "workflow_name": "发布招聘公告",
+        })
+        runner_started.set()
+        await release_runner.wait()
+
+    with (
+        patch("routers.workflow.get_platform_account", return_value=_active_account()),
+        patch("workflows.publish_job.run", side_effect=blocking_runner),
+    ):
+        first = await client.post("/api/workflow/start", json=_start_body())
+        assert first.status_code == 200
+        await asyncio.wait_for(runner_started.wait(), timeout=1)
+
+        queued = await client.post("/api/workflow/start", json=_start_body(job_title="排队任务"))
+        queued_execution_id = queued.json()["execution_id"]
+
+        cancel_resp = await client.post(f"/api/workflow/cancel/{queued_execution_id}")
+        assert cancel_resp.status_code == 200
+        assert "排队任务" in cancel_resp.json()["message"]
+
+        release_runner.set()
+        await asyncio.sleep(0.05)
 
 
 # ── POST /api/workflow/cancel/{execution_id} ─────────────────

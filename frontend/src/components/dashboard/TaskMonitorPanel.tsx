@@ -20,15 +20,6 @@ const statusIcons: Record<string, React.ReactNode> = {
   cancelled: <XCircle className="h-4 w-4 text-muted-foreground" />,
 };
 
-const statusColors: Record<string, string> = {
-  running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  queued: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
-  paused: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  cancelled: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
-};
-
 export default function TaskMonitorPanel() {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -36,8 +27,6 @@ export default function TaskMonitorPanel() {
   const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
 
   const runningTasks = tasks.filter((t) => t.status === 'running' || t.status === 'queued' || t.status === 'paused');
-  const recentTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'failed').slice(0, 5);
-
   if (loading) {
     return (
       <div className="space-y-6">
@@ -129,40 +118,6 @@ export default function TaskMonitorPanel() {
                 </Button>
               </div>
             ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Recently Completed Tasks */}
-      {recentTasks.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t('dashboard.activity.title')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {recentTasks.map((task) => (
-                <div key={task.id} className="flex items-center gap-3 py-2">
-                  <div className="shrink-0">{statusIcons[task.status]}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{task.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {task.completed_at ? new Date(task.completed_at).toLocaleString('zh-CN') : ''}
-                    </p>
-                  </div>
-                  <Badge className={`text-xs ${statusColors[task.status] || ''}`} variant="outline">
-                    {TASK_STATUS[task.status as keyof typeof TASK_STATUS] || task.status}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate(`/monitor/${task.id}`)}
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
           </CardContent>
         </Card>
       )}

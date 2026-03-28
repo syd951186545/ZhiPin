@@ -1,16 +1,23 @@
 import {
   Activity,
   Bot,
+  CheckCircle2,
   CircleDashed,
   ClipboardCheck,
+  Clock3,
+  Loader2,
   PlayCircle,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  XCircle,
 } from 'lucide-react'
+import {useMemo} from 'react'
 import {Button} from '@/components/ui/button'
 import {Progress} from '@/components/ui/progress'
 import {useI18n} from '@/contexts/I18nContext'
+import {useAutomationTasks} from '@/hooks/useAutomationTasks'
+import {PLATFORMS, TASK_STATUS} from '@/lib/constants'
 
 type StatCard = {
   title: string
@@ -49,6 +56,7 @@ function toneClass(tone: PipelineItem['tone']) {
 export default function Dashboard() {
   const {lang} = useI18n()
   const isZh = lang === 'zh'
+  const {tasks, loading: tasksLoading} = useAutomationTasks()
 
   const pageCopy = {
     eyebrow: 'TODAY SUMMARY',
@@ -72,6 +80,9 @@ export default function Dashboard() {
     evidenceSummary: isZh
       ? '当前异常集中在登录态失效，建议先处理账号复验，再释放等待人工的流程。'
       : 'The main blocker is session expiry. Re-verify the affected account before resuming manual-review flows.',
+    activityTitle: isZh ? '最近动态' : 'Recent Activity',
+    activityDescription: isZh ? '最近完成、失败和进行中的任务会在这里汇总。' : 'Recent completed, failed, and active tasks.',
+    activityEmpty: isZh ? '暂时没有新的执行动态。' : 'No recent execution updates.',
   }
 
   const statCards: StatCard[] = [
@@ -152,6 +163,11 @@ export default function Dashboard() {
       tone: 'warning',
     },
   ]
+
+  const recentTasks = useMemo(
+    () => tasks.slice(0, 4),
+    [tasks],
+  )
 
   return (
     <section className="mx-auto max-w-[1440px] rounded-[28px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,253,248,0.96),rgba(250,247,241,0.92))] p-5 shadow-[0_28px_70px_-48px_rgba(20,32,43,0.35)] md:p-7">
@@ -259,58 +275,131 @@ export default function Dashboard() {
             </div>
           </article>
 
-          <article className="rounded-[24px] border border-[#d9dfdc] bg-[rgba(255,252,247,0.92)] p-5 shadow-[0_18px_40px_-34px_rgba(20,32,43,0.45)] md:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h4 className="text-[1.55rem] font-semibold tracking-[-0.05em] text-[#16232d]">
-                  {pageCopy.evidenceTitle}
-                </h4>
-                <p className="mt-1.5 text-sm leading-6 text-[#6a747c]">
-                  {pageCopy.evidenceDescription}
+          <div className="space-y-4">
+            <article className="rounded-[24px] border border-[#d9dfdc] bg-[rgba(255,252,247,0.92)] p-5 shadow-[0_18px_40px_-34px_rgba(20,32,43,0.45)] md:p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-[1.55rem] font-semibold tracking-[-0.05em] text-[#16232d]">
+                    {pageCopy.evidenceTitle}
+                  </h4>
+                  <p className="mt-1.5 text-sm leading-6 text-[#6a747c]">
+                    {pageCopy.evidenceDescription}
+                  </p>
+                </div>
+                <Bot className="mt-1 h-5 w-5 shrink-0 text-[#155e63]" />
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+                {evidenceItems.map((item, index) => {
+                  const Icon = index === 0 ? Activity : index === 1 ? Sparkles : ShieldAlert
+                  const toneClassName = item.tone === 'warning'
+                    ? 'border-[#ead8ae] bg-[#fbf5e6] text-[#8b6417]'
+                    : 'border-[#e5e2d9] bg-white/70 text-[#1b2831]'
+
+                  return (
+                    <div
+                      key={item.label}
+                      className={`rounded-[16px] border px-4 py-3 ${toneClassName}`}
+                    >
+                      <div className="flex items-center gap-2 text-[12px] font-medium">
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </div>
+                      <p className="mt-2 text-lg font-semibold tracking-[-0.03em]">{item.value}</p>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-4 rounded-[20px] bg-[#131a21] p-4 font-mono text-[12px] leading-7 text-[#dde7ef] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:p-5">
+                {evidenceLogs.map((line) => (
+                  <div key={line} className="break-words">
+                    {line}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 border-t border-border/60 pt-4">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.22em] text-[#7a858e]">
+                  {pageCopy.evidenceHint}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[#6a747c]">
+                  {pageCopy.evidenceSummary}
                 </p>
               </div>
-              <Bot className="mt-1 h-5 w-5 shrink-0 text-[#155e63]" />
-            </div>
+            </article>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-              {evidenceItems.map((item, index) => {
-                const Icon = index === 0 ? Activity : index === 1 ? Sparkles : ShieldAlert
-                const toneClassName = item.tone === 'warning'
-                  ? 'border-[#ead8ae] bg-[#fbf5e6] text-[#8b6417]'
-                  : 'border-[#e5e2d9] bg-white/70 text-[#1b2831]'
-
-                return (
-                  <div
-                    key={item.label}
-                    className={`rounded-[16px] border px-4 py-3 ${toneClassName}`}
-                  >
-                    <div className="flex items-center gap-2 text-[12px] font-medium">
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                    </div>
-                    <p className="mt-2 text-lg font-semibold tracking-[-0.03em]">{item.value}</p>
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="mt-4 rounded-[20px] bg-[#131a21] p-4 font-mono text-[12px] leading-7 text-[#dde7ef] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:p-5">
-              {evidenceLogs.map((line) => (
-                <div key={line} className="break-words">
-                  {line}
+            <article className="rounded-[24px] border border-[#d9dfdc] bg-[rgba(255,252,247,0.92)] p-5 shadow-[0_18px_40px_-34px_rgba(20,32,43,0.45)] md:p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-[1.2rem] font-semibold tracking-[-0.04em] text-[#16232d]">
+                    {pageCopy.activityTitle}
+                  </h4>
+                  <p className="mt-1.5 text-sm leading-6 text-[#6a747c]">
+                    {pageCopy.activityDescription}
+                  </p>
                 </div>
-              ))}
-            </div>
+                <Clock3 className="mt-1 h-5 w-5 shrink-0 text-[#8b6417]" />
+              </div>
 
-            <div className="mt-4 border-t border-border/60 pt-4">
-              <p className="text-[12px] font-semibold uppercase tracking-[0.22em] text-[#7a858e]">
-                {pageCopy.evidenceHint}
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[#6a747c]">
-                {pageCopy.evidenceSummary}
-              </p>
-            </div>
-          </article>
+              <div className="mt-4 space-y-2.5">
+                {tasksLoading ? (
+                  Array.from({length: 3}).map((_, index) => (
+                    <div
+                      key={index}
+                      className="h-[72px] animate-pulse rounded-[18px] border border-[#ece4d5] bg-[#f5efe3]"
+                    />
+                  ))
+                ) : recentTasks.length === 0 ? (
+                  <div className="rounded-[18px] border border-dashed border-[#d9dfdc] bg-[#f7f3ea] px-4 py-6 text-sm text-[#6a747c]">
+                    {pageCopy.activityEmpty}
+                  </div>
+                ) : recentTasks.map((task) => {
+                  const statusTone = task.status === 'completed'
+                    ? 'bg-[#eef3f0] text-[#155e63]'
+                    : task.status === 'failed' || task.status === 'cancelled'
+                      ? 'bg-[#f7e7e3] text-[#8f3d2f]'
+                      : 'bg-[#f3e7c9] text-[#8a6316]'
+                  const statusIcon = task.status === 'completed'
+                    ? <CheckCircle2 className="h-4 w-4 text-[#155e63]" />
+                    : task.status === 'failed' || task.status === 'cancelled'
+                      ? <XCircle className="h-4 w-4 text-[#8f3d2f]" />
+                      : <Loader2 className="h-4 w-4 animate-spin text-[#8a6316]" />
+                  const displayTime = task.completed_at || task.started_at || task.created_at
+                  const platformLabel = task.platform
+                    ? PLATFORMS[task.platform as keyof typeof PLATFORMS]?.name || task.platform
+                    : '系统任务'
+
+                  return (
+                    <div
+                      key={task.id}
+                      className="flex items-center gap-3 rounded-[18px] border border-white/70 bg-[#f4efe4] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/75">
+                        {statusIcon}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-[#1b2831]">{task.name}</p>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusTone}`}>
+                            {TASK_STATUS[task.status as keyof typeof TASK_STATUS] || task.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-[#6a747c]">
+                          {platformLabel} · {new Date(displayTime).toLocaleString('zh-CN', {
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </article>
+          </div>
         </div>
       </div>
     </section>

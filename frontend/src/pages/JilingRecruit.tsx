@@ -1,13 +1,14 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import {
-  AlertTriangle, Camera, Check, CheckCircle2, Circle, ClipboardCopy, Cpu, ExternalLink,
-  FileSearch, Layers, Link as LinkIcon, Loader2, LogIn, Megaphone,
+  AlertTriangle, Camera, Check, CheckCircle2, Circle, ClipboardCopy, Cpu,
+  Eye, FileSearch, Layers, Link as LinkIcon, Loader2, LogIn, Megaphone,
   Play, RefreshCw, Search, ShieldCheck, Square, Trash2, Unplug, UserPlus, X, Zap,
 } from 'lucide-react'
 import {AnimatePresence, motion} from 'motion/react'
 import {Badge} from '@/components/ui/badge'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
+import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from '@/components/ui/dialog'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Progress} from '@/components/ui/progress'
@@ -250,6 +251,262 @@ function getExecutionAuthGuide(error?: string, accumulatedText?: string) {
   }
 }
 
+function getExecutionStatusMeta(execution?: WorkflowExecution | null) {
+  if (!execution) {
+    return {
+      label: '未开始',
+      badgeClassName: 'border-border/70 bg-background/90 text-muted-foreground',
+    }
+  }
+
+  switch (execution.status) {
+    case 'cancelling':
+      return {
+        label: '停止中',
+        badgeClassName: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300',
+      }
+    case 'queued':
+      return {
+        label: '排队中',
+        badgeClassName: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300',
+      }
+    case 'running':
+    case 'starting':
+      return {
+        label: '执行中',
+        badgeClassName: 'border-primary/20 bg-primary/[0.08] text-primary',
+      }
+    case 'completed':
+      return {
+        label: '已完成',
+        badgeClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300',
+      }
+    case 'failed':
+      return {
+        label: '已失败',
+        badgeClassName: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300',
+      }
+    case 'cancelled':
+      return {
+        label: '已停止',
+        badgeClassName: 'border-border/70 bg-background/90 text-muted-foreground',
+      }
+    default:
+      return {
+        label: '已结束',
+        badgeClassName: 'border-border/70 bg-background/90 text-muted-foreground',
+      }
+  }
+}
+
+function summarizeExecutionOutput(text?: string, error?: string, queueMessage?: string) {
+  if (error) {
+    return trimInlineText(error.replace(/\s+/g, ' ').trim(), 180)
+  }
+
+  if (queueMessage) {
+    return trimInlineText(queueMessage, 180)
+  }
+
+  const lines = (text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line !== '─'.repeat(36) && !line.startsWith('▶ '))
+
+  if (lines.length === 0) {
+    return '系统已创建任务，正在等待步骤输出。'
+  }
+
+  return trimInlineText(lines.slice(-3).join(' / '), 180)
+}
+
+interface ExecutionDetailDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  execution: WorkflowExecution | null
+  runningStepLabel: string
+  progressPercent: number
+  completedStepCount: number
+  isActive: boolean
+  authGuide: ReturnType<typeof getExecutionAuthGuide>
+  copiedText: boolean
+  onCopyText: (text: string) => void
+  onPreview: (src: string) => void
+}
+
+function ExecutionDetailDialog({
+  open,
+  onOpenChange,
+  execution,
+  runningStepLabel,
+  progressPercent,
+  completedStepCount,
+  isActive,
+  authGuide,
+  copiedText,
+  onCopyText,
+  onPreview,
+}: ExecutionDetailDialogProps) {
+  if (!execution) return null
+
+  const statusMeta = getExecutionStatusMeta(execution)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(96vw,1240px)] max-w-6xl overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))] p-0">
+        <div className="flex max-h-[92vh] flex-col">
+          <DialogHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.12),transparent_72%)] px-6 py-5 text-left">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Detail</p>
+                <DialogTitle className="mt-2 text-base">{execution.workflowName || '执行详情'}</DialogTitle>
+                <DialogDescription className="mt-2 text-xs leading-6 text-muted-foreground">
+                  完整步骤、截图与 AI 输出都集中在这里查看。
+                </DialogDescription>
+                <p className="mt-3 text-xs text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
+                <p className="mt-2 font-mono text-[11px] text-muted-foreground">{execution.executionId}</p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(execution.totalSteps, 1)}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{execution.actionNodes.length}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
+                  <div className="mt-2">
+                    <Badge variant="outline" className={cn('gap-1.5', statusMeta.badgeClassName)}>
+                      {execution.status === 'cancelling' || isActive ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      {statusMeta.label}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">{execution.accumulatedText ? '已收到 AI 输出流' : '等待输出返回'}</p>
+                </div>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="overflow-y-auto px-6 py-5">
+            <div className="space-y-5">
+              {authGuide && (
+                <div className="flex flex-col gap-3 rounded-2xl border border-amber-200/70 bg-amber-50/85 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>
+                    <div className="space-y-1">
+                      <p className="font-medium">{authGuide.title}</p>
+                      <p className="text-xs leading-5 text-amber-800/90 dark:text-amber-200/90">{authGuide.description}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-4 xl:grid-cols-[0.95fr,1fr,1.08fr]">
+                <div className="space-y-3" data-testid="execution-steps">
+                  <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">步骤时间线</p>
+                      <span className="font-mono text-lg font-semibold text-foreground">{progressPercent}%</span>
+                    </div>
+                    <div className="mt-3">
+                      <Progress value={progressPercent} className="h-2" />
+                    </div>
+                    <div className="mt-4 space-y-0">
+                      {execution.steps.map((step, idx) => {
+                        const isLast = idx === execution.steps.length - 1
+                        return (
+                          <div key={step.id} className="relative flex items-start gap-3 pb-4">
+                            {!isLast && (
+                              <div
+                                className={cn(
+                                  'absolute left-[9px] top-5 h-[calc(100%-8px)] w-px',
+                                  step.status === 'done' ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-border',
+                                )}
+                              />
+                            )}
+                            <div className="relative z-10 mt-0.5 shrink-0">
+                              {step.status === 'failed' ? (
+                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30"><X className="h-3 w-3 text-red-500"/></div>
+                              ) : step.status === 'done' ? (
+                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500"/></div>
+                              ) : step.status === 'running' ? (
+                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10"><Loader2 className="h-3.5 w-3.5 animate-spin text-primary"/></div>
+                              ) : (
+                                <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-muted-foreground/20"><Circle className="h-2 w-2 text-muted-foreground/30"/></div>
+                              )}
+                            </div>
+                            <span className={cn('text-sm leading-6', step.status === 'running' ? 'font-medium text-primary' : step.status === 'done' ? 'text-foreground' : 'text-muted-foreground')}>
+                              {step.nameZh}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3" data-testid="execution-screenshots">
+                  <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
+                    {execution.actionNodes.length === 0 ? (
+                      <div className="mt-4 flex h-52 flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 text-muted-foreground">
+                        <Camera className="mb-2 h-8 w-8 opacity-20"/>
+                        <p className="text-xs">等待截图...</p>
+                      </div>
+                    ) : (
+                      <div className="mt-4 max-h-[25rem] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
+                        {execution.actionNodes.map((node) => (
+                          <ExecutionScreenshotCard key={node.id} node={node} onPreview={onPreview}/>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-3" data-testid="execution-output">
+                  <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">AI 完整输出</p>
+                        <p className="mt-1 text-xs text-muted-foreground">适合直接复制给运营、排障或追溯系统执行决策。</p>
+                      </div>
+                      {execution.accumulatedText && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 gap-1.5 px-2 text-xs text-muted-foreground"
+                          onClick={() => onCopyText(execution.accumulatedText || '')}
+                        >
+                          {copiedText ? <Check className="h-3 w-3 text-emerald-500"/> : <ClipboardCopy className="h-3 w-3"/>}
+                          {copiedText ? '已复制' : '复制'}
+                        </Button>
+                      )}
+                    </div>
+                    <div className="mt-4 h-[25rem] overflow-y-auto rounded-[20px] bg-zinc-950 p-4 font-mono text-xs text-zinc-100 shadow-inner scrollbar-thin">
+                      {execution.accumulatedText ? (
+                        <pre className="whitespace-pre-wrap break-words leading-relaxed">{execution.accumulatedText}</pre>
+                      ) : (
+                        <p className="flex items-center gap-2 text-zinc-500">
+                          <Loader2 className="h-3 w-3 animate-spin"/>等待 AI 输出...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ExecutionScreenshotCard({node, onPreview}: {node: ActionNode; onPreview: (src: string) => void}) {
   const imageUrls = getActionNodeImageUrls(node)
   const imageUrlKey = imageUrls.join('|')
@@ -375,9 +632,9 @@ export default function JilingRecruit() {
   const [copiedText, setCopiedText] = useState(false)
   const [activeTab, setActiveTab] = useState('execute')
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null)
+  const [executionDetailOpen, setExecutionDetailOpen] = useState(false)
   const [launchingWorkflowIds, setLaunchingWorkflowIds] = useState<WorkflowId[]>([])
 
-  const textEndRef = useRef<HTMLDivElement>(null)
   const orderedExecutions = useMemo(
     () => executionOrder
       .map((executionId) => executions[executionId])
@@ -385,7 +642,7 @@ export default function JilingRecruit() {
     [executionOrder, executions],
   )
   const activeExecutions = useMemo(
-    () => orderedExecutions.filter((execution) => ['starting', 'running', 'cancelling'].includes(execution.status)),
+    () => orderedExecutions.filter((execution) => ['queued', 'starting', 'running', 'cancelling'].includes(execution.status)),
     [orderedExecutions],
   )
   const displayExec = useMemo(() => {
@@ -575,7 +832,6 @@ export default function JilingRecruit() {
     if (!group.platform) missing.push('未选平台')
     if (!group.accountId) missing.push('未选账号')
     if (!group.jobId) missing.push('未选岗位')
-    if (duplicateAccount) missing.push('账号重复')
     return {
       index,
       group,
@@ -595,18 +851,13 @@ export default function JilingRecruit() {
     () => executionGroupDiagnostics.filter((item) => !item.complete),
     [executionGroupDiagnostics],
   )
-  const hasDuplicateAccountGroups = useMemo(
-    () => executionGroupDiagnostics.some((item) => item.duplicateAccount),
-    [executionGroupDiagnostics],
-  )
   const executionReadinessReasons = useMemo(() => {
     const reasons: string[] = []
     if (!backendReady) reasons.push('后端未连接，无法发起执行。')
     if (executionMode === 'scheduled') reasons.push('定期执行的保存与调度下发待后端适配。')
     if (completeExecutionGroups.length === 0) reasons.push('至少配置 1 组完整执行方案，按钮才会解锁。')
-    if (hasDuplicateAccountGroups) reasons.push('同一账号不能在同次执行中重复使用。')
     return reasons
-  }, [backendReady, completeExecutionGroups.length, executionMode, hasDuplicateAccountGroups])
+  }, [backendReady, completeExecutionGroups.length, executionMode])
   const canStartSelectedWorkflow = executionReadinessReasons.length === 0
   const actionDialogAccount = useMemo(
     () => actionSession ? accounts.find((item) => item.id === actionSession.account_id) || null : null,
@@ -619,19 +870,29 @@ export default function JilingRecruit() {
   )
   const selectedPlatformLabel = PLATFORMS[selectedPlatform as keyof typeof PLATFORMS]?.name || '未选择平台'
   const completedStepCount = displayExec ? displayExec.steps.filter((step) => step.status === 'done').length : 0
-  const runningStepLabel = displayExec?.steps.find((step) => step.status === 'running')?.nameZh || '等待下一步执行'
+  const runningStepLabel = displayExec?.status === 'queued'
+    ? displayExec.queueMessage || `同账号排队中，前方还有 ${displayExec.blockingExecutionCount || 0} 个任务`
+    : displayExec?.steps.find((step) => step.status === 'running')?.nameZh || '等待下一步执行'
   const activeExecutionCount = activeExecutions.length
+  const executionPreviewItems = useMemo(() => orderedExecutions.slice(0, 8), [orderedExecutions])
   const selectedWorkflowRunningExecutions = useMemo(
     () => activeExecutions.filter((execution) => execution.workflowId === selectedWorkflowCard.id),
     [activeExecutions, selectedWorkflowCard.id],
   )
-  const runningAccountIds = useMemo(
-    () => new Set(activeExecutions.flatMap((execution) => execution.accountIds || [])),
-    [activeExecutions],
-  )
   const selectedWorkflowRunningCount = selectedWorkflowRunningExecutions.length
   const isSelectedWorkflowLaunching = launchingWorkflowIds.includes(selectedWorkflowCard.id)
-  const isDisplayExecActive = Boolean(displayExec && ['starting', 'running', 'cancelling'].includes(displayExec.status))
+  const isDisplayExecActive = Boolean(displayExec && ['queued', 'starting', 'running', 'cancelling'].includes(displayExec.status))
+  const displayExecStatusMeta = useMemo(() => getExecutionStatusMeta(displayExec), [displayExec])
+  const displayExecSummary = useMemo(
+    () => summarizeExecutionOutput(displayExec?.accumulatedText, displayExec?.error, displayExec?.queueMessage),
+    [displayExec?.accumulatedText, displayExec?.error, displayExec?.queueMessage],
+  )
+  const displayExecRecentNodes = useMemo(
+    () => displayExec?.actionNodes.slice(-2) || [],
+    [displayExec],
+  )
+  const shouldClampExecutionGroupList = executionGroupDiagnostics.length > 3
+  const shouldClampExecutionPreviewList = executionPreviewItems.length > 4
 
   const getExecutionProgress = useCallback((execution: typeof displayExec) => {
     if (!execution) return 0
@@ -639,7 +900,9 @@ export default function JilingRecruit() {
   }, [])
 
   const getExecutionRunningStepLabel = useCallback((execution: typeof displayExec) => (
-    execution?.steps.find((step) => step.status === 'running')?.nameZh || execution?.currentPlatform || '等待下一步执行'
+    execution?.status === 'queued'
+      ? execution.queueMessage || `同账号排队中，前方还有 ${execution.blockingExecutionCount || 0} 个任务`
+      : execution?.steps.find((step) => step.status === 'running')?.nameZh || execution?.currentPlatform || '等待下一步执行'
   ), [])
 
   const workflowStatusMap = useMemo(() => {
@@ -654,11 +917,20 @@ export default function JilingRecruit() {
       const runningExecutions = activeExecutions.filter((execution) => execution.workflowId === workflow.id)
       if (runningExecutions.length > 0) {
         const leadExecution = runningExecutions[0]
+        const allQueued = runningExecutions.every((execution) => execution.status === 'queued')
         statusMap[workflow.id] = {
-          state: runningExecutions.some((execution) => execution.status === 'cancelling') ? 'cancelling' : 'running',
-          label: runningExecutions.length > 1 ? `并行中 ${runningExecutions.length}` : (leadExecution.status === 'cancelling' ? '停止中' : '执行中'),
+          state: runningExecutions.some((execution) => execution.status === 'cancelling')
+            ? 'cancelling'
+            : allQueued
+              ? 'queued'
+              : 'running',
+          label: allQueued
+            ? (runningExecutions.length > 1 ? `排队中 ${runningExecutions.length}` : '排队中')
+            : runningExecutions.length > 1
+              ? `并行中 ${runningExecutions.length}`
+              : (leadExecution.status === 'cancelling' ? '停止中' : '执行中'),
           detail: runningExecutions.length > 1
-            ? `运行中 ${runningExecutions.length} 个任务，最近任务：${getExecutionRunningStepLabel(leadExecution)}`
+            ? `${allQueued ? '排队中' : '运行中'} ${runningExecutions.length} 个任务，最近任务：${getExecutionRunningStepLabel(leadExecution)}`
             : getExecutionRunningStepLabel(leadExecution),
           progress: Math.max(...runningExecutions.map((execution) => getExecutionProgress(execution))),
         }
@@ -677,8 +949,10 @@ export default function JilingRecruit() {
             ? '最近失败'
             : recentExecution.status === 'cancelled'
               ? '最近停止'
+              : recentExecution.status === 'queued'
+                ? '最近排队'
               : '最近结束',
-        detail: recentExecution.error || recentExecution.currentPlatform || '可查看最近一次详细记录',
+        detail: recentExecution.error || recentExecution.queueMessage || recentExecution.currentPlatform || '可查看最近一次详细记录',
         progress: recentExecution.status === 'completed' ? 100 : recentProgress,
       }
     }
@@ -812,10 +1086,6 @@ export default function JilingRecruit() {
     }
   }, [activeExecutions, executions, orderedExecutions, selectedExecutionId])
 
-  useEffect(() => {
-    textEndRef.current?.scrollIntoView({behavior: 'smooth'})
-  }, [displayExec?.accumulatedText])
-
   const addExecutionGroup = useCallback((initial?: Partial<Omit<ExecutionGroup, 'id'>>) => {
     setExecutionGroups((prev) => [...prev, createExecutionGroup(initial)])
   }, [])
@@ -859,29 +1129,8 @@ export default function JilingRecruit() {
       return
     }
 
-    if (hasDuplicateAccountGroups) {
-      setWorkflowError('同一账号不能在同次执行中重复使用，请调整执行组。')
-      return
-    }
-
     if (completeExecutionGroups.length === 0) {
       setWorkflowError('请至少补齐 1 组平台、账号、岗位都完整的执行方案。')
-      return
-    }
-
-    const occupiedAccountGroups = completeExecutionGroups
-      .map(({group}, index) => ({
-        index: index + 1,
-        group,
-        account: accounts.find((item) => item.id === group.accountId),
-      }))
-      .filter((item) => Boolean(item.group.accountId) && runningAccountIds.has(item.group.accountId))
-
-    if (occupiedAccountGroups.length > 0) {
-      const detail = occupiedAccountGroups
-        .map((item) => `第 ${item.index} 组 ${item.account?.name || '所选账号'}`)
-        .join('、')
-      setWorkflowError(`${detail} 当前已有运行中的任务，请先停止对应任务或改用其他账号后再发起。`)
       return
     }
 
@@ -955,7 +1204,7 @@ export default function JilingRecruit() {
     } finally {
       setLaunchingWorkflowIds((prev) => prev.filter((id) => id !== workflowId))
     }
-  }, [accounts, backendReady, completeExecutionGroups, customMessage, executionMode, hasDuplicateAccountGroups, matchThreshold, messageSendLimit, platformConfigs, runningAccountIds, safeCompanyProfile, startWorkflow, user])
+  }, [backendReady, completeExecutionGroups, customMessage, executionMode, matchThreshold, messageSendLimit, platformConfigs, safeCompanyProfile, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
     if (type === 'verify') {
@@ -1676,7 +1925,7 @@ export default function JilingRecruit() {
                 </CardContent>
               </Card>
 
-              <Card className="overflow-hidden" data-testid="execution-composer">
+              <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-composer">
                 <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.05),transparent_72%)] pb-4">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div>
@@ -1763,7 +2012,7 @@ export default function JilingRecruit() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-semibold text-foreground">执行组编排</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">至少保留 1 组完整方案。开始执行后会立即下发当前完整执行组，并允许继续发起新的并行任务。</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">补齐账号与岗位后即可启动，不同账号可同时运行。</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">完整 {completeExecutionGroups.length}</Badge>
@@ -1774,7 +2023,7 @@ export default function JilingRecruit() {
                     </div>
                   </div>
 
-                  <div className="space-y-3">
+                  <div className={cn('space-y-3', shouldClampExecutionGroupList && 'max-h-[36rem] overflow-y-auto pr-1 scrollbar-thin')}>
                     {executionGroupDiagnostics.map((item) => {
                       const platformAccounts = accounts.filter((account) => account.platform === item.group.platform && account.status === 'active')
                       const hasAccounts = platformAccounts.length > 0
@@ -1832,7 +2081,7 @@ export default function JilingRecruit() {
                                         ? <SelectItem value="_none" disabled>当前平台暂无可用账号</SelectItem>
                                         : platformAccounts.map((account) => {
                                           const usedByOthers = Boolean(accountUsageCount.get(account.id)) && account.id !== item.group.accountId
-                                          return <SelectItem key={account.id} value={account.id} disabled={usedByOthers}>{account.name}{usedByOthers ? '（已占用）' : ''}</SelectItem>
+                                          return <SelectItem key={account.id} value={account.id}>{account.name}{usedByOthers ? '（同账号串行）' : ''}</SelectItem>
                                         })}
                                 </SelectContent>
                               </Select>
@@ -1857,7 +2106,7 @@ export default function JilingRecruit() {
                           <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                             <div className="flex flex-wrap items-center gap-2 text-[11px]">
                               <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">平台可重复</Badge>
-                              <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>账号不可重复</Badge>
+                              <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-sky-700 dark:text-sky-300' : 'text-muted-foreground')}>同账号自动排队</Badge>
                               <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">岗位可重复</Badge>
                             </div>
                             <Button type="button" variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => { setSelectedPlatform(item.group.platform || selectedPlatform); setActiveTab('platform-config') }}>
@@ -1878,7 +2127,7 @@ export default function JilingRecruit() {
               </Card>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-6 xl:sticky xl:top-24 xl:self-start">
               <Card className="overflow-hidden" data-testid="execution-readiness">
                 <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Launch Gate</p>
@@ -1914,7 +2163,7 @@ export default function JilingRecruit() {
                           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/>
                           <div>
                             <p className="font-medium">前端校验已通过</p>
-                            <p className="mt-1 text-xs leading-5">当前可以直接启动；如果选择的是立即执行，将按已编排的完整执行组发起任务。</p>
+                            <p className="mt-1 text-xs leading-5">当前可以直接启动；同账号会自动排队串行，不同账号仍会并行处理。</p>
                           </div>
                         </div>
                       ) : executionReadinessReasons.map((reason, index) => (
@@ -1940,7 +2189,7 @@ export default function JilingRecruit() {
                   </Button>
                   {selectedWorkflowRunningCount > 0 && (
                     <p className="mt-3 text-xs text-muted-foreground">
-                      当前该工作流仍有 {selectedWorkflowRunningCount} 个任务在运行，可在下方运行队列中单独停止。
+                      当前该工作流仍有 {selectedWorkflowRunningCount} 个进行中或排队中的任务，可在下方任务预览里单独停止。
                     </p>
                   )}
                 </CardContent>
@@ -1978,240 +2227,227 @@ export default function JilingRecruit() {
             </div>
           </div>
 
-          {activeExecutions.length > 0 && (
-            <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-running-queue">
-              <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Running Queue</p>
-                    <CardTitle className="mt-2 text-base">运行中的并行任务</CardTitle>
+          {executionPreviewItems.length > 0 && (
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.18fr)_360px]">
+              <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-running-queue">
+                <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Preview</p>
+                      <CardTitle className="mt-2 text-base">任务执行预览</CardTitle>
+                    </div>
+                    <Badge variant="outline" className="border-primary/15 bg-primary/[0.06] text-primary">
+                      进行中 {activeExecutionCount} / 共 {executionPreviewItems.length}
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="border-primary/15 bg-primary/[0.06] text-primary">
-                    {activeExecutionCount} 个任务
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="grid gap-3 pt-4 xl:grid-cols-2">
-                {activeExecutions.map((execution) => {
-                  const isSelected = displayExec?.executionId === execution.executionId
-                  const isCancelling = execution.status === 'cancelling'
-                  const progress = getExecutionProgress(execution)
-                  return (
-                    <button
-                      key={execution.executionId}
-                      type="button"
-                      onClick={() => setSelectedExecutionId(execution.executionId)}
-                      className={cn(
-                        'rounded-[24px] border bg-background/82 p-4 text-left transition-all',
-                        isSelected ? 'border-primary/30 bg-primary/[0.05]' : 'border-border/70 hover:border-border',
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-foreground">{execution.workflowName || execution.workflowId}</p>
-                          <p className="mt-1 truncate text-[11px] text-muted-foreground">
-                            {execution.currentPlatform || getExecutionRunningStepLabel(execution)}
-                          </p>
-                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">{execution.executionId}</p>
-                        </div>
-                        <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px] uppercase tracking-[0.16em]">
-                          {isCancelling ? '停止中' : '执行中'}
-                        </Badge>
-                      </div>
-                      <Progress value={progress} className="mt-4 h-2 rounded-full"/>
-                      <div className="mt-4 flex items-center justify-between gap-3">
-                        <p className="text-[11px] text-muted-foreground">{progress}% · {execution.steps.filter((step) => step.status === 'done').length}/{Math.max(execution.totalSteps, 1)}</p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="destructive"
-                          className="h-8 gap-1.5 rounded-full"
-                          disabled={isCancelling}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            cancelWorkflow(execution.executionId)
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className={cn('space-y-3', shouldClampExecutionPreviewList && 'max-h-[38rem] overflow-y-auto pr-1 scrollbar-thin')}>
+                    {executionPreviewItems.map((execution) => {
+                      const isSelected = displayExec?.executionId === execution.executionId
+                      const isCancelling = execution.status === 'cancelling'
+                      const isExecutionActive = ['queued', 'starting', 'running', 'cancelling'].includes(execution.status)
+                      const progress = getExecutionProgress(execution)
+                      const statusMeta = getExecutionStatusMeta(execution)
+                      const previewText = summarizeExecutionOutput(execution.accumulatedText, execution.error, execution.queueMessage)
+                      return (
+                        <div
+                          key={execution.executionId}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedExecutionId(execution.executionId)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              setSelectedExecutionId(execution.executionId)
+                            }
                           }}
+                          className={cn(
+                            'w-full rounded-[24px] border bg-background/82 p-4 text-left transition-all',
+                            isSelected ? 'border-primary/30 bg-primary/[0.05]' : 'border-border/70 hover:border-border',
+                          )}
                         >
-                          {isCancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Square className="h-3.5 w-3.5"/>}
-                          {isCancelling ? '停止中' : '停止'}
-                        </Button>
-                      </div>
-                    </button>
-                  )
-                })}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Execution Monitor */}
-          {displayExec && (
-            <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-monitor">
-              <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.12),transparent_72%)] pb-5">
-                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="max-w-2xl">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Monitor</p>
-                    <CardTitle className="mt-2 text-base">{displayExec.workflowName || '执行监控'}</CardTitle>
-                    <p className="mt-3 text-xs text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
-                    <p className="mt-2 font-mono text-[11px] text-muted-foreground">{displayExec.executionId}</p>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-foreground">{execution.workflowName || execution.workflowId}</p>
+                                <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', statusMeta.badgeClassName)}>
+                                  {isExecutionActive ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                                  {statusMeta.label}
+                                </Badge>
+                              </div>
+                              <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{getExecutionRunningStepLabel(execution)}</p>
+                              <p className="mt-2 text-[11px] leading-5 text-foreground/82">{previewText}</p>
+                              <p className="mt-2 font-mono text-[11px] text-muted-foreground">{execution.executionId}</p>
+                            </div>
+                            {execution.currentPlatform && (
+                              <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">
+                                {execution.currentPlatform}
+                              </Badge>
+                            )}
+                          </div>
+                          <Progress value={progress} className="mt-4 h-2 rounded-full"/>
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-[11px] text-muted-foreground">{progress}% · {execution.steps.filter((step) => step.status === 'done').length}/{Math.max(execution.totalSteps, 1)} · 截图 {execution.actionNodes.length}</p>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 gap-1.5 rounded-full"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setSelectedExecutionId(execution.executionId)
+                                  setExecutionDetailOpen(true)
+                                }}
+                              >
+                                <Eye className="h-3.5 w-3.5"/>详情
+                              </Button>
+                              {isExecutionActive && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-8 gap-1.5 rounded-full"
+                                  disabled={isCancelling}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    cancelWorkflow(execution.executionId)
+                                  }}
+                                >
+                                  {isCancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Square className="h-3.5 w-3.5"/>}
+                                  {isCancelling ? '停止中' : '停止'}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
+                </CardContent>
+              </Card>
 
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
-                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(displayExec.totalSteps, 1)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
-                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{displayExec.actionNodes.length}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
-                      <div className="mt-2">
-                        <Badge variant="outline" className="gap-1.5 border-primary/15 bg-primary/[0.06] text-primary">
-                          {displayExec.status === 'cancelling'
-                            ? <><Loader2 className="h-3 w-3 animate-spin" />停止中</>
-                            : isDisplayExecActive
-                              ? <><Loader2 className="h-3 w-3 animate-spin" />执行中</>
-                              : displayExec.status === 'cancelled'
-                                ? '已停止'
-                                : displayExec.status === 'failed'
-                                  ? '已失败'
-                                  : '已完成'}
+              {displayExec && (
+                <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-monitor">
+                  <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.12),transparent_72%)] pb-5">
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Snapshot</p>
+                          <CardTitle className="mt-2 text-base">任务摘要</CardTitle>
+                        </div>
+                        <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', displayExecStatusMeta.badgeClassName)}>
+                          {isDisplayExecActive ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                          {displayExecStatusMeta.label}
                         </Badge>
                       </div>
-                      <p className="mt-2 text-xs text-muted-foreground">{displayExec.accumulatedText ? '已收到 AI 输出流' : '等待输出返回'}</p>
+                      <p className="text-sm font-semibold text-foreground">{displayExec.workflowName || '执行任务'}</p>
+                      <p className="text-[11px] text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
+                      <p className="font-mono text-[11px] text-muted-foreground">{displayExec.executionId}</p>
                     </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-5 pt-5">
-                {executionAuthGuide && (
-                  <div className="flex flex-col gap-3 rounded-2xl border border-amber-200/70 bg-amber-50/85 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>
-                      <div className="space-y-1">
-                        <p className="font-medium">{executionAuthGuide.title}</p>
-                        <p className="text-xs leading-5 text-amber-800/90 dark:text-amber-200/90">{executionAuthGuide.description}</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-5">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
+                        <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(displayExec.totalSteps, 1)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
+                        <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{displayExec.actionNodes.length}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">当前步骤：{runningStepLabel}</p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button size="sm" className="h-8 gap-1.5" onClick={() => setActiveTab('platform-config')}>
-                        <LinkIcon className="h-3.5 w-3.5"/>前往平台和账号配置
-                      </Button>
-                      <span className="flex items-center text-[11px] text-amber-800/80 dark:text-amber-200/80">
-                        建议顺序：重新验证 → 重新绑定 → 回到本页重试
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <div className="grid gap-4 xl:grid-cols-[0.95fr,1fr,1.08fr]">
-                  <div className="space-y-3" data-testid="execution-steps">
-                    <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">步骤时间线</p>
-                        <span className="font-mono text-lg font-semibold text-foreground">{progressPercent}%</span>
-                      </div>
-                      <div className="mt-3">
-                        <Progress value={progressPercent} className="h-2" />
-                      </div>
-                      <div className="mt-4 space-y-0">
-                        {displayExec.steps.map((step, idx) => {
-                          const isLast = idx === displayExec.steps.length - 1
-                          return (
-                            <div key={step.id} className="relative flex items-start gap-3 pb-4">
-                              {!isLast && (
-                                <div
-                                  className={cn(
-                                    'absolute left-[9px] top-5 h-[calc(100%-8px)] w-px',
-                                    step.status === 'done' ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-border',
-                                  )}
-                                />
-                              )}
-                              <div className="relative z-10 mt-0.5 shrink-0">
-                                {step.status === 'failed' ? (
-                                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30"><X className="h-3 w-3 text-red-500"/></div>
-                                ) : step.status === 'done' ? (
-                                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500"/></div>
-                                ) : step.status === 'running' ? (
-                                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10"><Loader2 className="h-3.5 w-3.5 animate-spin text-primary"/></div>
-                                ) : (
-                                  <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-muted-foreground/20"><Circle className="h-2 w-2 text-muted-foreground/30"/></div>
-                                )}
-                              </div>
-                              <span className={cn('text-sm leading-6', step.status === 'running' ? 'font-medium text-primary' : step.status === 'done' ? 'text-foreground' : 'text-muted-foreground')}>
-                                {step.nameZh}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="space-y-3" data-testid="execution-screenshots">
-                    <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">关键截图会按执行顺序追加，作为人工核验与回放依据。</p>
-                      {displayExec.actionNodes.length === 0 ? (
-                        <div className="mt-4 flex h-52 flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 text-muted-foreground">
-                          <Camera className="mb-2 h-8 w-8 opacity-20"/>
-                          <p className="text-xs">等待截图...</p>
+                    {executionAuthGuide && (
+                      <div className="rounded-[22px] border border-amber-200/70 bg-amber-50/85 px-4 py-3 text-xs leading-6 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
+                        <p className="font-medium">{executionAuthGuide.title}</p>
+                        <p className="mt-1">{executionAuthGuide.description}</p>
+                      </div>
+                    )}
+
+                    <div className="rounded-[24px] border border-border/70 bg-background/82 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">最近输出摘要</p>
+                      <p className="mt-3 text-sm leading-6 text-foreground/88">{displayExecSummary}</p>
+                    </div>
+
+                    <div className="rounded-[24px] border border-border/70 bg-background/82 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">最近截图预览</p>
+                      {displayExecRecentNodes.length === 0 ? (
+                        <div className="mt-3 flex h-24 items-center justify-center rounded-2xl border border-dashed bg-muted/20 text-xs text-muted-foreground">
+                          暂无截图，等待任务返回第一张执行证据。
                         </div>
                       ) : (
-                        <div className="mt-4 max-h-[25rem] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
-                          {displayExec.actionNodes.map((node) => (
-                            <ExecutionScreenshotCard key={node.id} node={node} onPreview={setLightboxSrc}/>
-                          ))}
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {displayExecRecentNodes.map((node) => {
+                            const previewUrl = getActionNodeImageUrls(node)[0]
+                            return (
+                              <button
+                                key={node.id}
+                                type="button"
+                                className="overflow-hidden rounded-2xl border border-border/70 bg-background/90 text-left"
+                                onClick={() => previewUrl && setLightboxSrc(previewUrl)}
+                              >
+                                {previewUrl ? (
+                                  <img src={previewUrl} alt={node.action} className="h-24 w-full object-cover object-top"/>
+                                ) : (
+                                  <div className="flex h-24 items-center justify-center text-xs text-muted-foreground">截图加载中</div>
+                                )}
+                                <div className="px-3 py-2">
+                                  <p className="truncate text-[11px] font-medium text-foreground">{node.action}</p>
+                                  <p className="mt-1 text-[10px] text-muted-foreground">{node.time}</p>
+                                </div>
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
-                  </div>
 
-                  <div className="space-y-3" data-testid="execution-output">
-                    <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">AI 完整输出</p>
-                          <p className="mt-1 text-xs text-muted-foreground">适合直接复制给运营、排障或追溯系统执行决策。</p>
-                        </div>
-                        {displayExec.accumulatedText && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 gap-1.5 px-2 text-xs text-muted-foreground"
-                            onClick={() => copyText(displayExec.accumulatedText || '')}
-                          >
-                            {copiedText ? <Check className="h-3 w-3 text-emerald-500"/> : <ClipboardCopy className="h-3 w-3"/>}
-                            {copiedText ? '已复制' : '复制'}
-                          </Button>
-                        )}
-                      </div>
-                      <div className="mt-4 h-[25rem] overflow-y-auto rounded-[20px] bg-zinc-950 p-4 font-mono text-xs text-zinc-100 shadow-inner scrollbar-thin">
-                        {displayExec.accumulatedText ? (
-                          <>
-                            <pre className="whitespace-pre-wrap break-words leading-relaxed">{displayExec.accumulatedText}</pre>
-                            <div ref={textEndRef}/>
-                          </>
-                        ) : (
-                          <p className="flex items-center gap-2 text-zinc-500">
-                            <Loader2 className="h-3 w-3 animate-spin"/>等待 AI 输出...
-                          </p>
-                        )}
-                      </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button className="h-10 gap-2 rounded-full" onClick={() => setExecutionDetailOpen(true)}>
+                        <Eye className="h-4 w-4"/>查看任务详情
+                      </Button>
+                      {isDisplayExecActive && (
+                        <Button
+                          variant="destructive"
+                          className="h-10 gap-2 rounded-full"
+                          onClick={() => cancelWorkflow(displayExec.executionId)}
+                          disabled={displayExec.status === 'cancelling'}
+                        >
+                          {displayExec.status === 'cancelling' ? <Loader2 className="h-4 w-4 animate-spin"/> : <Square className="h-4 w-4"/>}
+                          {displayExec.status === 'cancelling' ? '停止中' : '停止该任务'}
+                        </Button>
+                      )}
                     </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           )}
 
           <TaskMonitorPanel/>
         </TabsContent>
 
         <TabsContent value="jobs" className="mt-0"><JobManagementPanel/></TabsContent>
-        <TabsContent value="candidates" className="mt-0"><Candidates embedded/></TabsContent>
+      <TabsContent value="candidates" className="mt-0"><Candidates embedded/></TabsContent>
       </Tabs>
+
+      <ExecutionDetailDialog
+        open={executionDetailOpen}
+        onOpenChange={setExecutionDetailOpen}
+        execution={displayExec}
+        runningStepLabel={runningStepLabel}
+        progressPercent={progressPercent}
+        completedStepCount={completedStepCount}
+        isActive={isDisplayExecActive}
+        authGuide={executionAuthGuide}
+        copiedText={copiedText}
+        onCopyText={copyText}
+        onPreview={setLightboxSrc}
+      />
 
       {/* ── Lightbox ── */}
       <AnimatePresence>
@@ -2221,10 +2457,10 @@ export default function JilingRecruit() {
             initial={{opacity: 0}}
             animate={{opacity: 1}}
             exit={{opacity: 0}}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
             onClick={() => setLightboxSrc(null)}
           >
-            <Button variant="ghost" size="icon" className="absolute right-4 top-4 text-white hover:bg-white/10" onClick={() => setLightboxSrc(null)}>
+            <Button variant="ghost" size="icon" className="absolute right-4 top-4 z-[81] text-white hover:bg-white/10" onClick={() => setLightboxSrc(null)}>
               <X className="h-5 w-5"/>
             </Button>
             <motion.img
