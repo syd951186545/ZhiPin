@@ -92,6 +92,7 @@ export const en = {
   'jobs.table.status': 'Status',
   'jobs.table.actions': 'Actions',
   'jobs.table.delete': 'Delete',
+  'jobs.table.deleteConfirm': 'Are you sure you want to delete this job? This action cannot be undone.',
   'jobs.form.title': 'Post New Job',
   'jobs.form.editTitle': 'Edit Job',
   'jobs.form.name': 'Job Title',

@@ -96,6 +96,7 @@ export const zh = {
   'jobs.table.status': '状态',
   'jobs.table.actions': '操作',
   'jobs.table.delete': '删除',
+  'jobs.table.deleteConfirm': '确定要删除该职位吗？此操作不可撤销。',
   'jobs.form.title': '发布新职位',
   'jobs.form.editTitle': '编辑职位',
   'jobs.form.name': '职位名称',

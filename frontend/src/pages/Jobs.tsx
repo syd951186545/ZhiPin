@@ -127,6 +127,7 @@ export function JobManagementPanel() {
   }
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm(t('jobs.table.deleteConfirm'))) return
     await deleteJob(id)
   }
 
