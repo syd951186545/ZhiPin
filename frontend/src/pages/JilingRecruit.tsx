@@ -353,7 +353,7 @@ function ExecutionDetailDialog({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Detail</p>
                 <DialogTitle className="mt-2 text-base">{execution.workflowName || '执行详情'}</DialogTitle>
                 <DialogDescription className="mt-2 text-xs leading-6 text-muted-foreground">
-                  执行页仅展示摘要与预览；完整步骤、截图流和 AI 输出统一放在这里查看。
+                  完整步骤、截图与 AI 输出都集中在这里查看。
                 </DialogDescription>
                 <p className="mt-3 text-xs text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
                 <p className="mt-2 font-mono text-[11px] text-muted-foreground">{execution.executionId}</p>
@@ -444,7 +444,6 @@ function ExecutionDetailDialog({
                 <div className="space-y-3" data-testid="execution-screenshots">
                   <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">关键截图会按执行顺序追加，作为人工核验与回放依据。</p>
                     {execution.actionNodes.length === 0 ? (
                       <div className="mt-4 flex h-52 flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 text-muted-foreground">
                         <Camera className="mb-2 h-8 w-8 opacity-20"/>
@@ -1933,7 +1932,7 @@ export default function JilingRecruit() {
                 </CardContent>
               </Card>
 
-              <Card className="overflow-hidden" data-testid="execution-composer">
+              <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-composer">
                 <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.05),transparent_72%)] pb-4">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div>
@@ -2020,7 +2019,7 @@ export default function JilingRecruit() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-semibold text-foreground">执行组编排</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">至少保留 1 组完整方案。开始执行后会立即下发当前完整执行组，并允许继续发起新的并行任务。</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">补齐账号与岗位后即可启动，不同账号可同时运行。</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">完整 {completeExecutionGroups.length}</Badge>
@@ -2171,7 +2170,7 @@ export default function JilingRecruit() {
                           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/>
                           <div>
                             <p className="font-medium">前端校验已通过</p>
-                            <p className="mt-1 text-xs leading-5">当前可以直接启动；如果选择的是立即执行，将按已编排的完整执行组发起任务。</p>
+                            <p className="mt-1 text-xs leading-5">当前可以直接启动，系统会按已配置的执行组发起任务。</p>
                           </div>
                         </div>
                       ) : executionReadinessReasons.map((reason, index) => (
@@ -2243,7 +2242,6 @@ export default function JilingRecruit() {
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Preview</p>
                       <CardTitle className="mt-2 text-base">任务执行预览</CardTitle>
-                      <p className="mt-2 text-xs leading-6 text-muted-foreground">这里仅预览多条任务的概括性进度；完整步骤、截图与 AI 输出统一进入任务详情弹窗查看。</p>
                     </div>
                     <Badge variant="outline" className="border-primary/15 bg-primary/[0.06] text-primary">
                       运行中 {activeExecutionCount} / 共 {executionPreviewItems.length}
@@ -2345,7 +2343,6 @@ export default function JilingRecruit() {
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Snapshot</p>
                           <CardTitle className="mt-2 text-base">任务摘要</CardTitle>
-                          <p className="mt-2 text-xs leading-6 text-muted-foreground">执行页只保留摘要信息，避免长日志与截图流持续把页面主区向下推。</p>
                         </div>
                         <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', displayExecStatusMeta.badgeClassName)}>
                           {isDisplayExecActive ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
@@ -2467,10 +2464,10 @@ export default function JilingRecruit() {
             initial={{opacity: 0}}
             animate={{opacity: 1}}
             exit={{opacity: 0}}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
             onClick={() => setLightboxSrc(null)}
           >
-            <Button variant="ghost" size="icon" className="absolute right-4 top-4 text-white hover:bg-white/10" onClick={() => setLightboxSrc(null)}>
+            <Button variant="ghost" size="icon" className="absolute right-4 top-4 z-[81] text-white hover:bg-white/10" onClick={() => setLightboxSrc(null)}>
               <X className="h-5 w-5"/>
             </Button>
             <motion.img
