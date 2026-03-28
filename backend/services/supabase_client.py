@@ -593,22 +593,25 @@ def create_automation_task(
     platform: Optional[str] = None,
     job_id: Optional[str] = None,
     execution_id: Optional[str] = None,
+    status: str = "running",
+    started_at: Optional[str] = None,
     auth_token: Optional[str] = None,
 ) -> dict:
     """创建自动化任务记录"""
     sb = get_supabase(auth_token)
-    result = sb.table("automation_tasks").insert({
+    payload = {
         "tenant_id": tenant_id,
         "created_by": created_by,
         "type": task_type,
         "name": name,
-        "status": "running",
+        "status": status,
         "config": config,
         "platform": platform,
         "job_id": job_id,
         "execution_id": execution_id,
-        "started_at": datetime.now(timezone.utc).isoformat(),
-    }).execute()
+        "started_at": started_at if started_at is not None else (datetime.now(timezone.utc).isoformat() if status == "running" else None),
+    }
+    result = sb.table("automation_tasks").insert(payload).execute()
     return result.data[0] if result.data else {}
 
 

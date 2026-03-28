@@ -265,6 +265,11 @@ function getExecutionStatusMeta(execution?: WorkflowExecution | null) {
         label: '停止中',
         badgeClassName: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300',
       }
+    case 'queued':
+      return {
+        label: '排队中',
+        badgeClassName: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300',
+      }
     case 'running':
     case 'starting':
       return {
@@ -294,9 +299,13 @@ function getExecutionStatusMeta(execution?: WorkflowExecution | null) {
   }
 }
 
-function summarizeExecutionOutput(text?: string, error?: string) {
+function summarizeExecutionOutput(text?: string, error?: string, queueMessage?: string) {
   if (error) {
     return trimInlineText(error.replace(/\s+/g, ' ').trim(), 180)
+  }
+
+  if (queueMessage) {
+    return trimInlineText(queueMessage, 180)
   }
 
   const lines = (text || '')
@@ -633,7 +642,7 @@ export default function JilingRecruit() {
     [executionOrder, executions],
   )
   const activeExecutions = useMemo(
-    () => orderedExecutions.filter((execution) => ['starting', 'running', 'cancelling'].includes(execution.status)),
+    () => orderedExecutions.filter((execution) => ['queued', 'starting', 'running', 'cancelling'].includes(execution.status)),
     [orderedExecutions],
   )
   const displayExec = useMemo(() => {
@@ -823,7 +832,6 @@ export default function JilingRecruit() {
     if (!group.platform) missing.push('未选平台')
     if (!group.accountId) missing.push('未选账号')
     if (!group.jobId) missing.push('未选岗位')
-    if (duplicateAccount) missing.push('账号重复')
     return {
       index,
       group,
@@ -843,18 +851,13 @@ export default function JilingRecruit() {
     () => executionGroupDiagnostics.filter((item) => !item.complete),
     [executionGroupDiagnostics],
   )
-  const hasDuplicateAccountGroups = useMemo(
-    () => executionGroupDiagnostics.some((item) => item.duplicateAccount),
-    [executionGroupDiagnostics],
-  )
   const executionReadinessReasons = useMemo(() => {
     const reasons: string[] = []
     if (!backendReady) reasons.push('后端未连接，无法发起执行。')
     if (executionMode === 'scheduled') reasons.push('定期执行的保存与调度下发待后端适配。')
     if (completeExecutionGroups.length === 0) reasons.push('至少配置 1 组完整执行方案，按钮才会解锁。')
-    if (hasDuplicateAccountGroups) reasons.push('同一账号不能在同次执行中重复使用。')
     return reasons
-  }, [backendReady, completeExecutionGroups.length, executionMode, hasDuplicateAccountGroups])
+  }, [backendReady, completeExecutionGroups.length, executionMode])
   const canStartSelectedWorkflow = executionReadinessReasons.length === 0
   const actionDialogAccount = useMemo(
     () => actionSession ? accounts.find((item) => item.id === actionSession.account_id) || null : null,
@@ -867,24 +870,22 @@ export default function JilingRecruit() {
   )
   const selectedPlatformLabel = PLATFORMS[selectedPlatform as keyof typeof PLATFORMS]?.name || '未选择平台'
   const completedStepCount = displayExec ? displayExec.steps.filter((step) => step.status === 'done').length : 0
-  const runningStepLabel = displayExec?.steps.find((step) => step.status === 'running')?.nameZh || '等待下一步执行'
+  const runningStepLabel = displayExec?.status === 'queued'
+    ? displayExec.queueMessage || `同账号排队中，前方还有 ${displayExec.blockingExecutionCount || 0} 个任务`
+    : displayExec?.steps.find((step) => step.status === 'running')?.nameZh || '等待下一步执行'
   const activeExecutionCount = activeExecutions.length
   const executionPreviewItems = useMemo(() => orderedExecutions.slice(0, 8), [orderedExecutions])
   const selectedWorkflowRunningExecutions = useMemo(
     () => activeExecutions.filter((execution) => execution.workflowId === selectedWorkflowCard.id),
     [activeExecutions, selectedWorkflowCard.id],
   )
-  const runningAccountIds = useMemo(
-    () => new Set(activeExecutions.flatMap((execution) => execution.accountIds || [])),
-    [activeExecutions],
-  )
   const selectedWorkflowRunningCount = selectedWorkflowRunningExecutions.length
   const isSelectedWorkflowLaunching = launchingWorkflowIds.includes(selectedWorkflowCard.id)
-  const isDisplayExecActive = Boolean(displayExec && ['starting', 'running', 'cancelling'].includes(displayExec.status))
+  const isDisplayExecActive = Boolean(displayExec && ['queued', 'starting', 'running', 'cancelling'].includes(displayExec.status))
   const displayExecStatusMeta = useMemo(() => getExecutionStatusMeta(displayExec), [displayExec])
   const displayExecSummary = useMemo(
-    () => summarizeExecutionOutput(displayExec?.accumulatedText, displayExec?.error),
-    [displayExec?.accumulatedText, displayExec?.error],
+    () => summarizeExecutionOutput(displayExec?.accumulatedText, displayExec?.error, displayExec?.queueMessage),
+    [displayExec?.accumulatedText, displayExec?.error, displayExec?.queueMessage],
   )
   const displayExecRecentNodes = useMemo(
     () => displayExec?.actionNodes.slice(-2) || [],
@@ -899,7 +900,9 @@ export default function JilingRecruit() {
   }, [])
 
   const getExecutionRunningStepLabel = useCallback((execution: typeof displayExec) => (
-    execution?.steps.find((step) => step.status === 'running')?.nameZh || execution?.currentPlatform || '等待下一步执行'
+    execution?.status === 'queued'
+      ? execution.queueMessage || `同账号排队中，前方还有 ${execution.blockingExecutionCount || 0} 个任务`
+      : execution?.steps.find((step) => step.status === 'running')?.nameZh || execution?.currentPlatform || '等待下一步执行'
   ), [])
 
   const workflowStatusMap = useMemo(() => {
@@ -914,11 +917,20 @@ export default function JilingRecruit() {
       const runningExecutions = activeExecutions.filter((execution) => execution.workflowId === workflow.id)
       if (runningExecutions.length > 0) {
         const leadExecution = runningExecutions[0]
+        const allQueued = runningExecutions.every((execution) => execution.status === 'queued')
         statusMap[workflow.id] = {
-          state: runningExecutions.some((execution) => execution.status === 'cancelling') ? 'cancelling' : 'running',
-          label: runningExecutions.length > 1 ? `并行中 ${runningExecutions.length}` : (leadExecution.status === 'cancelling' ? '停止中' : '执行中'),
+          state: runningExecutions.some((execution) => execution.status === 'cancelling')
+            ? 'cancelling'
+            : allQueued
+              ? 'queued'
+              : 'running',
+          label: allQueued
+            ? (runningExecutions.length > 1 ? `排队中 ${runningExecutions.length}` : '排队中')
+            : runningExecutions.length > 1
+              ? `并行中 ${runningExecutions.length}`
+              : (leadExecution.status === 'cancelling' ? '停止中' : '执行中'),
           detail: runningExecutions.length > 1
-            ? `运行中 ${runningExecutions.length} 个任务，最近任务：${getExecutionRunningStepLabel(leadExecution)}`
+            ? `${allQueued ? '排队中' : '运行中'} ${runningExecutions.length} 个任务，最近任务：${getExecutionRunningStepLabel(leadExecution)}`
             : getExecutionRunningStepLabel(leadExecution),
           progress: Math.max(...runningExecutions.map((execution) => getExecutionProgress(execution))),
         }
@@ -937,8 +949,10 @@ export default function JilingRecruit() {
             ? '最近失败'
             : recentExecution.status === 'cancelled'
               ? '最近停止'
+              : recentExecution.status === 'queued'
+                ? '最近排队'
               : '最近结束',
-        detail: recentExecution.error || recentExecution.currentPlatform || '可查看最近一次详细记录',
+        detail: recentExecution.error || recentExecution.queueMessage || recentExecution.currentPlatform || '可查看最近一次详细记录',
         progress: recentExecution.status === 'completed' ? 100 : recentProgress,
       }
     }
@@ -1115,29 +1129,8 @@ export default function JilingRecruit() {
       return
     }
 
-    if (hasDuplicateAccountGroups) {
-      setWorkflowError('同一账号不能在同次执行中重复使用，请调整执行组。')
-      return
-    }
-
     if (completeExecutionGroups.length === 0) {
       setWorkflowError('请至少补齐 1 组平台、账号、岗位都完整的执行方案。')
-      return
-    }
-
-    const occupiedAccountGroups = completeExecutionGroups
-      .map(({group}, index) => ({
-        index: index + 1,
-        group,
-        account: accounts.find((item) => item.id === group.accountId),
-      }))
-      .filter((item) => Boolean(item.group.accountId) && runningAccountIds.has(item.group.accountId))
-
-    if (occupiedAccountGroups.length > 0) {
-      const detail = occupiedAccountGroups
-        .map((item) => `第 ${item.index} 组 ${item.account?.name || '所选账号'}`)
-        .join('、')
-      setWorkflowError(`${detail} 当前已有运行中的任务，请先停止对应任务或改用其他账号后再发起。`)
       return
     }
 
@@ -1211,7 +1204,7 @@ export default function JilingRecruit() {
     } finally {
       setLaunchingWorkflowIds((prev) => prev.filter((id) => id !== workflowId))
     }
-  }, [accounts, backendReady, completeExecutionGroups, customMessage, executionMode, hasDuplicateAccountGroups, matchThreshold, messageSendLimit, platformConfigs, runningAccountIds, safeCompanyProfile, startWorkflow, user])
+  }, [backendReady, completeExecutionGroups, customMessage, executionMode, matchThreshold, messageSendLimit, platformConfigs, safeCompanyProfile, startWorkflow, user])
 
   const handleAction = async (type: 'verify' | 'unbind', accountId: string) => {
     if (type === 'verify') {
@@ -2088,7 +2081,7 @@ export default function JilingRecruit() {
                                         ? <SelectItem value="_none" disabled>当前平台暂无可用账号</SelectItem>
                                         : platformAccounts.map((account) => {
                                           const usedByOthers = Boolean(accountUsageCount.get(account.id)) && account.id !== item.group.accountId
-                                          return <SelectItem key={account.id} value={account.id} disabled={usedByOthers}>{account.name}{usedByOthers ? '（已占用）' : ''}</SelectItem>
+                                          return <SelectItem key={account.id} value={account.id}>{account.name}{usedByOthers ? '（同账号串行）' : ''}</SelectItem>
                                         })}
                                 </SelectContent>
                               </Select>
@@ -2113,7 +2106,7 @@ export default function JilingRecruit() {
                           <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                             <div className="flex flex-wrap items-center gap-2 text-[11px]">
                               <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">平台可重复</Badge>
-                              <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>账号不可重复</Badge>
+                              <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-sky-700 dark:text-sky-300' : 'text-muted-foreground')}>同账号自动排队</Badge>
                               <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">岗位可重复</Badge>
                             </div>
                             <Button type="button" variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => { setSelectedPlatform(item.group.platform || selectedPlatform); setActiveTab('platform-config') }}>
@@ -2170,7 +2163,7 @@ export default function JilingRecruit() {
                           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/>
                           <div>
                             <p className="font-medium">前端校验已通过</p>
-                            <p className="mt-1 text-xs leading-5">当前可以直接启动，系统会按已配置的执行组发起任务。</p>
+                            <p className="mt-1 text-xs leading-5">当前可以直接启动；同账号会自动排队串行，不同账号仍会并行处理。</p>
                           </div>
                         </div>
                       ) : executionReadinessReasons.map((reason, index) => (
@@ -2196,7 +2189,7 @@ export default function JilingRecruit() {
                   </Button>
                   {selectedWorkflowRunningCount > 0 && (
                     <p className="mt-3 text-xs text-muted-foreground">
-                      当前该工作流仍有 {selectedWorkflowRunningCount} 个任务在运行，可在下方运行队列中单独停止。
+                      当前该工作流仍有 {selectedWorkflowRunningCount} 个进行中或排队中的任务，可在下方任务预览里单独停止。
                     </p>
                   )}
                 </CardContent>
@@ -2244,7 +2237,7 @@ export default function JilingRecruit() {
                       <CardTitle className="mt-2 text-base">任务执行预览</CardTitle>
                     </div>
                     <Badge variant="outline" className="border-primary/15 bg-primary/[0.06] text-primary">
-                      运行中 {activeExecutionCount} / 共 {executionPreviewItems.length}
+                      进行中 {activeExecutionCount} / 共 {executionPreviewItems.length}
                     </Badge>
                   </div>
                 </CardHeader>
@@ -2253,10 +2246,10 @@ export default function JilingRecruit() {
                     {executionPreviewItems.map((execution) => {
                       const isSelected = displayExec?.executionId === execution.executionId
                       const isCancelling = execution.status === 'cancelling'
-                      const isExecutionActive = ['starting', 'running', 'cancelling'].includes(execution.status)
+                      const isExecutionActive = ['queued', 'starting', 'running', 'cancelling'].includes(execution.status)
                       const progress = getExecutionProgress(execution)
                       const statusMeta = getExecutionStatusMeta(execution)
-                      const previewText = summarizeExecutionOutput(execution.accumulatedText, execution.error)
+                      const previewText = summarizeExecutionOutput(execution.accumulatedText, execution.error, execution.queueMessage)
                       return (
                         <div
                           key={execution.executionId}

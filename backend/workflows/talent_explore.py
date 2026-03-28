@@ -18,7 +18,6 @@ from workflows.contracts import RetryPolicy
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
 from services.supabase_client import (
-    create_automation_task,
     complete_automation_task,
     create_candidates_batch,
     insert_task_log,
@@ -30,7 +29,7 @@ from prompts.talent_explore import (
     build_collect_profiles_prompt,
     build_initiate_contact_prompt,
 )
-from routers.workflow import emit_event, is_cancelled, register_execution_task
+from routers.workflow import emit_event, get_execution_task, is_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -92,25 +91,10 @@ async def run(execution_id: str, req):
     })
 
     auth_token = req.supabase_auth_token or None
-    # 创建数据库任务记录
-    task_record = {}
-    if req.tenant_id:
-        try:
-            task_record = create_automation_task(
-                tenant_id=req.tenant_id,
-                created_by=req.user_id,
-                task_type="talent_explore",
-                name=f"市场人才探索 - {req.job_title}",
-                config=req.model_dump(),
-                platform=req.platform,
-                job_id=req.job_id,
-                execution_id=execution_id,
-                auth_token=auth_token,
-            )
-            if task_record.get("id"):
-                register_execution_task(execution_id, task_record["id"], auth_token)
-        except Exception as e:
-            logger.warning(f"创建任务记录失败: {e}")
+    task_meta = get_execution_task(execution_id)
+    task_record = {"id": task_meta["task_id"]} if task_meta.get("task_id") else {}
+    if task_meta.get("auth_token"):
+        auth_token = task_meta["auth_token"]
 
     persistent_session_key = req.platform_accounts[0].get("browser_session_key", "")
     runtime_session_id = build_execution_session_id(persistent_session_key, execution_id, req.platform)

@@ -8,8 +8,9 @@ import asyncio
 import contextlib
 import json
 import logging
+from datetime import datetime, timezone
 from uuid import uuid4
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -18,8 +19,10 @@ from services.openclaw_health import probe_openclaw
 from services.platform_binding_service import ensure_verify_session_ready
 from services.workflow_runtime_store import store as runtime_store
 from services.supabase_client import (
+    create_automation_task,
     complete_automation_task,
     get_platform_account,
+    update_automation_task,
     validate_supabase_user,
 )
 
@@ -37,6 +40,21 @@ _cancelled: dict[str, bool] = {}
 _running_tasks: dict[str, asyncio.Task] = {}
 # execution_id -> task metadata（用于取消时同步更新 automation_tasks）
 _task_records: dict[str, dict[str, Optional[str]]] = {}
+# execution_id -> account ids
+_execution_accounts: dict[str, list[str]] = {}
+# account_id -> running execution_id
+_account_running_executions: dict[str, str] = {}
+# queued execution ids in order
+_queued_execution_order: list[str] = []
+# execution_id -> queued metadata
+_queued_executions: dict[str, dict[str, Any]] = {}
+_execution_queue_lock = asyncio.Lock()
+
+_WORKFLOW_NAMES = {
+    "publish_job": "发布招聘公告",
+    "talent_explore": "市场人才探索",
+    "resume_screen": "简历筛选及AI沟通",
+}
 
 
 def is_cancelled(execution_id: str) -> bool:
@@ -54,6 +72,10 @@ def register_execution_task(execution_id: str, task_id: str, auth_token: Optiona
         "task_id": task_id,
         "auth_token": auth_token,
     }
+
+
+def get_execution_task(execution_id: str) -> dict[str, Optional[str]]:
+    return dict(_task_records.get(execution_id) or {})
 
 
 async def emit_event(execution_id: str, event_type: str, data: dict):
@@ -128,12 +150,188 @@ class WorkflowStartRequest(BaseModel):
 class WorkflowStartResponse(BaseModel):
     execution_id: str
     workflow_id: str
+    status: str = "starting"
+    queued: bool = False
+    queue_position: int = 0
+    blocking_execution_count: int = 0
     message: str = "工作流已启动"
 
 
 class WorkflowStatusResponse(BaseModel):
     execution_id: str
     cancelled: bool
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _workflow_name(workflow_id: str) -> str:
+    return _WORKFLOW_NAMES.get(workflow_id, workflow_id)
+
+
+def _collect_execution_account_ids(req: WorkflowStartRequest) -> list[str]:
+    ids = [
+        value
+        for value in [
+            req.account_id,
+            *list((req.platform_account_ids or {}).values()),
+            *[account.get("id", "") for account in req.platform_accounts or []],
+        ]
+        if isinstance(value, str) and value.strip()
+    ]
+    return list(dict.fromkeys(ids))
+
+
+def _build_automation_task_name(req: WorkflowStartRequest) -> str:
+    subject = req.job_title or req.account_name or req.company_name or "未命名任务"
+    return f"{_workflow_name(req.workflow_id)} - {subject}"
+
+
+def _build_automation_task_platform(req: WorkflowStartRequest) -> Optional[str]:
+    if req.workflow_id == "resume_screen":
+        platforms = req.platforms or [account.get("platform", "") for account in req.platform_accounts or []]
+        normalized = [platform for platform in platforms if isinstance(platform, str) and platform.strip()]
+        return ",".join(dict.fromkeys(normalized)) if normalized else None
+    return req.platform or None
+
+
+def _build_task_config(req: WorkflowStartRequest) -> dict[str, Any]:
+    payload = req.model_dump()
+    payload.pop("supabase_auth_token", None)
+    return payload
+
+
+def _calculate_queue_metrics(execution_id: str, account_ids: list[str]) -> tuple[int, int]:
+    running_blockers = {
+        running_execution_id
+        for account_id in account_ids
+        for running_execution_id in [_account_running_executions.get(account_id)]
+        if running_execution_id and running_execution_id != execution_id
+    }
+
+    queued_blockers: list[str] = []
+    for queued_execution_id in _queued_execution_order:
+        if queued_execution_id == execution_id:
+            break
+        queued_account_ids = _execution_accounts.get(queued_execution_id, [])
+        if set(account_ids).intersection(queued_account_ids) and queued_execution_id not in queued_blockers:
+            queued_blockers.append(queued_execution_id)
+
+    queue_position = len(queued_blockers) + 1
+    blocking_execution_count = len(running_blockers) + len(queued_blockers)
+    return queue_position, blocking_execution_count
+
+
+async def _refresh_queue_positions_locked() -> None:
+    for execution_id in list(_queued_execution_order):
+        queued_meta = _queued_executions.get(execution_id)
+        if not queued_meta:
+            continue
+        account_ids = queued_meta.get("account_ids") or []
+        queue_position, blocking_execution_count = _calculate_queue_metrics(execution_id, account_ids)
+        previous_position = queued_meta.get("last_queue_position")
+        previous_blocking_count = queued_meta.get("last_blocking_execution_count")
+        if previous_position == queue_position and previous_blocking_count == blocking_execution_count:
+            continue
+
+        queued_meta["last_queue_position"] = queue_position
+        queued_meta["last_blocking_execution_count"] = blocking_execution_count
+        event_type = "queued" if previous_position is None else "queue_status"
+        await emit_event(execution_id, event_type, {
+            "message": f"同账号任务排队中，前方还有 {blocking_execution_count} 个任务。",
+            "queue_position": queue_position,
+            "blocking_execution_count": blocking_execution_count,
+            "blocking_account_ids": account_ids,
+        })
+
+
+def _create_execution_task_record(execution_id: str, req: WorkflowStartRequest, *, queued: bool) -> dict[str, Any]:
+    if not req.tenant_id:
+        return {}
+
+    try:
+        task_record = create_automation_task(
+            tenant_id=req.tenant_id,
+            created_by=req.user_id,
+            task_type=req.workflow_id,
+            name=_build_automation_task_name(req),
+            config=_build_task_config(req),
+            platform=_build_automation_task_platform(req),
+            job_id=req.job_id,
+            execution_id=execution_id,
+            status="queued" if queued else "running",
+            auth_token=req.supabase_auth_token or None,
+        )
+        if task_record.get("id"):
+            register_execution_task(execution_id, task_record["id"], req.supabase_auth_token or None)
+        return task_record
+    except Exception:
+        logger.exception("创建 automation_task 失败: %s", execution_id)
+        return {}
+
+
+def _start_execution_locked(runner, execution_id: str, req: WorkflowStartRequest, account_ids: list[str]) -> None:
+    _queued_executions.pop(execution_id, None)
+    if execution_id in _queued_execution_order:
+        _queued_execution_order.remove(execution_id)
+
+    for account_id in account_ids:
+        _account_running_executions[account_id] = execution_id
+
+    task_meta = _task_records.get(execution_id) or {}
+    task_id = task_meta.get("task_id")
+    if task_id:
+        try:
+            update_automation_task(
+                task_id,
+                {
+                    "status": "running",
+                    "started_at": _now_iso(),
+                    "completed_at": None,
+                    "error_message": None,
+                },
+                auth_token=task_meta.get("auth_token"),
+            )
+        except Exception:
+            logger.exception("更新 automation_task 为 running 失败: %s", execution_id)
+
+    task = asyncio.create_task(
+        _run_workflow_safe(runner, execution_id, req),
+        name=f"workflow-{execution_id}",
+    )
+    _running_tasks[execution_id] = task
+
+
+def _release_execution_accounts_locked(execution_id: str) -> None:
+    for account_id in _execution_accounts.get(execution_id, []):
+        if _account_running_executions.get(account_id) == execution_id:
+            _account_running_executions.pop(account_id, None)
+
+
+async def _drain_workflow_queue_locked() -> None:
+    started_any = True
+    while started_any:
+        started_any = False
+        for execution_id in list(_queued_execution_order):
+            queued_meta = _queued_executions.get(execution_id)
+            if not queued_meta:
+                continue
+            account_ids = queued_meta.get("account_ids") or []
+            if any(_account_running_executions.get(account_id) for account_id in account_ids):
+                continue
+            _start_execution_locked(queued_meta["runner"], execution_id, queued_meta["req"], account_ids)
+            started_any = True
+
+    await _refresh_queue_positions_locked()
+
+
+def _cleanup_execution_state(execution_id: str) -> None:
+    _cancelled.pop(execution_id, None)
+    _running_tasks.pop(execution_id, None)
+    _task_records.pop(execution_id, None)
+    _execution_accounts.pop(execution_id, None)
+    _event_queues.pop(execution_id, None)
 
 
 # ── 路由 ──────────────────────────────────────────────────
@@ -223,16 +421,52 @@ async def start_workflow(req: WorkflowStartRequest):
     if not runner:
         raise HTTPException(status_code=400, detail=f"未知工作流: {req.workflow_id}")
 
-    # 用 asyncio.create_task 代替 BackgroundTasks，可以通过 task.cancel() 真实中断
-    task = asyncio.create_task(
-        _run_workflow_safe(runner, execution_id, req),
-        name=f"workflow-{execution_id}",
-    )
-    _running_tasks[execution_id] = task
+    account_ids = _collect_execution_account_ids(req)
+
+    async with _execution_queue_lock:
+        should_queue = any(_account_running_executions.get(account_id) for account_id in account_ids)
+        _event_queues[execution_id] = asyncio.Queue()
+        _cancelled[execution_id] = False
+        _execution_accounts[execution_id] = account_ids
+
+        task_record = _create_execution_task_record(execution_id, req, queued=should_queue)
+        runtime_store.init_run(
+            execution_id,
+            req.workflow_id,
+            req.model_dump(),
+            tenant_id=req.tenant_id,
+            auth_token=req.supabase_auth_token or None,
+            task_id=task_record.get("id") or None,
+            initial_status="queued" if should_queue else "starting",
+        )
+
+        if should_queue:
+            _queued_executions[execution_id] = {
+                "runner": runner,
+                "req": req,
+                "account_ids": account_ids,
+                "last_queue_position": None,
+                "last_blocking_execution_count": None,
+            }
+            _queued_execution_order.append(execution_id)
+            await _refresh_queue_positions_locked()
+            queue_position, blocking_execution_count = _calculate_queue_metrics(execution_id, account_ids)
+            return WorkflowStartResponse(
+                execution_id=execution_id,
+                workflow_id=req.workflow_id,
+                status="queued",
+                queued=True,
+                queue_position=queue_position,
+                blocking_execution_count=blocking_execution_count,
+                message=f"同账号已有任务执行中，已进入队列，前方还有 {blocking_execution_count} 个任务。",
+            )
+
+        _start_execution_locked(runner, execution_id, req, account_ids)
 
     return WorkflowStartResponse(
         execution_id=execution_id,
         workflow_id=req.workflow_id,
+        status="starting",
     )
 
 
@@ -251,16 +485,40 @@ async def cancel_workflow(execution_id: str):
     if runtime_status in {"completed", "failed", "cancelled"} and execution_id not in _running_tasks:
         return {"message": f"工作流已结束({runtime_status})"}
 
-    _cancelled[execution_id] = True
-    runtime_store.record_event(execution_id, "cancel_requested", {"message": "已发送取消请求"})
+    async with _execution_queue_lock:
+        _cancelled[execution_id] = True
+        runtime_store.record_event(execution_id, "cancel_requested", {"message": "已发送取消请求"})
 
-    # 取消实际运行的 asyncio Task，这会中断 httpx 的 async for 流式读取
-    task = _running_tasks.get(execution_id)
-    if task and not task.done():
-        task.cancel()
-        logger.info(f"已发送取消信号: {execution_id}")
-    elif runtime_status and runtime_status not in {"completed", "failed", "cancelled"}:
-        runtime_store.record_event(execution_id, "cancelled", {"message": "工作流已取消"})
+        if execution_id in _queued_executions:
+            _queued_executions.pop(execution_id, None)
+            if execution_id in _queued_execution_order:
+                _queued_execution_order.remove(execution_id)
+            _emit_event_sync(execution_id, "cancelled", {"message": "排队任务已取消"})
+            _emit_done_sync(execution_id)
+
+            task_meta = _task_records.get(execution_id) or {}
+            task_id = task_meta.get("task_id")
+            if task_id:
+                try:
+                    complete_automation_task(
+                        task_id,
+                        "cancelled",
+                        error_message="用户取消排队任务",
+                        auth_token=task_meta.get("auth_token"),
+                    )
+                except Exception:
+                    logger.exception("同步取消排队 automation_task 失败: %s", execution_id)
+
+            await _refresh_queue_positions_locked()
+            _cleanup_execution_state(execution_id)
+            return {"message": "已取消排队任务"}
+
+        task = _running_tasks.get(execution_id)
+        if task and not task.done():
+            task.cancel()
+            logger.info(f"已发送取消信号: {execution_id}")
+        elif runtime_status and runtime_status not in {"completed", "failed", "cancelled"}:
+            runtime_store.record_event(execution_id, "cancelled", {"message": "工作流已取消"})
 
     return {"message": "已发送取消请求"}
 
@@ -351,9 +609,21 @@ async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartReques
             "step_id": "unknown",
             "message": f"工作流执行异常: {str(e)}",
         })
+        task_meta = _task_records.get(execution_id) or {}
+        task_id = task_meta.get("task_id")
+        if task_id:
+            try:
+                complete_automation_task(
+                    task_id,
+                    "failed",
+                    error_message=f"工作流执行异常: {str(e)}",
+                    auth_token=task_meta.get("auth_token"),
+                )
+            except Exception:
+                logger.exception("同步失败 automation_task 失败: %s", execution_id)
     finally:
         _emit_done_sync(execution_id)
-        _cancelled.pop(execution_id, None)
-        _running_tasks.pop(execution_id, None)
-        _task_records.pop(execution_id, None)
-        _event_queues.pop(execution_id, None)
+        async with _execution_queue_lock:
+            _release_execution_accounts_locked(execution_id)
+            await _drain_workflow_queue_locked()
+            _cleanup_execution_state(execution_id)

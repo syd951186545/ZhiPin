@@ -39,6 +39,7 @@ class WorkflowRuntimeStore:
         tenant_id: Optional[str] = None,
         auth_token: Optional[str] = None,
         task_id: Optional[str] = None,
+        initial_status: str = "starting",
     ) -> None:
         sanitized_payload = deepcopy(payload or {})
         sanitized_payload.pop("supabase_auth_token", None)
@@ -46,7 +47,7 @@ class WorkflowRuntimeStore:
         self._runs[execution_id] = {
             "execution_id": execution_id,
             "workflow_id": workflow_id,
-            "status": record.get("status", "starting"),
+            "status": record.get("status", initial_status),
             "multi_platform": record.get("multi_platform", len(sanitized_payload.get("platforms") or []) > 1),
             "created_at": record.get("created_at", _now_iso()),
             "updated_at": _now_iso(),
@@ -63,6 +64,10 @@ class WorkflowRuntimeStore:
             "error_code": record.get("error_code"),
             "result": record.get("result"),
             "events": record.get("events", []),
+            "queue_position": record.get("queue_position"),
+            "blocking_execution_count": record.get("blocking_execution_count"),
+            "queue_message": record.get("queue_message"),
+            "blocking_account_ids": record.get("blocking_account_ids", []),
             "_tenant_id": tenant_id or record.get("_tenant_id"),
             "_auth_token": auth_token or record.get("_auth_token"),
             "_task_id": task_id or record.get("_task_id"),
@@ -92,6 +97,10 @@ class WorkflowRuntimeStore:
                 "error_code": None,
                 "result": None,
                 "events": [],
+                "queue_position": None,
+                "blocking_execution_count": None,
+                "queue_message": None,
+                "blocking_account_ids": [],
             },
         )
         run["updated_at"] = _now_iso()
@@ -101,6 +110,10 @@ class WorkflowRuntimeStore:
             run["status"] = "running"
             run["workflow_id"] = data.get("workflow_id", run.get("workflow_id"))
             run["workflow_name"] = data.get("workflow_name", run.get("workflow_name"))
+            run["queue_position"] = None
+            run["blocking_execution_count"] = None
+            run["queue_message"] = None
+            run["blocking_account_ids"] = []
         elif event_type == "workflow_meta":
             run["workflow_id"] = data.get("workflow_id", run.get("workflow_id"))
             run["workflow_name"] = data.get("workflow_name", run.get("workflow_name"))
@@ -162,6 +175,12 @@ class WorkflowRuntimeStore:
             }
         elif event_type == "progress":
             run["accumulated_output"] = (run.get("accumulated_output") or "") + (data.get("delta") or "")
+        elif event_type in {"queued", "queue_status"}:
+            run["status"] = "queued"
+            run["queue_position"] = data.get("queue_position")
+            run["blocking_execution_count"] = data.get("blocking_execution_count")
+            run["queue_message"] = data.get("message")
+            run["blocking_account_ids"] = deepcopy(data.get("blocking_account_ids") or [])
         elif event_type == "artifact_created":
             artifact_id = data.get("artifact_id")
             if artifact_id:
@@ -196,9 +215,18 @@ class WorkflowRuntimeStore:
             run["status"] = "failed"
             run["error"] = data.get("message")
             run["error_code"] = data.get("error_code")
+        elif event_type == "cancel_requested":
+            if run.get("status") in {"queued", "starting", "running"}:
+                run["status"] = "cancelling"
         elif event_type == "cancelled":
             run["status"] = "cancelled"
             run["error"] = data.get("message")
+
+        if event_type in {"complete", "run_completed", "run_failed", "error", "cancelled"}:
+            run["queue_position"] = None
+            run["blocking_execution_count"] = None
+            run["queue_message"] = None
+            run["blocking_account_ids"] = []
 
         self._persist_run(execution_id)
 
@@ -243,6 +271,7 @@ class WorkflowRuntimeStore:
 
         artifacts = list_workflow_artifacts(execution_id, tenant_id, auth_token=auth_token)
         checkpoints = list_workflow_checkpoints(execution_id, tenant_id, auth_token=auth_token)
+        queue_state = self._extract_queue_state(row.get("events_payload") or [])
         run = {
             "execution_id": row.get("execution_id"),
             "workflow_id": row.get("workflow_id"),
@@ -263,6 +292,10 @@ class WorkflowRuntimeStore:
             "error_code": row.get("error_code"),
             "result": row.get("result_payload"),
             "events": row.get("events_payload") or [],
+            "queue_position": queue_state.get("queue_position"),
+            "blocking_execution_count": queue_state.get("blocking_execution_count"),
+            "queue_message": queue_state.get("queue_message"),
+            "blocking_account_ids": queue_state.get("blocking_account_ids", []),
             "_tenant_id": tenant_id,
             "_auth_token": auth_token,
             "_task_id": row.get("task_id"),
@@ -290,6 +323,21 @@ class WorkflowRuntimeStore:
         copied["content_url"] = f"/api/artifacts/{artifact_id}/content"
         self._artifacts[artifact_id] = copied
         return copied
+
+    def _extract_queue_state(self, events: list[dict[str, Any]]) -> dict[str, Any]:
+        for entry in reversed(events):
+            event_type = entry.get("event")
+            if event_type in {"queued", "queue_status"}:
+                data = entry.get("data") or {}
+                return {
+                    "queue_position": data.get("queue_position"),
+                    "blocking_execution_count": data.get("blocking_execution_count"),
+                    "queue_message": data.get("message"),
+                    "blocking_account_ids": deepcopy(data.get("blocking_account_ids") or []),
+                }
+            if event_type in {"run_started", "complete", "run_completed", "run_failed", "error", "cancelled"}:
+                break
+        return {}
 
     def _persist_run(self, execution_id: str) -> None:
         run = self._runs.get(execution_id)

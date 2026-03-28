@@ -127,9 +127,22 @@ def auth_body(token: str = FAKE_TOKEN) -> dict[str, str]:
 def _cleanup_workflow_state():
     """每个测试结束后清理 workflow 路由的内存状态。"""
     yield
-    from routers.workflow import _event_queues, _cancelled, _running_tasks, _task_records
+    from routers.workflow import (
+        _account_running_executions,
+        _cancelled,
+        _event_queues,
+        _execution_accounts,
+        _queued_execution_order,
+        _queued_executions,
+        _running_tasks,
+        _task_records,
+    )
+    _account_running_executions.clear()
     _event_queues.clear()
     _cancelled.clear()
+    _execution_accounts.clear()
+    _queued_execution_order.clear()
+    _queued_executions.clear()
     _running_tasks.clear()
     _task_records.clear()
 

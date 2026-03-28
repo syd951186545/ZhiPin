@@ -19,7 +19,7 @@ import {
 } from '@/services/workflowService'
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed'
-export type WorkflowStatus = 'idle' | 'starting' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+export type WorkflowStatus = 'idle' | 'queued' | 'starting' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
 
 export interface StepState {
   id: string
@@ -58,6 +58,9 @@ export interface WorkflowExecution {
   currentPlatform?: string
   currentPlatformIndex?: number
   totalPlatforms?: number
+  queuePosition?: number
+  blockingExecutionCount?: number
+  queueMessage?: string
 }
 
 interface RuntimeWorkflowRun {
@@ -78,7 +81,11 @@ interface RuntimeWorkflowRun {
     platform_index?: number
     total_platforms?: number
   }
+  queue_position?: number
+  blocking_execution_count?: number
+  queue_message?: string
   multi_platform?: boolean
+  events_payload?: Array<{event?: string; data?: Record<string, unknown>}>
 }
 
 interface WorkflowStore {
@@ -140,6 +147,7 @@ function normalizeStepStatus(status?: string): StepStatus {
 
 function normalizeWorkflowStatus(status?: string): WorkflowStatus {
   switch (status) {
+    case 'queued':
     case 'starting':
     case 'running':
     case 'cancelling':
@@ -149,6 +157,37 @@ function normalizeWorkflowStatus(status?: string): WorkflowStatus {
       return status
     default:
       return 'completed'
+  }
+}
+
+function getQueueStateFromRun(run: RuntimeWorkflowRun) {
+  if (typeof run.queue_position === 'number' || typeof run.blocking_execution_count === 'number' || typeof run.queue_message === 'string') {
+    return {
+      queuePosition: typeof run.queue_position === 'number' ? run.queue_position : undefined,
+      blockingExecutionCount: typeof run.blocking_execution_count === 'number' ? run.blocking_execution_count : undefined,
+      queueMessage: typeof run.queue_message === 'string' ? run.queue_message : undefined,
+    }
+  }
+
+  const events = Array.isArray(run.events_payload) ? run.events_payload : []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const entry = events[index]
+    if (entry?.event === 'queued' || entry?.event === 'queue_status') {
+      return {
+        queuePosition: typeof entry.data?.queue_position === 'number' ? entry.data.queue_position : undefined,
+        blockingExecutionCount: typeof entry.data?.blocking_execution_count === 'number' ? entry.data.blocking_execution_count : undefined,
+        queueMessage: typeof entry.data?.message === 'string' ? entry.data.message : undefined,
+      }
+    }
+    if (entry?.event === 'run_started' || entry?.event === 'complete' || entry?.event === 'run_completed' || entry?.event === 'run_failed' || entry?.event === 'error' || entry?.event === 'cancelled') {
+      break
+    }
+  }
+
+  return {
+    queuePosition: undefined,
+    blockingExecutionCount: undefined,
+    queueMessage: undefined,
   }
 }
 
@@ -252,6 +291,7 @@ function mapRuntimeRunToExecution(run: RuntimeWorkflowRun): WorkflowExecution {
   const actionNodes = artifacts
     .map(buildActionNodeFromArtifact)
     .filter((item): item is ActionNode => Boolean(item))
+  const queueState = getQueueStateFromRun(run)
   const requestAccountIds = Array.from(new Set([
     ...(typeof run.request?.account_id === 'string' ? [run.request.account_id] : []),
     ...Object.values(run.request?.platform_account_ids || {}).filter((value): value is string => typeof value === 'string' && Boolean(value.trim())),
@@ -274,6 +314,9 @@ function mapRuntimeRunToExecution(run: RuntimeWorkflowRun): WorkflowExecution {
     currentPlatform: run.current_platform?.platform_name,
     currentPlatformIndex: run.current_platform?.platform_index,
     totalPlatforms: run.current_platform?.total_platforms,
+    queuePosition: queueState.queuePosition,
+    blockingExecutionCount: queueState.blockingExecutionCount,
+    queueMessage: queueState.queueMessage,
   }
 }
 
@@ -332,6 +375,17 @@ function bindWorkflowSubscription(
   }
 
   _unsubscribeSSE.set(executionId, subscribeWorkflow(executionId, {
+    onRunStarted: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        status: execution.status === 'cancelling' ? 'cancelling' : 'running',
+        workflowName: data.workflow_name || execution.workflowName,
+        queuePosition: undefined,
+        blockingExecutionCount: undefined,
+        queueMessage: undefined,
+      }))
+    },
+
     onWorkflowMeta: (data) => {
       updateExecution((execution) => ({
         ...execution,
@@ -347,6 +401,26 @@ function bindWorkflowSubscription(
       }))
     },
 
+    onQueued: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        status: 'queued',
+        queuePosition: data.queue_position,
+        blockingExecutionCount: data.blocking_execution_count,
+        queueMessage: data.message,
+      }))
+    },
+
+    onQueueStatus: (data) => {
+      updateExecution((execution) => ({
+        ...execution,
+        status: 'queued',
+        queuePosition: data.queue_position,
+        blockingExecutionCount: data.blocking_execution_count,
+        queueMessage: data.message,
+      }))
+    },
+
     onStepChange: (data) => {
       updateExecution((execution) => {
         const steps = execution.steps.map((step) =>
@@ -358,6 +432,9 @@ function bindWorkflowSubscription(
         return {
           ...execution,
           status: data.status === 'failed' ? 'failed' : execution.status === 'cancelling' ? 'cancelling' : 'running',
+          queuePosition: undefined,
+          blockingExecutionCount: undefined,
+          queueMessage: undefined,
           steps,
           currentStepIndex: data.step_index ?? execution.currentStepIndex,
           totalSteps: data.total_steps ?? execution.totalSteps,
@@ -409,6 +486,9 @@ function bindWorkflowSubscription(
           status: 'completed',
           result: data,
           error: undefined,
+          queuePosition: undefined,
+          blockingExecutionCount: undefined,
+          queueMessage: undefined,
           actionNodes: [...execution.actionNodes, ...completionNodes],
         }
       })
@@ -420,6 +500,9 @@ function bindWorkflowSubscription(
         ...execution,
         status: 'failed',
         error: data.message,
+        queuePosition: undefined,
+        blockingExecutionCount: undefined,
+        queueMessage: undefined,
       }))
       cleanupSSE(executionId)
     },
@@ -438,6 +521,9 @@ function bindWorkflowSubscription(
         ...execution,
         status: 'cancelled',
         error: undefined,
+        queuePosition: undefined,
+        blockingExecutionCount: undefined,
+        queueMessage: undefined,
         steps: execution.steps.map((step) =>
           step.status === 'running' ? {...step, status: 'failed', error: _cancelledStepError} : step,
         ),
@@ -565,7 +651,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
     for (const entry of restoredEntries) {
       if (!entry?.execution) continue
-      if (entry.execution.status === 'starting' || entry.execution.status === 'running' || entry.execution.status === 'cancelling') {
+      if (entry.execution.status === 'queued' || entry.execution.status === 'starting' || entry.execution.status === 'running' || entry.execution.status === 'cancelling') {
         bindWorkflowSubscription(entry.executionId, set, get)
       }
     }
@@ -575,13 +661,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     const {data: sessionData} = await supabase.auth.getSession()
     const authToken = sessionData?.session?.access_token
     const reqWithAuth: WorkflowStartRequest = authToken ? {...req, supabase_auth_token: authToken} : req
-    const executionId = await apiStartWorkflow(reqWithAuth)
+    const response = await apiStartWorkflow(reqWithAuth)
+    const executionId = response.execution_id
 
     const optimisticExecution: WorkflowExecution = {
       executionId,
       workflowId: req.workflow_id,
       workflowName: req.workflow_id,
-      status: 'running',
+      status: normalizeWorkflowStatus(response.status),
       accountIds: Array.from(new Set([
         ...(typeof req.account_id === 'string' ? [req.account_id] : []),
         ...Object.values(req.platform_account_ids || {}).filter((value): value is string => typeof value === 'string' && Boolean(value.trim())),
@@ -591,6 +678,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       totalSteps: 0,
       accumulatedText: '',
       actionNodes: [],
+      queuePosition: response.queued ? response.queue_position : undefined,
+      blockingExecutionCount: response.queued ? response.blocking_execution_count : undefined,
+      queueMessage: response.queued ? response.message : undefined,
     }
 
     setAndPersist(set, get, (state) => ({
@@ -608,6 +698,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   cancelWorkflow: (executionId) => {
     const execution = get().executions[executionId]
     if (!execution) return
+    const rollbackStatus = execution.status === 'queued'
+      ? 'queued'
+      : execution.status === 'starting'
+        ? 'starting'
+        : 'running'
 
     setAndPersist(set, get, (state) => {
       const current = state.executions[executionId]
@@ -635,7 +730,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             ...state.executions,
             [executionId]: {
               ...current,
-              status: 'running',
+              status: rollbackStatus,
               error: '取消请求失败，请稍后刷新确认状态。',
             },
           },
