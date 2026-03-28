@@ -68,7 +68,6 @@ def build_search_candidates_prompt(state: dict) -> str:
 【搜索岗位要求】
 - 职位名称：{state.get("job_title", "")}
 - 工作地点：{state.get("job_location", "不限")}
-- 所属部门：{state.get("job_department", "")}
 
 【任职要求】
 {state.get("job_requirements", "")}
@@ -78,7 +77,7 @@ def build_search_candidates_prompt(state: dict) -> str:
 
 【本步骤要求】
 1. 进入{state.get("platform", "")}的人才搜索/简历搜索页面
-2. 根据岗位要求设置搜索关键词和筛选条件
+2. 根据岗位要求设置搜索关键词和筛选条件，职位名称可设置近似词，工作地点严格按照中国地市名称。
 3. 浏览搜索结果页面
 4. {shot}
 
