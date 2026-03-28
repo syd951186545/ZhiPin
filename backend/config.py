@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     session_encryption_key: str = ""
 
     # Server
-    host: str
-    port: int
-    debug: bool
+    host: str = "0.0.0.0"
+    port: int = 8000
+    debug: bool = False
 
     # CORS: 逗号分隔的允许源列表，"*" 表示允许所有
     # Docker 部署时前端通过 nginx 同源访问，设为 "*" 即可

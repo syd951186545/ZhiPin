@@ -142,9 +142,6 @@ prepare_artifacts() {
     [ -f "$ENV_FILE" ] || error "配置源不存在: $ENV_FILE"
 
     ensure_env_value "SUPABASE_SERVICE_KEY" ""
-    ensure_env_value "HOST" "0.0.0.0"
-    ensure_env_value "PORT" "8000"
-    ensure_env_value "DEBUG" "false"
     ensure_env_value "CORS_ORIGINS" "*"
     ensure_env_value "EXPOSE_PORT" "80"
     ensure_env_value "OPENCLAW_TZ" "Asia/Shanghai"
@@ -231,9 +228,6 @@ backend = {
     'OPENCLAW_BROWSER_BASE_URL': os.environ['OPENCLAW_BROWSER_BASE_URL'],
     'OPENCLAW_AUTH_TOKEN': os.environ['OPENCLAW_AUTH_TOKEN'],
     'OPENCLAW_AGENT_ID': os.environ['OPENCLAW_AGENT_ID'],
-    'HOST': os.environ['HOST'],
-    'PORT': os.environ['PORT'],
-    'DEBUG': os.environ['DEBUG'],
     'CORS_ORIGINS': os.environ['CORS_ORIGINS'],
     'OPENCLAW_HOME_MOUNT': '/opt/openclaw-home',
     'OPENCLAW_MEDIA_MOUNT': '/opt/openclaw-home/.openclaw/media',

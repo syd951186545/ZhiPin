@@ -9,6 +9,7 @@
 - `deploy/.env.production` 中的配置与密钥会在构建阶段写入镜像
 - OpenClaw 运行态数据保存在 Docker volume `/opt/openclaw-home`
 - 部署统一入口是 `deploy/deploy.sh`，支持 `prepare` / `build` / `recreate` / `all`
+- 后端 `HOST/PORT/DEBUG` 已内置默认值（`0.0.0.0/8000/false`），部署链路不再要求在 `deploy/.env.production` 或 `backend/.env.production` 显式配置这三项
 
 关键事实：
   - 仅在本地开发代码和单元测试，仅在服务器中执行启动和集成测试。
@@ -42,6 +43,8 @@
 - `backend/.env.production`
 - `backend/backend-run.log`
 - `backend/backend-err.log`
+补充说明：
+- `backend/main.py` 仍会读取 `settings.host/settings.port/settings.debug` 启动 Uvicorn，但这些值现在默认来自 `backend/config.py`，除非调试需要，一般无需在部署配置中覆盖
 
 ### OpenClaw
 - 前端若访问 `/api/openclaw/*`，看后端代理层
@@ -63,5 +66,4 @@
 2. 检查前端登录态和用户 JWT 是否存在
 3. 检查后端 `validate_supabase_user` 是否通过
 4. 再检查对应表结构与 RLS / 迁移是否匹配
-
 
