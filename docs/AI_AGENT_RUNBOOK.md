@@ -14,14 +14,14 @@
   - 仅在本地开发代码和单元测试，仅在服务器中执行启动和集成测试。
   - 服务器中不对外暴露 OpenClaw 端口；如需调试，SSH 到服务器后 `docker exec` 进入 `backopenclaw` 容器
 
-### 代码更新完成后的调试步骤
-  1. 若有数据库迁移，连接supabase更新数据库迁移
+### 集成测试步骤
+  1. 若有数据库迁移，本地连接supabase更新数据库迁移
   - 迁移目录：`supabase/migrations/`
   - 辅助脚本：
     - `deploy/migrate.sh`
     - `deploy/execute_sql.py`
     - `deploy/execute_sql.js`
-  2. 同步本地变更的项目文件到服务器`~/projectworkspace/` 保持服务器文件与本地一致
+  2. 同步本地变更的项目文件到服务器`~/projectworkspace/` 保持服务器文件与本地一致，冲突文件以开发服为准
   3. 若`deploy/.env.production`有更新，在服务器上重新生成镜像并重启动容器，否则使用docker热更新容器
   4. 访问 `http://192.168.3.215`进入前段网页，使用/browser skill 或者playwright进行集成测试
 ### 远端宿主机与局域网资源
@@ -34,11 +34,6 @@
 ## 3. 常见联调入口
 
 ### 前后端
-- 前端页面入口：`frontend/src/pages/`
-- 工作流 API 客户端：`frontend/src/services/workflowService.ts`
-- 后端工作流路由：`backend/routers/workflow.py`
-- Vite 配置文件：`frontend/vite.config.ts`
-- 环境文件：`frontend/.env.production`
 - 开发态所有 `/api/*` 请求都会代理到 `http://localhost:8000`
 后端会在启动时输出：
 - `OpenClaw: ...`
