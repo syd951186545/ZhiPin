@@ -1,6 +1,6 @@
 import React, {type FormEvent, useState} from 'react';
 import {Link, useNavigate} from 'react-router-dom';
-import {LogIn} from 'lucide-react';
+import {Eye, EyeOff, LogIn} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
@@ -17,6 +17,7 @@ export default function Login() {
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -56,7 +57,11 @@ export default function Login() {
             type="email"
             placeholder={t('login.emailPlaceholder')}
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => { e.target.setCustomValidity(''); setEmail(e.target.value); }}
+            onInvalid={(e) => {
+              const el = e.target as HTMLInputElement;
+              el.setCustomValidity(el.validity.valueMissing ? t('validation.emailRequired') : t('validation.emailInvalid'));
+            }}
             required
             autoComplete="email"
             className="h-11 bg-white/80 text-base"
@@ -67,16 +72,30 @@ export default function Login() {
           <Label htmlFor="password" className="text-sm font-medium text-foreground/80">
             {t('login.password')}
           </Label>
-          <Input
-            id="password"
-            type="password"
-            placeholder={t('login.passwordPlaceholder')}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-            className="h-11 bg-white/80 text-base"
-          />
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              placeholder={t('login.passwordPlaceholder')}
+              value={password}
+              onChange={(e) => { e.target.setCustomValidity(''); setPassword(e.target.value); }}
+              onInvalid={(e) => {
+                (e.target as HTMLInputElement).setCustomValidity(t('validation.passwordRequired'));
+              }}
+              required
+              autoComplete="current-password"
+              className="h-11 bg-white/80 pr-10 text-base"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+              tabIndex={-1}
+              aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
 
         <label htmlFor="remember" className="flex cursor-pointer items-center gap-2.5">

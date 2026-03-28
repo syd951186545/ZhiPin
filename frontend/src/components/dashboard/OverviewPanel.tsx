@@ -35,39 +35,60 @@ function formatActivityAction(action: string): string {
   return TASK_TYPE[action as keyof typeof TASK_TYPE] || action;
 }
 
-function formatActivityDetail(action: string, details: Record<string, unknown> | null): string {
+const PLATFORM_LABELS: Record<string, string> = {
+  boss_zhipin: 'BOSS直聘',
+  '58': '58同城',
+  liepin: '猎聘',
+  zhilian: '智联招聘',
+  '51job': '前程无忧',
+  lagou: '拉勾招聘',
+}
+
+function formatActivityDetail(action: string, details: Record<string, unknown> | null, isZh: boolean): string {
   if (!details) return '';
+  const platform = PLATFORM_LABELS[details.platform as string] || String(details.platform || '');
   switch (action) {
     case 'auto_publish':
-      return `「${details.job_title}」已发布到${details.platform === 'boss_zhipin' ? 'BOSS直聘' : details.platform === '58' ? '58同城' : details.platform}`;
+      return isZh
+        ? `「${details.job_title}」已发布到${platform}`
+        : `"${details.job_title}" published to ${platform}`;
     case 'resume_screen':
-      if (details.screened) return `筛选了${details.screened}份简历，推荐${details.recommended}位候选人`;
-      if (details.candidate) return `「${details.job_title}」收到新简历，AI评${details.score}分`;
-      return `筛选「${details.job_title}」简历`;
+      if (details.screened) return isZh
+        ? `筛选了${details.screened}份简历，推荐${details.recommended}位候选人`
+        : `Screened ${details.screened} resumes, recommended ${details.recommended} candidates`;
+      if (details.candidate) return isZh
+        ? `「${details.job_title}」收到新简历，AI评${details.score}分`
+        : `"${details.job_title}" new resume received, AI score: ${details.score}`;
+      return isZh ? `筛选「${details.job_title}」简历` : `Screening resumes for "${details.job_title}"`;
     case 'auto_source':
-      return `在${details.platform === '58' ? '58同城' : details.platform}发现${details.candidates_found}位匹配的候选人`;
+      return isZh
+        ? `在${platform}发现${details.candidates_found}位匹配的候选人`
+        : `Found ${details.candidates_found} matching candidates on ${platform}`;
     case 'auto_reply':
-      return `向${details.count}位候选人发送了${details.action}`;
+      return isZh
+        ? `向${details.count}位候选人发送了${details.action}`
+        : `Sent ${details.action} to ${details.count} candidates`;
     default:
       return JSON.stringify(details);
   }
 }
 
-function formatTimeAgo(dateStr: string): string {
+function formatTimeAgo(dateStr: string, isZh: boolean): string {
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return '刚刚';
-  if (diffMins < 60) return `${diffMins}分钟前`;
+  if (diffMins < 1) return isZh ? '刚刚' : 'just now';
+  if (diffMins < 60) return isZh ? `${diffMins}分钟前` : `${diffMins}m ago`;
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}小时前`;
+  if (diffHours < 24) return isZh ? `${diffHours}小时前` : `${diffHours}h ago`;
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}天前`;
+  return isZh ? `${diffDays}天前` : `${diffDays}d ago`;
 }
 
 export default function OverviewPanel() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const isZh = lang === 'zh';
   const { stats, loading } = useDashboardStats();
   const { activities, loading: activitiesLoading } = useActivityLogs(6);
 
@@ -144,8 +165,8 @@ export default function OverviewPanel() {
                     <XAxis dataKey="date" className="text-xs" tick={{ fill: 'var(--muted-foreground)' }} />
                     <YAxis className="text-xs" tick={{ fill: 'var(--muted-foreground)' }} />
                     <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--popover-foreground)' }} />
-                    <Area type="monotone" dataKey="views" stroke="var(--primary)" fill="url(#viewsGradient)" strokeWidth={2} name="浏览量" />
-                    <Area type="monotone" dataKey="applicants" stroke={SUCCESS_COLOR} fill="url(#applicantsGradient)" strokeWidth={2} name="申请量" />
+                    <Area type="monotone" dataKey="views" stroke="var(--primary)" fill="url(#viewsGradient)" strokeWidth={2} name={t('activity.chart.views')} />
+                    <Area type="monotone" dataKey="applicants" stroke={SUCCESS_COLOR} fill="url(#applicantsGradient)" strokeWidth={2} name={t('activity.chart.applicants')} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -177,14 +198,14 @@ export default function OverviewPanel() {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-tight">{formatActivityAction(activity.action)}</p>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {formatActivityDetail(activity.action, activity.details as Record<string, unknown> | null)}
+                          {formatActivityDetail(activity.action, activity.details as Record<string, unknown> | null, isZh)}
                         </p>
-                        <p className="text-xs text-muted-foreground/60 mt-0.5">{formatTimeAgo(activity.created_at)}</p>
+                        <p className="text-xs text-muted-foreground/60 mt-0.5">{formatTimeAgo(activity.created_at, isZh)}</p>
                       </div>
                     </div>
                   ))}
                   {activities.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">暂无动态</p>
+                    <p className="text-sm text-muted-foreground text-center py-4">{t('activity.empty')}</p>
                   )}
                 </div>
               )}

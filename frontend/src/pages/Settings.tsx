@@ -284,9 +284,12 @@ export default function Settings() {
     }
 
     setServerLoading(true)
+    const abortController = new AbortController()
+    const timeoutId = setTimeout(() => abortController.abort(), 12000)
     try {
       const headers = await getAuthHeaders()
-      const res = await fetch('/api/settings/openclaw', {headers})
+      const res = await fetch('/api/settings/openclaw', {headers, signal: abortController.signal})
+      clearTimeout(timeoutId)
       const data = await readApiPayload(res)
       if (!res.ok) throw new Error(String(data.detail || `加载 AI 配置失败（${res.status}）`))
       _openclawConfigCache = data as ServerConfig
@@ -298,10 +301,12 @@ export default function Settings() {
       setSaveStatus('idle')
       setSaveMessage('')
     } catch (error) {
+      clearTimeout(timeoutId)
+      const isTimeout = error instanceof Error && error.name === 'AbortError'
       console.warn('获取 AI 配置失败:', error)
       setServerConfig(null)
       setSaveStatus('error')
-      setSaveMessage(error instanceof Error ? error.message : '加载 AI 配置失败')
+      setSaveMessage(isTimeout ? 'OpenClaw 服务响应超时，请检查服务是否正在运行' : (error instanceof Error ? error.message : '加载 AI 配置失败'))
     } finally {
       setServerLoading(false)
     }

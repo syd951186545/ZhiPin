@@ -220,7 +220,7 @@ function SidebarContent({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-4 py-5">
-        <div className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">业务导航</div>
+        <div className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">{t('nav.section.business')}</div>
 
         <div className="space-y-2">
           <NavLink to="/" end onClick={onNavigate} className={({isActive}) => navLinkClass(isActive)}>
@@ -301,8 +301,8 @@ function SidebarContent({
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">{user?.name || '未命名用户'}</p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{user?.email || '暂无邮箱'}</p>
+              <p className="truncate text-sm font-medium text-foreground">{user?.name || t('nav.user.unnamed')}</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{user?.email || t('nav.user.noEmail')}</p>
             </div>
           </div>
           <Button

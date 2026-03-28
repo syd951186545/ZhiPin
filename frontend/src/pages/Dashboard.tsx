@@ -54,7 +54,7 @@ function toneClass(tone: PipelineItem['tone']) {
 }
 
 export default function Dashboard() {
-  const {lang} = useI18n()
+  const {lang, t} = useI18n()
   const isZh = lang === 'zh'
   const {tasks, loading: tasksLoading} = useAutomationTasks()
 
@@ -368,7 +368,7 @@ export default function Dashboard() {
                   const displayTime = task.completed_at || task.started_at || task.created_at
                   const platformLabel = task.platform
                     ? PLATFORMS[task.platform as keyof typeof PLATFORMS]?.name || task.platform
-                    : '系统任务'
+                    : t('activity.systemTask')
 
                   return (
                     <div
@@ -386,7 +386,7 @@ export default function Dashboard() {
                           </span>
                         </div>
                         <p className="mt-1 text-xs text-[#6a747c]">
-                          {platformLabel} · {new Date(displayTime).toLocaleString('zh-CN', {
+                          {platformLabel} · {new Date(displayTime).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
                             month: '2-digit',
                             day: '2-digit',
                             hour: '2-digit',

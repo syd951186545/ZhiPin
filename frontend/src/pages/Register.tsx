@@ -1,6 +1,6 @@
 import React, {type FormEvent, useState} from 'react';
 import {Link, useNavigate} from 'react-router-dom';
-import {UserPlus} from 'lucide-react';
+import {Eye, EyeOff, UserPlus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
@@ -8,7 +8,7 @@ import {useAuth} from '@/contexts/AuthContext';
 import {useI18n} from '@/contexts/I18nContext';
 
 export default function Register() {
-  const { register, loading } = useAuth();
+  const { register } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
 
@@ -18,6 +18,9 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -28,11 +31,14 @@ export default function Register() {
       return;
     }
 
+    setSubmitting(true);
     try {
       await register(email, password, name, companyName);
       navigate('/');
     } catch {
       setError(t('register.error'));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -65,7 +71,8 @@ export default function Register() {
             type="text"
             placeholder={t('register.companyNamePlaceholder')}
             value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
+            onChange={(e) => { e.target.setCustomValidity(''); setCompanyName(e.target.value); }}
+            onInvalid={(e) => { (e.target as HTMLInputElement).setCustomValidity(t('validation.fieldRequired')); }}
             required
             className="h-11 bg-white/80 text-base"
           />
@@ -80,7 +87,8 @@ export default function Register() {
             type="text"
             placeholder={t('register.namePlaceholder')}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { e.target.setCustomValidity(''); setName(e.target.value); }}
+            onInvalid={(e) => { (e.target as HTMLInputElement).setCustomValidity(t('validation.fieldRequired')); }}
             required
             className="h-11 bg-white/80 text-base"
           />
@@ -95,7 +103,11 @@ export default function Register() {
             type="email"
             placeholder={t('register.emailPlaceholder')}
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => { e.target.setCustomValidity(''); setEmail(e.target.value); }}
+            onInvalid={(e) => {
+              const el = e.target as HTMLInputElement;
+              el.setCustomValidity(el.validity.valueMissing ? t('validation.emailRequired') : t('validation.emailInvalid'));
+            }}
             required
             autoComplete="email"
             className="h-11 bg-white/80 text-base"
@@ -106,39 +118,69 @@ export default function Register() {
           <Label htmlFor="reg-password" className="text-sm font-medium text-foreground/80">
             {t('register.password')}
           </Label>
-          <Input
-            id="reg-password"
-            type="password"
-            placeholder={t('register.passwordPlaceholder')}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-            autoComplete="new-password"
-            className="h-11 bg-white/80 text-base"
-          />
+          <div className="relative">
+            <Input
+              id="reg-password"
+              type={showPassword ? 'text' : 'password'}
+              placeholder={t('register.passwordPlaceholder')}
+              value={password}
+              onChange={(e) => { e.target.setCustomValidity(''); setPassword(e.target.value); }}
+              onInvalid={(e) => {
+                const el = e.target as HTMLInputElement;
+                el.setCustomValidity(el.validity.valueMissing ? t('validation.passwordRequired') : t('validation.passwordMinLength'));
+              }}
+              required
+              minLength={6}
+              autoComplete="new-password"
+              className="h-11 bg-white/80 pr-10 text-base"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+              tabIndex={-1}
+              aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="confirmPassword" className="text-sm font-medium text-foreground/80">
             {t('register.confirmPassword')}
           </Label>
-          <Input
-            id="confirmPassword"
-            type="password"
-            placeholder={t('register.confirmPasswordPlaceholder')}
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            minLength={6}
-            autoComplete="new-password"
-            className="h-11 bg-white/80 text-base"
-          />
+          <div className="relative">
+            <Input
+              id="confirmPassword"
+              type={showConfirmPassword ? 'text' : 'password'}
+              placeholder={t('register.confirmPasswordPlaceholder')}
+              value={confirmPassword}
+              onChange={(e) => { e.target.setCustomValidity(''); setConfirmPassword(e.target.value); }}
+              onInvalid={(e) => {
+                const el = e.target as HTMLInputElement;
+                el.setCustomValidity(el.validity.valueMissing ? t('validation.passwordRequired') : t('validation.passwordMinLength'));
+              }}
+              required
+              minLength={6}
+              autoComplete="new-password"
+              className="h-11 bg-white/80 pr-10 text-base"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword((v) => !v)}
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+              tabIndex={-1}
+              aria-label={showConfirmPassword ? t('login.hidePassword') : t('login.showPassword')}
+            >
+              {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
 
         <div className="pt-1">
-          <Button type="submit" className="h-11 w-full text-base" disabled={loading}>
-            {loading ? (
+          <Button type="submit" className="h-11 w-full text-base" disabled={submitting}>
+            {submitting ? (
               t('register.loading')
             ) : (
               <>

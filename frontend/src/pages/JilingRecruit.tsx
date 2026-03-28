@@ -23,6 +23,7 @@ import PlatformActionDialog from '@/components/settings/PlatformActionDialog'
 import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
 import TaskMonitorPanel from '@/components/dashboard/TaskMonitorPanel'
 import {useAuth} from '@/contexts/AuthContext'
+import {useI18n, type TranslationKey} from '@/contexts/I18nContext'
 import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
 import {PLATFORMS} from '@/lib/constants'
 import {supabase} from '@/lib/supabase'
@@ -115,6 +116,12 @@ const WORKFLOW_CARDS: Array<{
   {id: 'talent_explore', title: '市场人才探索', desc: '进入人才库主动搜索、筛选并沟通匹配候选人。', icon: Search, multiPlatform: false},
   {id: 'resume_screen', title: '简历筛选及AI沟通', desc: '多平台依次复用默认账号，AI 自动筛选简历并沟通。', icon: FileSearch, multiPlatform: true},
 ]
+
+const WORKFLOW_I18N_KEYS: Record<WorkflowId, {title: TranslationKey; desc: TranslationKey}> = {
+  publish_job:    {title: 'recruit.workflow.publishJob.title',    desc: 'recruit.workflow.publishJob.desc'},
+  talent_explore: {title: 'recruit.workflow.talentExplore.title', desc: 'recruit.workflow.talentExplore.desc'},
+  resume_screen:  {title: 'recruit.workflow.resumeScreen.title',  desc: 'recruit.workflow.resumeScreen.desc'},
+}
 
 /* ── status helpers ────────────────────────────────────────── */
 
@@ -593,6 +600,7 @@ function ExecutionScreenshotCard({node, onPreview}: {node: ActionNode; onPreview
 /* ── main component ────────────────────────────────────────── */
 
 export default function JilingRecruit() {
+  const { t } = useI18n()
   const {user} = useAuth()
   const {catalog, accounts, loading: accountsLoading, startVerify, startUnbind, deleteAccount, load: reloadPlatformAccounts} = usePlatformAccounts()
   const {platformConfigs, companyProfile, updatePlatformConfig} = useSettingsStore()
@@ -657,12 +665,12 @@ export default function JilingRecruit() {
   )
   const workflowCards = useMemo(() => WORKFLOW_CARDS.map((card) => ({
     ...card,
-    title: workflowTemplateMap[card.id]?.title || card.title,
-    desc: workflowTemplateMap[card.id]?.description || card.desc,
+    title: workflowTemplateMap[card.id]?.title || t(WORKFLOW_I18N_KEYS[card.id].title),
+    desc: workflowTemplateMap[card.id]?.description || t(WORKFLOW_I18N_KEYS[card.id].desc),
     multiPlatform: workflowTemplateMap[card.id]?.multi_platform ?? card.multiPlatform,
     executionMode: workflowTemplateMap[card.id]?.execution_mode || 'auto_submit',
     screenshotMode: workflowTemplateMap[card.id]?.screenshot_mode || 'direct_url',
-  })), [workflowTemplateMap])
+  })), [workflowTemplateMap, t])
   const selectedPlatformCatalog = useMemo(
     () => catalog.find((item) => item.key === selectedPlatform) || null,
     [catalog, selectedPlatform],
@@ -1409,10 +1417,10 @@ export default function JilingRecruit() {
       {/* ── Tabs ── */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6" data-testid="jiling-recruit-tabs">
         <TabsList className="h-10 bg-muted/50 p-1">
-          <TabsTrigger value="execute" className="gap-1.5 data-[state=active]:shadow-sm" data-testid="tab-execute"><Play className="h-3.5 w-3.5"/>招聘执行</TabsTrigger>
-          <TabsTrigger value="candidates" className="gap-1.5 data-[state=active]:shadow-sm"><FileSearch className="h-3.5 w-3.5"/>候选人</TabsTrigger>
-          <TabsTrigger value="platform-config" className="gap-1.5 data-[state=active]:shadow-sm" data-testid="tab-platform-config"><LinkIcon className="h-3.5 w-3.5"/>平台和账号配置</TabsTrigger>
-          <TabsTrigger value="jobs" className="gap-1.5 data-[state=active]:shadow-sm"><Cpu className="h-3.5 w-3.5"/>岗位管理</TabsTrigger>
+          <TabsTrigger value="execute" className="gap-1.5 data-[state=active]:shadow-sm" data-testid="tab-execute"><Play className="h-3.5 w-3.5"/>{t('recruit.tab.execute')}</TabsTrigger>
+          <TabsTrigger value="candidates" className="gap-1.5 data-[state=active]:shadow-sm"><FileSearch className="h-3.5 w-3.5"/>{t('recruit.tab.candidates')}</TabsTrigger>
+          <TabsTrigger value="platform-config" className="gap-1.5 data-[state=active]:shadow-sm" data-testid="tab-platform-config"><LinkIcon className="h-3.5 w-3.5"/>{t('recruit.tab.platformConfig')}</TabsTrigger>
+          <TabsTrigger value="jobs" className="gap-1.5 data-[state=active]:shadow-sm"><Cpu className="h-3.5 w-3.5"/>{t('recruit.tab.jobs')}</TabsTrigger>
         </TabsList>
 
         {/* ── Platform & Account Config Tab ── */}
@@ -1452,8 +1460,8 @@ export default function JilingRecruit() {
 
         <Tabs value={platformConfigSection} onValueChange={(value) => setPlatformConfigSection(value as PlatformConfigSection)} className="space-y-5">
           <TabsList className="h-10 bg-muted/50 p-1">
-            <TabsTrigger value="assets" className="gap-1.5 data-[state=active]:shadow-sm">平台账号资产</TabsTrigger>
-            <TabsTrigger value="presets" className="gap-1.5 data-[state=active]:shadow-sm">全局执行预设</TabsTrigger>
+            <TabsTrigger value="assets" className="gap-1.5 data-[state=active]:shadow-sm">{t('recruit.tab.assets')}</TabsTrigger>
+            <TabsTrigger value="presets" className="gap-1.5 data-[state=active]:shadow-sm">{t('recruit.tab.presets')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="assets" className="mt-0 space-y-5">

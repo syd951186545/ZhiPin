@@ -70,51 +70,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string) => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
 
-      if (data.user) {
-        const profile = await fetchProfile(data.user.id);
-        setUser({
-          id: data.user.id,
-          name: profile?.full_name || data.user.user_metadata?.full_name || email.split('@')[0],
-          email: data.user.email || email,
-          tenantId: profile?.tenant_id,
-          role: profile?.role,
-        });
-      }
-    } finally {
-      setLoading(false);
+    if (data.user) {
+      const profile = await fetchProfile(data.user.id);
+      setUser({
+        id: data.user.id,
+        name: profile?.full_name || data.user.user_metadata?.full_name || email.split('@')[0],
+        email: data.user.email || email,
+        tenantId: profile?.tenant_id,
+        role: profile?.role,
+      });
     }
   };
 
   const register = async (email: string, password: string, name: string, companyName: string) => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: name, company_name: companyName } },
-      });
-      if (error) throw error;
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name, company_name: companyName } },
+    });
+    if (error) throw error;
 
-      // Only set user if email is auto-confirmed (no email verification step)
-      if (data.user && data.session) {
-        // The handle_new_user DB trigger creates profile + tenant synchronously,
-        // so fetching the profile here should succeed immediately.
-        const profile = await fetchProfile(data.user.id);
-        setUser({
-          id: data.user.id,
-          name: name,
-          email: data.user.email || email,
-          tenantId: profile?.tenant_id,
-          role: profile?.role,
-        });
-      }
-    } finally {
-      setLoading(false);
+    // Only set user if email is auto-confirmed (no email verification step)
+    if (data.user && data.session) {
+      // The handle_new_user DB trigger creates profile + tenant synchronously,
+      // so fetching the profile here should succeed immediately.
+      const profile = await fetchProfile(data.user.id);
+      setUser({
+        id: data.user.id,
+        name: name,
+        email: data.user.email || email,
+        tenantId: profile?.tenant_id,
+        role: profile?.role,
+      });
     }
   };
 

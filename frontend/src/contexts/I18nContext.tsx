@@ -6,7 +6,7 @@ type Language = 'zh' | 'en';
 
 const translations = { zh, en };
 
-type TranslationKey = keyof typeof zh;
+export type TranslationKey = keyof typeof zh;
 
 type I18nContextType = {
   lang: Language;
