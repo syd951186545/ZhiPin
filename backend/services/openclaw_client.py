@@ -34,6 +34,7 @@ BROWSER_STATUS_TIMEOUT = 5.0
 BROWSER_READY_TIMEOUT = 45.0
 GATEWAY_RESTART_TIMEOUT = 30.0
 HOST_BROWSER_START_TIMEOUT = 15.0
+HOST_BROWSER_CDP_READY_TIMEOUT = 5.0
 HOST_BROWSER_RESTORE_RETRIES = 3
 HOST_BROWSER_SCREENSHOT_RETRIES = 3
 HOST_BROWSER_PROFILE = "openclaw"
@@ -577,6 +578,39 @@ class OpenClawClient:
 
         return last_status
 
+    async def _wait_for_running_host_browser_ready(
+        self,
+        *,
+        profile: str,
+        status_snapshot: dict[str, Any] | None = None,
+        timeout: float = HOST_BROWSER_CDP_READY_TIMEOUT,
+    ) -> BrowserReadyResult:
+        current_snapshot = dict(status_snapshot or {})
+        if current_snapshot.get("running") is not True:
+            return BrowserReadyResult(
+                ready=False,
+                detail="OpenClaw host browser 尚未启动，系统将尝试自动拉起",
+                http_status=503,
+                status_snapshot=current_snapshot,
+            )
+
+        deadline = asyncio.get_running_loop().time() + timeout
+        last_status = BrowserReadyResult(
+            ready=False,
+            detail="OpenClaw host browser 正在准备 CDP 连接，请稍后重试",
+            http_status=503,
+            status_snapshot=current_snapshot,
+        )
+        while asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(1)
+            last_status = await self._fetch_host_browser_status(profile=profile)
+            if last_status.ready:
+                return last_status
+            if (last_status.status_snapshot or {}).get("running") is not True:
+                return last_status
+
+        return last_status
+
     async def _restore_storage_state_to_host_browser(
         self,
         *,
@@ -657,15 +691,33 @@ class OpenClawClient:
                 if not pages:
                     raise RuntimeError("host browser 未暴露可用 page")
 
-                page = next(
-                    (
-                        candidate
-                        for candidate in reversed(pages)
-                        if str(getattr(candidate, "url", "") or "").strip()
-                        and str(getattr(candidate, "url", "") or "").strip() != "about:blank"
-                    ),
-                    pages[-1],
-                )
+                page = pages[-1]
+                ranked_pages: list[tuple[int, Any]] = []
+                for index, candidate in enumerate(pages):
+                    url = str(getattr(candidate, "url", "") or "").strip()
+                    if not url or url == "about:blank":
+                        continue
+
+                    score = index
+                    with contextlib.suppress(Exception):
+                        meta = await candidate.evaluate(
+                            """() => ({
+                                visibilityState: document.visibilityState || "",
+                                hasFocus: typeof document.hasFocus === "function" ? document.hasFocus() : false,
+                                title: document.title || ""
+                            })"""
+                        ) or {}
+                        if meta.get("visibilityState") == "visible":
+                            score += 100
+                        if meta.get("hasFocus"):
+                            score += 200
+                        if meta.get("title"):
+                            score += 1
+                    ranked_pages.append((score, candidate))
+
+                if ranked_pages:
+                    ranked_pages.sort(key=lambda item: item[0])
+                    page = ranked_pages[-1][1]
 
                 with contextlib.suppress(Exception):
                     await page.bring_to_front()
@@ -837,6 +889,11 @@ class OpenClawClient:
             if not profile_result.ready:
                 return profile_result
             status_result = await self._fetch_host_browser_status(profile=resolved_profile)
+        if not status_result.ready and (status_result.status_snapshot or {}).get("running") is True:
+            status_result = await self._wait_for_running_host_browser_ready(
+                profile=resolved_profile,
+                status_snapshot=status_result.status_snapshot,
+            )
         if not status_result.ready:
             status_result = await self._start_host_browser(
                 status_snapshot=status_result.status_snapshot,
@@ -1121,6 +1178,11 @@ class OpenClawClient:
             if not profile_result.ready:
                 return StepResult(success=False, error=profile_result.detail)
             status_result = await self._fetch_host_browser_status(profile=resolved_profile)
+        if not status_result.ready and (status_result.status_snapshot or {}).get("running") is True:
+            status_result = await self._wait_for_running_host_browser_ready(
+                profile=resolved_profile,
+                status_snapshot=status_result.status_snapshot,
+            )
         if not status_result.ready:
             status_result = await self._start_host_browser(
                 status_snapshot=status_result.status_snapshot,

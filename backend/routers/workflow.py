@@ -481,6 +481,7 @@ async def start_workflow(req: WorkflowStartRequest):
         async with _execution_queue_lock:
             _release_execution_accounts_locked(execution_id)
             _execution_accounts.pop(execution_id, None)
+            await _drain_workflow_queue_locked()
         raise HTTPException(status_code=readiness["http_status"], detail=readiness["detail"])
 
     async with _execution_queue_lock:

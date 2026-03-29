@@ -311,6 +311,42 @@ async def test_start_same_account_queue_skips_second_browser_ready_precheck(clie
 
 
 @pytest.mark.asyncio
+async def test_start_same_account_drains_queue_when_first_browser_ready_fails(client):
+    first_ready_started = asyncio.Event()
+    release_first_ready = asyncio.Event()
+    second_runner_started = asyncio.Event()
+
+    async def fake_ready(req):
+        if req.job_title == "前端工程师":
+            first_ready_started.set()
+            await release_first_ready.wait()
+            return {"ready": False, "detail": "chrome lock file error", "http_status": 503}
+        return None
+
+    async def runner(execution_id, req):
+        second_runner_started.set()
+
+    with (
+        patch("routers.workflow.get_platform_account", return_value=_active_account(encrypted_session_state="ciphertext")),
+        patch("routers.workflow._ensure_execution_browser_ready", new=AsyncMock(side_effect=fake_ready)),
+        patch("workflows.publish_job.run", side_effect=runner),
+    ):
+        first_task = asyncio.create_task(client.post("/api/workflow/start", json=_start_body()))
+        await asyncio.wait_for(first_ready_started.wait(), timeout=1)
+
+        second = await client.post("/api/workflow/start", json=_start_body(job_title="后端工程师"))
+        assert second.status_code == 200
+        assert second.json()["queued"] is True
+
+        release_first_ready.set()
+        first = await first_task
+        assert first.status_code == 503
+        assert "chrome lock file error" in first.json()["detail"]
+
+        await asyncio.wait_for(second_runner_started.wait(), timeout=1)
+
+
+@pytest.mark.asyncio
 async def test_cancel_queued_execution(client):
     release_runner = asyncio.Event()
     runner_started = asyncio.Event()

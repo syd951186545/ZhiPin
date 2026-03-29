@@ -183,6 +183,8 @@ prepare_artifacts() {
     ensure_env_value "OPENCLAW_MODEL_COST_CACHE_WRITE" "0.12"
     ensure_env_value "OPENCLAW_MODEL_CONTEXT_WINDOW" "200000"
     ensure_env_value "OPENCLAW_MODEL_MAX_TOKENS" "8192"
+    ensure_env_value "OPENCLAW_GATEWAY_TOOLS_ALLOW" "$DEFAULT_OPENCLAW_GATEWAY_TOOLS_ALLOW"
+    ensure_env_value "OPENCLAW_RESPONSES_API_ENABLED" "$DEFAULT_OPENCLAW_RESPONSES_API_ENABLED"
     ensure_env_value "FRONTEND_IMAGE_REPO" "zhipin/frontend"
     ensure_env_value "BACKOPENCLAW_IMAGE_REPO" "zhipin/backopenclaw"
     ensure_env_value "OPENCLAW_IMAGE" "ghcr.io/openclaw/openclaw:2026.3.24"
@@ -260,7 +262,7 @@ import json
 import os
 import sys
 
-default_gateway_tools_allow = 'gateway'
+default_gateway_tools_allow = 'gateway,browser'
 default_responses_api_enabled = 'true'
 
 provider = os.environ['OPENCLAW_MODEL_PROVIDER']

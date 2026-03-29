@@ -126,6 +126,42 @@ const preparationBadge = (label: string, tone: PreparationTone) => (
   </span>
 )
 
+type ExecutionDispatchTone = 'parallel' | 'serial' | 'single' | 'recent'
+
+interface ExecutionDispatchMeta {
+  accountNames: string[]
+  accountSummary: string
+  platformSummary: string
+  laneTone: ExecutionDispatchTone
+  laneLabel: string
+  laneDetail: string
+  sameAccountActiveCount: number
+  differentAccountActiveCount: number
+}
+
+const EXECUTION_DISPATCH_BADGE_STYLES: Record<ExecutionDispatchTone, string> = {
+  parallel: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200',
+  serial: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200',
+  single: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200',
+  recent: 'border-border/70 bg-background/90 text-muted-foreground',
+}
+
+function uniqueStrings(values: Array<string | undefined | null>) {
+  return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))))
+}
+
+function hasSharedAccount(left: WorkflowExecution, right: WorkflowExecution) {
+  if (!left.accountIds?.length || !right.accountIds?.length) return false
+  const accountIds = new Set(left.accountIds)
+  return right.accountIds.some((accountId) => accountIds.has(accountId))
+}
+
+function summarizeNames(values: string[], emptyLabel: string, visibleCount = 2) {
+  if (values.length === 0) return emptyLabel
+  if (values.length <= visibleCount) return values.join(' / ')
+  return `${values.slice(0, visibleCount).join(' / ')} 等 ${values.length} 个`
+}
+
 /* ── main component ────────────────────────────────────────── */
 
 export default function JilingRecruit() {
@@ -353,6 +389,13 @@ export default function JilingRecruit() {
     () => workflowCards.find((workflow) => workflow.id === selectedWorkflowId) || workflowCards[0] || WORKFLOW_CARDS[0],
     [selectedWorkflowId, workflowCards],
   )
+  const accountDirectory = useMemo(() => Object.fromEntries(accounts.map((account) => [
+    account.id,
+    {
+      name: account.name || account.accountName || trimInlineText(account.id, 12),
+      platformName: PLATFORMS[account.platform as keyof typeof PLATFORMS]?.name || account.platform,
+    },
+  ])), [accounts])
   const accountUsageCount = useMemo(() => {
     const counts = new Map<string, number>()
     executionGroups.forEach((group) => {
@@ -411,6 +454,18 @@ export default function JilingRecruit() {
     ? displayExec.queueMessage || `同账号排队中，前方还有 ${displayExec.blockingExecutionCount || 0} 个任务`
     : displayExec?.steps.find((step) => step.status === 'running')?.nameZh || '等待下一步执行'
   const activeExecutionCount = activeExecutions.length
+  const queuedExecutionCount = useMemo(
+    () => activeExecutions.filter((execution) => execution.status === 'queued').length,
+    [activeExecutions],
+  )
+  const runningExecutionCount = useMemo(
+    () => activeExecutions.filter((execution) => ['starting', 'running', 'cancelling'].includes(execution.status)).length,
+    [activeExecutions],
+  )
+  const activeExecutionAccountCount = useMemo(
+    () => uniqueStrings(activeExecutions.flatMap((execution) => execution.accountIds || [])).length,
+    [activeExecutions],
+  )
   const executionPreviewItems = useMemo(() => orderedExecutions.slice(0, 8), [orderedExecutions])
   const selectedWorkflowRunningExecutions = useMemo(
     () => activeExecutions.filter((execution) => execution.workflowId === selectedWorkflowCard.id),
@@ -431,6 +486,67 @@ export default function JilingRecruit() {
   const shouldClampExecutionGroupList = executionGroupDiagnostics.length > 3
   const shouldClampExecutionPreviewList = executionPreviewItems.length > 4
 
+  const executionDispatchMetaMap = useMemo(() => Object.fromEntries(orderedExecutions.map((execution) => {
+    const accountNames = uniqueStrings((execution.accountIds || []).map((accountId) => accountDirectory[accountId]?.name || trimInlineText(accountId, 12)))
+    const platformNames = uniqueStrings([
+      execution.currentPlatform,
+      ...(execution.accountIds || []).map((accountId) => accountDirectory[accountId]?.platformName),
+    ])
+    const otherExecutingItems = activeExecutions.filter((other) => (
+      other.executionId !== execution.executionId
+      && ['starting', 'running', 'cancelling'].includes(other.status)
+    ))
+    const sameAccountActiveCount = activeExecutions.filter((other) => other.executionId !== execution.executionId && hasSharedAccount(execution, other)).length
+    const differentAccountActiveCount = otherExecutingItems.filter((other) => (
+      other.executionId !== execution.executionId
+      && !hasSharedAccount(execution, other)
+    )).length
+    const accountSummary = summarizeNames(accountNames, '待识别账号')
+    const platformSummary = summarizeNames(platformNames, '待识别平台')
+
+    let laneTone: ExecutionDispatchTone = 'recent'
+    let laneLabel = '最近记录'
+    let laneDetail = `最近一次执行涉及 ${accountSummary}，平台 ${platformSummary}。`
+
+    if (execution.status === 'queued') {
+      laneTone = 'serial'
+      laneLabel = '同账号串行'
+      laneDetail = execution.queueMessage || `当前与 ${accountSummary} 共用同一执行通道，前方还有 ${execution.blockingExecutionCount || 0} 个任务。`
+    } else if (['starting', 'running', 'cancelling'].includes(execution.status)) {
+      if (differentAccountActiveCount > 0) {
+        laneTone = 'parallel'
+        laneLabel = '不同账号并行'
+        laneDetail = `当前与 ${differentAccountActiveCount} 个其他账号任务并行推进，执行账号：${accountSummary}。`
+      } else {
+        laneTone = 'single'
+        laneLabel = '独立执行'
+        laneDetail = `当前仅 ${accountSummary} 在执行，平台 ${platformSummary}。`
+      }
+    } else if (execution.status === 'failed') {
+      laneLabel = '最近失败'
+      laneDetail = `最近失败任务来自 ${accountSummary}，可展开查看错误与执行证据。`
+    } else if (execution.status === 'completed') {
+      laneLabel = '最近完成'
+    } else if (execution.status === 'cancelled') {
+      laneLabel = '最近停止'
+    }
+
+    return [execution.executionId, {
+      accountNames,
+      accountSummary,
+      platformSummary,
+      laneTone,
+      laneLabel,
+      laneDetail,
+      sameAccountActiveCount,
+      differentAccountActiveCount,
+    } satisfies ExecutionDispatchMeta]
+  })), [accountDirectory, activeExecutions, orderedExecutions])
+  const displayExecDispatchMeta = useMemo(
+    () => displayExec ? executionDispatchMetaMap[displayExec.executionId] : null,
+    [displayExec, executionDispatchMetaMap],
+  )
+
   const getExecutionProgress = useCallback((execution: typeof displayExec) => {
     if (!execution) return 0
     return Math.round((execution.steps.filter((step) => step.status === 'done').length / Math.max(execution.totalSteps, 1)) * 100)
@@ -448,13 +564,33 @@ export default function JilingRecruit() {
       label: '空闲',
       detail: '尚未开始',
       progress: 0,
-    }])) as Record<WorkflowId, {state: string; label: string; detail: string; progress: number}>
+      activeCount: 0,
+      queuedCount: 0,
+      runningCount: 0,
+      accountCount: 0,
+      accountSummary: '暂无账号',
+    }])) as Record<WorkflowId, {
+      state: string
+      label: string
+      detail: string
+      progress: number
+      activeCount: number
+      queuedCount: number
+      runningCount: number
+      accountCount: number
+      accountSummary: string
+    }>
 
     for (const workflow of workflowCards) {
       const runningExecutions = activeExecutions.filter((execution) => execution.workflowId === workflow.id)
       if (runningExecutions.length > 0) {
         const leadExecution = runningExecutions[0]
         const allQueued = runningExecutions.every((execution) => execution.status === 'queued')
+        const queuedCount = runningExecutions.filter((execution) => execution.status === 'queued').length
+        const runningCount = runningExecutions.length - queuedCount
+        const accountNames = uniqueStrings(runningExecutions.flatMap((execution) => (
+          execution.accountIds || []
+        )).map((accountId) => accountDirectory[accountId]?.name || trimInlineText(accountId, 12)))
         statusMap[workflow.id] = {
           state: runningExecutions.some((execution) => execution.status === 'cancelling')
             ? 'cancelling'
@@ -470,6 +606,11 @@ export default function JilingRecruit() {
             ? `${allQueued ? '排队中' : '运行中'} ${runningExecutions.length} 个任务，最近任务：${getExecutionRunningStepLabel(leadExecution)}`
             : getExecutionRunningStepLabel(leadExecution),
           progress: Math.max(...runningExecutions.map((execution) => getExecutionProgress(execution))),
+          activeCount: runningExecutions.length,
+          queuedCount,
+          runningCount,
+          accountCount: accountNames.length,
+          accountSummary: summarizeNames(accountNames, '暂无账号'),
         }
         continue
       }
@@ -478,6 +619,7 @@ export default function JilingRecruit() {
       if (!recentExecution) continue
 
       const recentProgress = getExecutionProgress(recentExecution)
+      const recentAccountNames = uniqueStrings((recentExecution.accountIds || []).map((accountId) => accountDirectory[accountId]?.name || trimInlineText(accountId, 12)))
       statusMap[workflow.id] = {
         state: recentExecution.status,
         label: recentExecution.status === 'completed'
@@ -487,15 +629,20 @@ export default function JilingRecruit() {
             : recentExecution.status === 'cancelled'
               ? '最近停止'
               : recentExecution.status === 'queued'
-                ? '最近排队'
+              ? '最近排队'
               : '最近结束',
         detail: recentExecution.error || recentExecution.queueMessage || recentExecution.currentPlatform || '可查看最近一次详细记录',
         progress: recentExecution.status === 'completed' ? 100 : recentProgress,
+        activeCount: 0,
+        queuedCount: recentExecution.status === 'queued' ? 1 : 0,
+        runningCount: 0,
+        accountCount: recentAccountNames.length,
+        accountSummary: summarizeNames(recentAccountNames, '暂无账号'),
       }
     }
 
     return statusMap
-  }, [activeExecutions, getExecutionProgress, getExecutionRunningStepLabel, orderedExecutions, workflowCards])
+  }, [accountDirectory, activeExecutions, getExecutionProgress, getExecutionRunningStepLabel, orderedExecutions, workflowCards])
   const resolvedPreparationCount = allPreparationChecks.filter((item) => item.tone === 'pass' || item.tone === 'saved').length
   const blockingPreparationCount = allPreparationChecks.filter((item) => item.tone === 'risk').length
   const readyPlatformCount = catalog.filter((item) => Boolean(resolveDefaultAccountForPlatform(item.key) && resolveDefaultJobForPlatform(item.key))).length
@@ -1565,7 +1712,7 @@ export default function JilingRecruit() {
                       const platformAccounts = accounts.filter((account) => account.platform === item.group.platform && account.status === 'active')
                       const hasAccounts = platformAccounts.length > 0
                       return (
-                        <div key={item.group.id} className="rounded-[28px] border border-border/70 bg-background/86 p-4 shadow-sm">
+                        <div key={item.group.id} className="rounded-[28px] border border-border/70 bg-background/86 p-4 shadow-sm" data-testid={`execution-group-${item.index}`}>
                           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                             <div className="flex items-center gap-3">
                               <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-sm font-semibold text-foreground">
@@ -1595,7 +1742,7 @@ export default function JilingRecruit() {
                             <div className="space-y-1.5">
                               <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台</Label>
                               <Select value={item.group.platform || ''} onValueChange={(value) => applyPlatformToExecutionGroup(item.group.id, value)}>
-                                <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
+                                <SelectTrigger data-testid={`execution-group-platform-${item.index}`} className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                                   <SelectValue placeholder="选择平台"/>
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1606,7 +1753,7 @@ export default function JilingRecruit() {
                             <div className="space-y-1.5">
                               <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号</Label>
                               <Select value={item.group.accountId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {accountId: value})} disabled={!item.group.platform || accountsLoading}>
-                                <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
+                                <SelectTrigger data-testid={`execution-group-account-${item.index}`} className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                                   <SelectValue placeholder={item.group.platform ? '选择账号' : '先选择平台'}/>
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1626,7 +1773,7 @@ export default function JilingRecruit() {
                             <div className="space-y-1.5">
                               <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">岗位</Label>
                               <Select value={item.group.jobId || ''} onValueChange={(value) => updateExecutionGroup(item.group.id, {jobId: value})} disabled={jobsLoading}>
-                                <SelectTrigger className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
+                                <SelectTrigger data-testid={`execution-group-job-${item.index}`} className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                                   <SelectValue placeholder="选择岗位"/>
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1738,6 +1885,23 @@ export default function JilingRecruit() {
                   <CardTitle className="mt-2 text-base">并行进度概览</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 pt-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">活跃任务</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeExecutionCount}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">当前仍在执行或等待中的任务</p>
+                    </div>
+                    <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">排队任务</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{queuedExecutionCount}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">同账号串行等待中的任务数量</p>
+                    </div>
+                    <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">参与账号</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeExecutionAccountCount}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">当前活跃执行占用的账号通道</p>
+                    </div>
+                  </div>
                   {workflowCards.map((workflow) => {
                     const status = workflowStatusMap[workflow.id]
                     const theme = WORKFLOW_THEMES[workflow.id] || WORKFLOW_THEMES.publish_job
@@ -1753,7 +1917,14 @@ export default function JilingRecruit() {
                               <Badge variant="outline" className="border-border/70 bg-background/85 text-[10px] uppercase tracking-[0.16em]">{status.label}</Badge>
                             </div>
                             <Progress value={status.progress} className="mt-3 h-2 rounded-full"/>
+                            <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                              <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">有效任务 {status.activeCount}</span>
+                              <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">运行中 {status.runningCount}</span>
+                              <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">排队 {status.queuedCount}</span>
+                              <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">账号 {status.accountCount}</span>
+                            </div>
                             <p className="mt-3 text-[11px] leading-5 text-muted-foreground">{status.detail}</p>
+                            <p className="mt-2 text-[11px] leading-5 text-foreground/80">{status.activeCount > 0 ? '当前账号通道' : '最近关联账号'}：{status.accountSummary}</p>
                           </div>
                         </div>
                       </button>
@@ -1774,11 +1945,28 @@ export default function JilingRecruit() {
                       <CardTitle className="mt-2 text-base">任务执行预览</CardTitle>
                     </div>
                     <Badge variant="outline" className="border-primary/15 bg-primary/[0.06] text-primary">
-                      进行中 {activeExecutionCount} / 共 {executionPreviewItems.length}
+                      活跃 {activeExecutionCount} · 排队 {queuedExecutionCount}
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-4">
+                  <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">预览任务</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionPreviewItems.length}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">列表中最多保留最近 8 个任务</p>
+                    </div>
+                    <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">并行执行</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{runningExecutionCount}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">不同账号正在同时推进的任务</p>
+                    </div>
+                    <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">占用账号</p>
+                      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeExecutionAccountCount}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">当前执行通道涉及的账号数量</p>
+                    </div>
+                  </div>
                   <div className={cn('space-y-3', shouldClampExecutionPreviewList && 'max-h-[38rem] overflow-y-auto pr-1 scrollbar-thin')}>
                     {executionPreviewItems.map((execution) => {
                       const isSelected = displayExec?.executionId === execution.executionId
@@ -1787,6 +1975,7 @@ export default function JilingRecruit() {
                       const progress = getExecutionProgress(execution)
                       const statusMeta = getExecutionStatusMeta(execution)
                       const previewText = summarizeExecutionOutput(execution.accumulatedText, execution.error, execution.queueMessage)
+                      const dispatchMeta = executionDispatchMetaMap[execution.executionId]
                       return (
                         <div
                           key={execution.executionId}
@@ -1814,6 +2003,22 @@ export default function JilingRecruit() {
                                 </Badge>
                               </div>
                               <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{getExecutionRunningStepLabel(execution)}</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[dispatchMeta?.laneTone || 'recent'])}>
+                                  {dispatchMeta?.laneLabel || '最近记录'}
+                                </Badge>
+                                {dispatchMeta?.accountNames.map((accountName) => (
+                                  <Badge key={`${execution.executionId}-${accountName}`} variant="outline" className="border-border/70 bg-background/90 text-[10px]">
+                                    {accountName}
+                                  </Badge>
+                                ))}
+                                {execution.queuePosition ? (
+                                  <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">
+                                    队列 #{execution.queuePosition}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-2 text-[11px] leading-5 text-foreground/78">{dispatchMeta?.laneDetail}</p>
                               <p className="mt-2 text-[11px] leading-5 text-foreground/82">{previewText}</p>
                               <p className="mt-2 font-mono text-[11px] text-muted-foreground">{execution.executionId}</p>
                             </div>
@@ -1881,6 +2086,21 @@ export default function JilingRecruit() {
                       </div>
                       <p className="text-sm font-semibold text-foreground">{displayExec.workflowName || '执行任务'}</p>
                       <p className="text-[11px] text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
+                      {displayExecDispatchMeta && (
+                        <>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[displayExecDispatchMeta.laneTone])}>
+                              {displayExecDispatchMeta.laneLabel}
+                            </Badge>
+                            {displayExecDispatchMeta.accountNames.map((accountName) => (
+                              <Badge key={`display-${displayExec.executionId}-${accountName}`} variant="outline" className="border-border/70 bg-background/90 text-[10px]">
+                                {accountName}
+                              </Badge>
+                            ))}
+                          </div>
+                          <p className="text-[11px] leading-5 text-foreground/82">{displayExecDispatchMeta.laneDetail}</p>
+                        </>
+                      )}
                       <p className="font-mono text-[11px] text-muted-foreground">{displayExec.executionId}</p>
                     </div>
                   </CardHeader>

@@ -419,6 +419,61 @@ async def test_ensure_host_browser_ready_starts_browser_before_smoke_test(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_ensure_host_browser_ready_waits_for_running_browser_before_restart(tmp_path):
+    config_dir = tmp_path / ".openclaw"
+    config_dir.mkdir(parents=True)
+    (config_dir / "openclaw.json").write_text(
+        (
+            '{"agents":{"defaults":{"model":{"primary":"demo/model"},'
+            '"sandbox":{"browser":{"allowHostControl":true}}}}}'
+        ),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("services.openclaw_client.get_settings", return_value=_settings(tmp_path)),
+        patch.object(
+            OpenClawClient,
+            "_fetch_host_browser_status",
+            new=AsyncMock(side_effect=[
+                BrowserReadyResult(
+                    ready=False,
+                    detail="OpenClaw host browser 正在准备 CDP 连接，请稍后重试",
+                    http_status=503,
+                    status_snapshot={"running": True, "cdpReady": False},
+                ),
+                BrowserReadyResult(
+                    ready=True,
+                    detail="ok",
+                    http_status=200,
+                    status_snapshot={"running": True, "cdpReady": True, "chosenBrowser": "chromium", "cdpUrl": "http://127.0.0.1:18800"},
+                ),
+            ]),
+        ) as mock_status,
+        patch.object(OpenClawClient, "_start_host_browser", new=AsyncMock()) as mock_start,
+        patch(
+            "services.openclaw_client.OpenClawClient.execute_step",
+            new=AsyncMock(
+                return_value=StepResult(
+                    success=True,
+                    accumulated_text="[BROWSER_READY:OK]\n[BROWSER_REASON:host browser 可用]",
+                )
+            ),
+        ),
+        patch("services.openclaw_client.asyncio.sleep", new=AsyncMock()),
+    ):
+        client = OpenClawClient()
+        result = await client.ensure_host_browser_ready(
+            session_id="session-key-001",
+            platform_url="https://example.com",
+        )
+
+    assert result.ready is True
+    assert mock_status.await_count == 2
+    mock_start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_ensure_host_browser_ready_returns_clear_error_when_headless_is_missing(tmp_path):
     config_dir = tmp_path / ".openclaw"
     config_dir.mkdir(parents=True)
@@ -758,6 +813,46 @@ async def test_capture_host_browser_screenshot_retries_transient_cdp_close(tmp_p
     assert mock_capture.await_count == 2
     assert mock_status.await_count == 2
     mock_start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_capture_host_browser_screenshot_prefers_focused_visible_page(tmp_path):
+    focused_page = MagicMock()
+    focused_page.url = "https://vip.58.com/post"
+    focused_page.is_closed.return_value = False
+    focused_page.evaluate = AsyncMock(return_value={"visibilityState": "visible", "hasFocus": True, "title": "发布职位"})
+    focused_page.bring_to_front = AsyncMock()
+    focused_page.wait_for_load_state = AsyncMock()
+    focused_page.screenshot = AsyncMock(return_value=b"\x89PNG\r\n\x1a\nfocused")
+
+    background_page = MagicMock()
+    background_page.url = "https://my.58.com/profile"
+    background_page.is_closed.return_value = False
+    background_page.evaluate = AsyncMock(return_value={"visibilityState": "hidden", "hasFocus": False, "title": "个人中心"})
+    background_page.bring_to_front = AsyncMock()
+    background_page.wait_for_load_state = AsyncMock()
+    background_page.screenshot = AsyncMock(return_value=b"\x89PNG\r\n\x1a\nbackground")
+
+    context = SimpleNamespace(pages=[background_page, focused_page])
+    browser = SimpleNamespace(contexts=[context], close=AsyncMock())
+
+    with (
+        patch.dict(
+            sys.modules,
+            {
+                "playwright": SimpleNamespace(),
+                "playwright.async_api": SimpleNamespace(
+                    async_playwright=lambda: _FakePlaywrightManager(browser)
+                ),
+            },
+        ),
+    ):
+        client = OpenClawClient()
+        image = await client._capture_host_browser_png("http://127.0.0.1:18800")
+
+    assert image == b"\x89PNG\r\n\x1a\nfocused"
+    focused_page.screenshot.assert_awaited_once()
+    background_page.screenshot.assert_not_awaited()
 
 
 @pytest.mark.asyncio
