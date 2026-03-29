@@ -277,7 +277,10 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
 
                   <div className="mt-4 grid gap-3 lg:grid-cols-3">
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台</Label>
+                      <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary not-italic normal-case tracking-normal">1</span>
+                        平台
+                      </Label>
                       <Select value={item.group.platform || ''} onValueChange={(value) => handlers.onApplyPlatformToExecutionGroup(item.group.id, value)}>
                         <SelectTrigger data-testid={`execution-group-platform-${item.index}`} className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                           <SelectValue placeholder="选择平台"/>
@@ -288,7 +291,11 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号</Label>
+                      <Label className={cn('flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em]', item.group.platform ? 'text-muted-foreground' : 'text-muted-foreground/50')}>
+                        <span className={cn('flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold not-italic normal-case tracking-normal', item.group.platform ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground/40')}>2</span>
+                        账号
+                        {!item.group.platform && <span className="ml-auto text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">先选平台</span>}
+                      </Label>
                       <Select value={item.group.accountId || ''} onValueChange={(value) => handlers.onUpdateExecutionGroup(item.group.id, {accountId: value})} disabled={!item.group.platform || accountsLoading}>
                         <SelectTrigger data-testid={`execution-group-account-${item.index}`} className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                           <SelectValue placeholder={item.group.platform ? '选择账号' : '先选择平台'}/>
@@ -308,7 +315,10 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">岗位</Label>
+                      <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary not-italic normal-case tracking-normal">3</span>
+                        岗位
+                      </Label>
                       <Select value={item.group.jobId || ''} onValueChange={(value) => handlers.onUpdateExecutionGroup(item.group.id, {jobId: value})} disabled={jobsLoading}>
                         <SelectTrigger data-testid={`execution-group-job-${item.index}`} className="h-11 rounded-2xl border-border/70 bg-background/95 text-sm shadow-none">
                           <SelectValue placeholder="选择岗位"/>
