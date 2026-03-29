@@ -120,7 +120,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Platform Picker</p>
                 <CardTitle className="mt-2 text-base">选择平台</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-2.5 pt-4">
+              <CardContent className="grid gap-3 pt-4">
                 {accountsLoading && catalog.length === 0 ? Array.from({length: 6}).map((_, index) => (
                   <div key={index} className="rounded-2xl border p-3">
                     <Skeleton className="h-14 w-full"/>
