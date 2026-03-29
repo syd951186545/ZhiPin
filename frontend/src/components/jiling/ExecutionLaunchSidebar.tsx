@@ -58,7 +58,7 @@ export default function ExecutionLaunchSidebar(props: ExecutionLaunchSidebarProp
             </div>
           </div>
 
-          <div className="rounded-[28px] border border-border/70 bg-background/82 p-4">
+          <div className="rounded-[24px] border border-border/70 bg-background/82 p-4">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-foreground">解锁清单</p>
               <Badge variant="outline" className={cn('border text-[10px] uppercase tracking-[0.16em]', canStartSelectedWorkflow ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300')}>

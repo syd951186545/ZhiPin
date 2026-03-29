@@ -94,7 +94,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                   transition={{duration: 0.2}}
                   onClick={() => handlers.onSelectWorkflow(workflow.id)}
                   className={cn(
-                    'rounded-[28px] border bg-background/88 p-4 text-left transition-all duration-200',
+                    'rounded-[24px] border bg-background/88 p-4 text-left transition-all duration-200',
                     isSelected ? 'border-primary/40 shadow-[0_18px_48px_-32px_hsl(var(--primary)/0.55)] ring-1 ring-primary/20' : 'border-border/70 hover:border-border hover:shadow-sm',
                   )}
                 >
@@ -163,7 +163,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
         </CardHeader>
         <CardContent className="flex-1 space-y-5 pt-5" data-testid="execute-platform-selection">
           {executionMode === 'scheduled' && (
-            <div className="grid gap-3 rounded-[28px] border border-amber-200/70 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/15 md:grid-cols-3">
+            <div className="grid gap-3 rounded-[24px] border border-amber-200/70 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/15 md:grid-cols-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/70 dark:text-amber-100/80">执行频率</Label>
                 <Select value={scheduleFrequency} onValueChange={(value: ScheduleFrequency) => handlers.onScheduleFrequencyChange(value)}>
@@ -201,7 +201,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
           )}
 
           {selectedWorkflowCard.id === 'talent_explore' && (
-            <div className="grid gap-4 rounded-[28px] border border-border/70 bg-background/82 p-4 shadow-sm lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="grid gap-4 rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm lg:grid-cols-[minmax(0,1fr)_280px]">
               <div className="space-y-2">
                 <Label htmlFor="custom-message" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">本次主动沟通覆盖</Label>
                 <Textarea id="custom-message" placeholder="留空则沿用平台与账号页中的全局预设。" value={customMessage} onChange={(event) => handlers.onCustomMessageChange(event.target.value)} rows={4} maxLength={500} className="rounded-[22px] border-border/70 bg-background/95 text-sm resize-none"/>
@@ -247,7 +247,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               const platformAccounts = accounts.filter((account) => account.platform === item.group.platform && account.status === 'active')
               const hasAccounts = platformAccounts.length > 0
               return (
-                <div key={item.group.id} className="rounded-[28px] border border-border/70 bg-background/86 p-4 shadow-sm" data-testid={`execution-group-${item.index}`}>
+                <div key={item.group.id} className="rounded-[24px] border border-border/70 bg-background/86 p-4 shadow-sm" data-testid={`execution-group-${item.index}`}>
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-sm font-semibold text-foreground">{String(item.index + 1).padStart(2, '0')}</div>

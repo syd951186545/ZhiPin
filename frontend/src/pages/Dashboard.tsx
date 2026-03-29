@@ -170,7 +170,7 @@ export default function Dashboard() {
   )
 
   return (
-    <section className="mx-auto max-w-[1440px] rounded-[28px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,253,248,0.96),rgba(250,247,241,0.92))] p-5 shadow-[0_28px_70px_-48px_rgba(20,32,43,0.35)] md:p-7">
+    <section className="mx-auto max-w-[1440px] rounded-[24px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,253,248,0.96),rgba(250,247,241,0.92))] p-5 shadow-[0_28px_70px_-48px_rgba(20,32,43,0.35)] md:p-7">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-4 border-b border-border/60 pb-5 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-2xl">
