@@ -8,9 +8,7 @@
  */
 
 import { test, expect } from '../fixtures/api'
-import { startBind } from '../helpers/assertions'
 import { buildJob, buildPublishJobFullStream, buildPublishJobMetaEvent, buildCompleteEvent, buildStepChangeEvent, buildProgressEvent } from '../helpers/builders'
-import { transparentPngDataUrl } from '../helpers/sse'
 
 // ── 辅助函数 ──────────────────────────────────────────────────
 
@@ -42,7 +40,7 @@ function buildActiveAccount(overrides: Record<string, unknown> = {}) {
 
 test.describe('完整用户旅程 @smoke', () => {
   /**
-   * 场景 1：全新用户（零账号）→ 添加账号 → 手机号绑定 → 切换执行 → 启动工作流 → 完成
+   * 场景 1：全新用户（零账号）→ 添加账号 → 远程登录绑定 → 切换执行 → 启动工作流 → 完成
    *
    * 这是最重要的 E2E 测试，模拟真实新用户的完整操作路径。
    */
@@ -51,40 +49,20 @@ test.describe('完整用户旅程 @smoke', () => {
     app.setPlatformAccounts([])
     app.setJobs([buildJob({ id: 'journey-job-1', title: '高级工程师' })])
 
-    // 准备绑定流程
-    const bindSessionId = 'bind-journey-1'
-    app.queueBindStartResponse({
-      id: bindSessionId,
-      account_id: 'journey-account-1',
-      tenant_id: 'tenant-1',
-      action: 'bind',
-      status: 'running',
-      step_key: 'INIT',
-      latest_screenshot_url: null,
-      qr_screenshot_url: null,
-      error_message: null,
+    // 准备远程登录流程
+    app.queueLiveLoginStartResponse({
+      session_id: 'live-journey-1',
+      ws_port: 6080,
+      vnc_token: 'journey-token',
+      ws_url: 'https://example.com/novnc/live-journey-1',
+      login_url: 'https://example.com/login/boss_zhipin',
+      timeout_seconds: 600,
     })
-    app.setBindingStream(bindSessionId, [
-      {
-        event: 'state',
-        data: {
-          status: 'awaiting_sms',
-          reason: '请输入手机收到的验证码',
-          latest_screenshot: transparentPngDataUrl,
-        },
-      },
-    ])
-    // 绑定完成：account 状态将变为 active
-    app.queueBindSubmitResponse({
-      id: 'bind-journey-2',
-      account_id: 'journey-account-1',
-      tenant_id: 'tenant-1',
-      action: 'bind',
-      status: 'completed',
-      step_key: 'DONE',
-      latest_screenshot_url: null,
-      qr_screenshot_url: null,
-      error_message: null,
+    app.queueLiveLoginConfirmResponse({
+      is_logged_in: true,
+      message: '登录状态已保存',
+      workspace_saved: true,
+      db_saved: true,
     })
 
     // 准备工作流
@@ -103,28 +81,19 @@ test.describe('完整用户旅程 @smoke', () => {
     await page.getByTestId('add-account-platform-select').click()
     await page.getByRole('option', { name: 'BOSS直聘' }).click()
     await page.getByTestId('add-account-name').fill('旅程测试账号')
-    await page.getByTestId('add-account-login-name').fill('hr-journey')
     await page.getByTestId('add-account-submit').click()
 
     // 账号创建成功，对话框关闭
     await expect(page.getByTestId('add-account-dialog')).toBeHidden()
     await expect(page.getByTestId('selected-account-panel')).toContainText('旅程测试账号')
 
-    // ── 步骤 3：手机号绑定 ────────────────────────────────────
+    // ── 步骤 3：远程登录绑定 ──────────────────────────────────
     await page.getByTestId('open-bind-dialog').click()
-    await page.getByTestId('bind-phone-input').fill('13812345678')
-    await startBind(page)
-
-    // 等待 SSE 返回"等待验证码"状态
-    await expect(page.getByText('提交验证')).toBeVisible()
-
-    // 输入验证码并提交
-    await page.getByTestId('bind-verification-code-input').fill('123456')
-    await page.getByTestId('submit-bind-verification').click()
-
-    // 账号状态变为 active（MockApp 在 submit 后更新账号状态）
-    // 等待 UI 刷新，账号状态应为已绑定
-    await expect(page.getByTestId('bind-status-badge')).not.toHaveText('失败', { timeout: 5000 })
+    await page.getByTestId('start-live-login').click()
+    await expect(page.getByTestId('novnc-panel')).toBeVisible()
+    await page.getByTestId('confirm-live-login').click()
+    await expect(page.getByTestId('bind-status-badge')).toHaveText('已完成')
+    await page.getByRole('button', { name: '完成' }).click()
 
     // ── 步骤 4：切换到执行 Tab ────────────────────────────────
     await page.getByTestId('tab-execute').click()
@@ -172,11 +141,13 @@ test.describe('完整用户旅程 @smoke', () => {
       buildCompleteEvent({ found: 5 }),
     ])
 
+    await page.getByTestId('workflow-card-talent_explore').first().click()
     await page.getByTestId('workflow-action-talent_explore').click()
+    await expect(page.getByTestId('execution-monitor')).toContainText('exec-multi-2', { timeout: 15000 })
     await expect(page.getByTestId('execution-monitor')).toContainText('已完成', { timeout: 15000 })
 
     // 验证两次工作流都被启动
-    expect(app.workflowStarts.length).toBeGreaterThanOrEqual(2)
+    await expect.poll(() => app.workflowStarts.length, { timeout: 5000 }).toBeGreaterThanOrEqual(2)
     const wfIds = app.workflowStarts.map((s) => s.workflow_id)
     expect(wfIds).toContain('publish_job')
     expect(wfIds).toContain('talent_explore')

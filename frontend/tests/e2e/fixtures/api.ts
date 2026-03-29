@@ -48,6 +48,29 @@ interface JobRow {
   benefits?: string
 }
 
+interface LiveLoginSession {
+  session_id: string
+  ws_port: number
+  vnc_token: string
+  ws_url: string
+  login_url: string
+  timeout_seconds: number
+}
+
+interface LiveLoginStatusResponse {
+  session_id: string
+  active: boolean
+  time_remaining: number | null
+}
+
+interface LiveLoginConfirmResponse {
+  is_logged_in: boolean
+  message: string
+  workspace_saved?: boolean
+  db_saved?: boolean
+  persistence_detail?: string
+}
+
 interface WorkflowStartPayload {
   [key: string]: unknown
 }
@@ -86,6 +109,10 @@ interface MockApp {
   setWorkflowRun(executionId: string, payload: Record<string, unknown>): void
   queueJobDetailError(detail: string, status?: number): void
   queueBindStartError(detail: string, status?: number): void
+  queueLiveLoginStartError(detail: string, status?: number): void
+  queueLiveLoginStartResponse(session: LiveLoginSession): void
+  queueLiveLoginConfirmResponse(result: LiveLoginConfirmResponse): void
+  setLiveLoginStatus(sessionId: string, status: LiveLoginStatusResponse): void
   queueWorkflowStartError(detail: string, status?: number): void
   /** SSE 流中途截断（模拟服务器关闭连接）。afterNEvents 默认 2。 */
   abortWorkflowStream(executionId: string, afterNEvents?: number): void
@@ -227,14 +254,20 @@ function createMockApp(page: Page): MockApp {
   let nextDeleteAccountError: { detail: string; status: number } | null = null
   let nextJobDetailError: { detail: string; status: number } | null = null
   let nextBindStartError: { detail: string; status: number } | null = null
+  let nextLiveLoginStartError: { detail: string; status: number } | null = null
   let nextWorkflowStartError: { detail: string; status: number } | null = null
   const nextBindStartResponses: BindingSession[] = []
   const nextBindSubmitResponses: BindingSession[] = []
   const nextVerifyResponses: BindingSession[] = []
   const nextUnbindResponses: BindingSession[] = []
+  const nextLiveLoginStartResponses: LiveLoginSession[] = []
+  const nextLiveLoginConfirmResponses: LiveLoginConfirmResponse[] = []
+  const liveLoginSessions = new Map<string, LiveLoginSession>()
+  const liveLoginSessionAccounts = new Map<string, string>()
   const bindingSessions = new Map<string, BindingSession>()
   const bindingStreams = new Map<string, SseEvent[]>()
   const refreshQrResponses = new Map<string, string | null>()
+  const liveLoginStatuses = new Map<string, LiveLoginStatusResponse>()
   const nextWorkflowStartResponses: Array<{ execution_id: string; workflow_id: string; message?: string }> = []
   const workflowStreams = new Map<string, SseEvent[]>()
   const workflowRuns = new Map<string, Record<string, unknown>>()
@@ -318,6 +351,98 @@ function createMockApp(page: Page): MockApp {
     }
     platformAccounts = [...platformAccounts, created]
     await fulfillJson(route, { item: created }, 200)
+  })
+
+  page.route('**/api/live-login/start', async (route) => {
+    const payload = await parseJson(route)
+    if (nextLiveLoginStartError) {
+      const error = nextLiveLoginStartError
+      nextLiveLoginStartError = null
+      await fulfillJson(route, { detail: error.detail }, error.status)
+      return
+    }
+
+    const accountId = String(payload.account_id || platformAccounts[0]?.id || 'account-1')
+    const platform = String(payload.platform || platformAccounts.find((item) => item.id === accountId)?.platform || 'boss_zhipin')
+    const session =
+      nextLiveLoginStartResponses.shift() || {
+        session_id: `live-login-${Date.now()}`,
+        ws_port: 6080,
+        vnc_token: 'mock-vnc-token',
+        ws_url: `https://example.com/novnc/${accountId}`,
+        login_url: `https://example.com/login/${platform}`,
+        timeout_seconds: 600,
+      }
+
+    liveLoginSessions.set(session.session_id, deepClone(session))
+    liveLoginSessionAccounts.set(session.session_id, accountId)
+    liveLoginStatuses.set(session.session_id, {
+      session_id: session.session_id,
+      active: true,
+      time_remaining: session.timeout_seconds,
+    })
+    await fulfillJson(route, session)
+  })
+
+  page.route(/.*\/api\/live-login\/[^/]+\/status$/, async (route) => {
+    const sessionId = route.request().url().split('/').slice(-2)[0]
+    const status = liveLoginStatuses.get(sessionId) || {
+      session_id: sessionId,
+      active: false,
+      time_remaining: null,
+    }
+    await fulfillJson(route, status)
+  })
+
+  page.route(/.*\/api\/live-login\/[^/]+\/confirm$/, async (route) => {
+    const sessionId = route.request().url().split('/').slice(-2)[0]
+    const accountId = liveLoginSessionAccounts.get(sessionId)
+    const result =
+      nextLiveLoginConfirmResponses.shift() || {
+        is_logged_in: true,
+        message: '登录状态已保存',
+        workspace_saved: true,
+        db_saved: true,
+      }
+
+    if (accountId && result.is_logged_in) {
+      platformAccounts = platformAccounts.map((account) =>
+        account.id === accountId
+          ? {
+              ...account,
+              status: 'active',
+              browser_session_key: account.browser_session_key || `session-${accountId}`,
+              account_name: account.account_name || `system-filled-${account.platform}`,
+            }
+          : account,
+      )
+    }
+
+    if (result.is_logged_in) {
+      liveLoginStatuses.set(sessionId, {
+        session_id: sessionId,
+        active: false,
+        time_remaining: null,
+      })
+    } else {
+      const currentStatus = liveLoginStatuses.get(sessionId)
+      liveLoginStatuses.set(sessionId, {
+        session_id: sessionId,
+        active: true,
+        time_remaining: currentStatus?.time_remaining ?? liveLoginSessions.get(sessionId)?.timeout_seconds ?? 600,
+      })
+    }
+    await fulfillJson(route, result)
+  })
+
+  page.route(/.*\/api\/live-login\/[^/]+\/stop$/, async (route) => {
+    const sessionId = route.request().url().split('/').slice(-2)[0]
+    liveLoginStatuses.set(sessionId, {
+      session_id: sessionId,
+      active: false,
+      time_remaining: null,
+    })
+    await fulfillJson(route, { success: true })
   })
 
   page.route(/.*\/api\/platform-accounts\/[^/]+\/bind\/start$/, async (route) => {
@@ -640,6 +765,18 @@ function createMockApp(page: Page): MockApp {
     },
     queueBindStartError(detail, status = 500) {
       nextBindStartError = { detail, status }
+    },
+    queueLiveLoginStartError(detail, status = 500) {
+      nextLiveLoginStartError = { detail, status }
+    },
+    queueLiveLoginStartResponse(session) {
+      nextLiveLoginStartResponses.push(deepClone(session))
+    },
+    queueLiveLoginConfirmResponse(result) {
+      nextLiveLoginConfirmResponses.push(deepClone(result))
+    },
+    setLiveLoginStatus(sessionId, status) {
+      liveLoginStatuses.set(sessionId, deepClone(status))
     },
     queueWorkflowStartError(detail, status = 500) {
       nextWorkflowStartError = { detail, status }

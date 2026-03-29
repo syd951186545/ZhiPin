@@ -17,7 +17,9 @@ test.describe('招聘执行 - 前置条件校验 @execution', () => {
     await app.gotoRecruit('execute')
 
     await expect(page.getByTestId('workflow-action-publish_job')).toBeDisabled()
+    await page.getByTestId('workflow-card-talent_explore').first().click()
     await expect(page.getByTestId('workflow-action-talent_explore')).toBeDisabled()
+    await page.getByTestId('workflow-card-resume_screen').first().click()
     await expect(page.getByTestId('workflow-action-resume_screen')).toBeDisabled()
   })
 

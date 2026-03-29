@@ -61,6 +61,37 @@ async function readApiPayload(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
+function isServerConfig(data: unknown): data is ServerConfig {
+  if (!data || typeof data !== 'object') return false
+  const payload = data as Record<string, unknown>
+  return (
+    typeof payload.provider === 'string'
+    && typeof payload.baseUrl === 'string'
+    && typeof payload.model === 'string'
+    && typeof payload.apiKeyMasked === 'string'
+    && typeof payload.hasApiKey === 'boolean'
+    && typeof payload.hasStoredApiKey === 'boolean'
+    && typeof payload.validationStatus === 'string'
+    && typeof payload.validationMessage === 'string'
+    && (payload.validatedAt === null || typeof payload.validatedAt === 'string')
+    && (payload.availableModels === undefined || Array.isArray(payload.availableModels))
+  )
+}
+
+function isSaveServerResponse(data: unknown): data is SaveServerResponse {
+  if (!data || typeof data !== 'object') return false
+  const payload = data as Record<string, unknown>
+  return (
+    typeof payload.success === 'boolean'
+    && typeof payload.message === 'string'
+    && typeof payload.restarted === 'boolean'
+    && typeof payload.validationStatus === 'string'
+    && typeof payload.validationMessage === 'string'
+    && (payload.validatedAt === null || typeof payload.validatedAt === 'string')
+    && typeof payload.apiKeyMasked === 'string'
+  )
+}
+
 const OFFICIAL_OPENCLAW_MODEL_CATALOG: ModelGroup[] = [
   {
     provider: 'anthropic',
@@ -292,10 +323,11 @@ export default function Settings() {
       clearTimeout(timeoutId)
       const data = await readApiPayload(res)
       if (!res.ok) throw new Error(String(data.detail || `加载 AI 配置失败（${res.status}）`))
-      _openclawConfigCache = data as ServerConfig
+      if (!isServerConfig(data)) throw new Error('AI 配置响应格式不正确')
+      _openclawConfigCache = data
       _openclawConfigCacheTime = Date.now()
-      setServerConfig(data as ServerConfig)
-      const nextModel = (data as ServerConfig).model || ''
+      setServerConfig(data)
+      const nextModel = data.model || ''
       setEditModel(nextModel)
       updateAI({aiModel: nextModel})
       setSaveStatus('idle')
@@ -337,8 +369,9 @@ export default function Settings() {
       if (!res.ok || !data.success) {
         throw new Error(String(data.detail || data.validationMessage || data.message || `保存失败（${res.status}）`))
       }
+      if (!isSaveServerResponse(data)) throw new Error('保存 AI 配置的响应格式不正确')
 
-      const result = data as SaveServerResponse
+      const result = data
       setSaveStatus('success')
       setSaveMessage(result.validationMessage || result.message)
       setEditApiKey('')

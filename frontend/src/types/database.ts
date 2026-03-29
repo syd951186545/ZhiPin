@@ -64,7 +64,7 @@ export interface Database {
           name: string
           email: string | null
           phone: string | null
-          source: 'direct' | '58' | 'boss_zhipin' | 'linkedin' | 'openclaw_auto' | 'upload'
+          source: 'direct' | '58' | 'boss_zhipin' | 'openclaw_auto' | 'upload'
           stage: 'new' | 'screening' | 'interview' | 'offer' | 'hired' | 'rejected'
           ai_match_score: number | null
           ai_analysis: AiAnalysis | null

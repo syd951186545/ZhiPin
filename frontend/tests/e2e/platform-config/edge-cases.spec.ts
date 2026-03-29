@@ -18,14 +18,14 @@ test.describe('平台配置 - 边界用例 @platform-config', () => {
     await expect(page.getByTestId('add-account-submit')).toBeDisabled()
   })
 
-  test('不选平台时提交按钮禁用', async ({ app, page }) => {
+  test('弹窗打开时默认预选当前平台，填写账号名后可提交', async ({ app, page }) => {
     app.setJobs([{ id: 'job-1', title: '前端工程师' }])
     await app.gotoRecruit('platform-config')
     await page.getByTestId('open-add-account-dialog').click()
 
+    await expect(page.getByTestId('add-account-platform-preview')).toContainText('BOSS直聘')
     await page.getByTestId('add-account-name').fill('测试账号')
-    // 不选平台
-    await expect(page.getByTestId('add-account-submit')).toBeDisabled()
+    await expect(page.getByTestId('add-account-submit')).toBeEnabled()
   })
 
   test('特殊字符账号名可正常提交', async ({ app, page }) => {
@@ -105,13 +105,10 @@ test.describe('平台配置 - 边界用例 @platform-config', () => {
     await selectRadixOption(page, 'add-account-platform-select', 'BOSS直聘')
     await page.getByTestId('add-account-name').fill('双击测试')
 
-    // 快速点击两次
     const submitBtn = page.getByTestId('add-account-submit')
-    await submitBtn.click()
-    await submitBtn.click({ force: true }).catch(() => {})
+    await submitBtn.dblclick()
 
-    // 对话框关闭后，验证只创建了一个账号（列表中只有一个）
     await expect(page.getByTestId('add-account-dialog')).toBeHidden()
-    await expect(page.getByText('当前平台暂无账号')).toHaveCount(0)
+    await expect(page.locator('[data-testid^=\"account-row-\"]', { hasText: '双击测试' })).toHaveCount(1)
   })
 })

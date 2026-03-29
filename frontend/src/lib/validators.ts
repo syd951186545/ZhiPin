@@ -39,7 +39,7 @@ export const candidateFormSchema = z.object({
     .optional()
     .or(z.literal('')),
   phone: z.string().optional().default(''),
-  source: z.enum(['direct', '58', 'boss_zhipin', 'linkedin', 'openclaw_auto', 'upload'], {
+  source: z.enum(['direct', '58', 'boss_zhipin', 'openclaw_auto', 'upload'], {
     required_error: '请选择来源渠道',
   }),
   notes: z.string().optional().default(''),

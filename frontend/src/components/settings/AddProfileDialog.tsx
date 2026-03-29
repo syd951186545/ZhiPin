@@ -110,8 +110,8 @@ export default function AddProfileDialog({open, onOpenChange, defaultPlatform, o
         <div className="min-w-0 space-y-4 py-4">
           <div className="space-y-2">
             <Label className="text-xs">{t('settings.profiles.add.platform')}</Label>
-            <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformKey)} disabled={saving} data-testid="add-account-platform-select">
-              <SelectTrigger className="h-10">
+            <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformKey)} disabled={saving}>
+              <SelectTrigger className="h-10" data-testid="add-account-platform-select">
                 <SelectValue placeholder="选择平台"/>
               </SelectTrigger>
               <SelectContent className="w-[var(--radix-select-trigger-width)]">

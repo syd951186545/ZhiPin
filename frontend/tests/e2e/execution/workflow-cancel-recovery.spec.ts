@@ -61,8 +61,7 @@ test.describe('工作流取消与页面刷新恢复 @execution', () => {
     await expect(page.getByTestId('execution-output')).toContainText('检测登录中...', { timeout: 8000 })
 
     // 点击停止按钮
-    const cancelBtn = page.getByTestId('cancel-workflow-btn').or(page.getByRole('button', { name: /停止|取消/ }))
-    await cancelBtn.click({ timeout: 5000 })
+    await page.getByTestId('cancel-workflow-btn').first().click({ timeout: 5000 })
 
     // 验证取消请求被发送且包含正确的 executionId
     expect(app.cancelRequests).toContain('exec-cancel-1')
@@ -101,9 +100,8 @@ test.describe('工作流取消与页面刷新恢复 @execution', () => {
     await page.waitForTimeout(500)
 
     // 取消
-    const cancelBtn = page.getByTestId('cancel-workflow-btn').or(page.getByRole('button', { name: /停止|取消/ }))
     try {
-      await cancelBtn.click({ timeout: 3000 })
+      await page.getByTestId('cancel-workflow-btn').first().click({ timeout: 3000 })
     } catch {
       // 可能取消按钮不可见，跳过这步
     }

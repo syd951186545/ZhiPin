@@ -67,8 +67,9 @@ test.describe('招聘执行 - UI 状态一致性 @execution', () => {
     const monitor = page.getByTestId('execution-monitor')
     await expect(monitor).toBeVisible()
     await page.getByRole('button', { name: '查看任务详情' }).click()
-    await expect(page.getByTestId('execution-steps')).toContainText('登录检查')
-    await expect(page.getByTestId('execution-steps')).toContainText('生成招聘公告')
+    const detailDialog = page.getByRole('dialog', { name: '发布招聘公告' })
+    await expect(detailDialog.getByTestId('execution-steps')).toContainText('登录检查')
+    await expect(detailDialog.getByTestId('execution-steps')).toContainText('生成招聘公告')
   })
 
   test('截图去重', async ({ app, page }) => {
@@ -90,7 +91,8 @@ test.describe('招聘执行 - UI 状态一致性 @execution', () => {
     await page.getByTestId('workflow-action-publish_job').click()
 
     await page.getByRole('button', { name: '查看任务详情' }).click()
-    await expect(page.getByTestId('execution-screenshots').getByRole('img')).toHaveCount(1)
+    const detailDialog = page.getByRole('dialog', { name: '发布招聘公告' })
+    await expect(detailDialog.getByTestId('execution-screenshots').getByRole('img')).toHaveCount(1)
   })
 
   test('artifact_persisted 显示"已落库"', async ({ app, page }) => {
@@ -111,7 +113,8 @@ test.describe('招聘执行 - UI 状态一致性 @execution', () => {
     await page.getByTestId('workflow-action-publish_job').click()
 
     await page.getByRole('button', { name: '查看任务详情' }).click()
-    await expect(page.getByTestId('execution-screenshots')).toContainText('已落库')
+    const detailDialog = page.getByRole('dialog', { name: '发布招聘公告' })
+    await expect(detailDialog.getByTestId('execution-screenshots')).toContainText('已落库')
   })
 
   test('执行中按钮文本变为停止', async ({ app, page }) => {

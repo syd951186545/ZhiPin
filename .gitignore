@@ -18,6 +18,7 @@ backend/*.log
 
 # Frontend generated env
 frontend/.env.production
+frontend/*.log
 
 # Docker / Production
 deploy/.env.production
@@ -37,3 +38,6 @@ frontend/vite.log
 docs/AI_AGENT_SECRETS.local.md
 AGENTS.local.md
 CLAUDE.local.md
+/*.log
+/.pytest_tmp/
+/.tmp-tree-elements.json
