@@ -139,6 +139,12 @@ interface ExecutionDispatchMeta {
   differentAccountActiveCount: number
 }
 
+interface ExecutionGroupPlanMeta {
+  label: string
+  tone: ExecutionDispatchTone
+  detail: string
+}
+
 const EXECUTION_DISPATCH_BADGE_STYLES: Record<ExecutionDispatchTone, string> = {
   parallel: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200',
   serial: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200',
@@ -431,6 +437,78 @@ export default function JilingRecruit() {
     () => executionGroupDiagnostics.filter((item) => !item.complete),
     [executionGroupDiagnostics],
   )
+  const executionPlanPreview = useMemo(() => {
+    const completeItems = executionGroupDiagnostics.filter((item) => item.complete && item.group.accountId)
+    const indexesByAccount = new Map<string, number[]>()
+
+    completeItems.forEach((item) => {
+      const accountId = item.group.accountId
+      if (!accountId) return
+      const indexes = indexesByAccount.get(accountId) || []
+      indexes.push(item.index)
+      indexesByAccount.set(accountId, indexes)
+    })
+
+    const metaMap = Object.fromEntries(executionGroupDiagnostics.map((item) => {
+      if (!item.complete || !item.group.accountId) {
+        return [item.group.id, {
+          label: '待补齐',
+          tone: 'recent',
+          detail: '补齐平台、账号和岗位后，这里会预告该组是串行还是并行启动。',
+        } satisfies ExecutionGroupPlanMeta]
+      }
+
+      const queueIndexes = indexesByAccount.get(item.group.accountId) || []
+      const queuePosition = queueIndexes.indexOf(item.index)
+      const hasMultipleAccounts = indexesByAccount.size > 1
+
+      if (queueIndexes.length > 1) {
+        if (queuePosition === 0) {
+          return [item.group.id, {
+            label: '串行起点',
+            tone: 'serial',
+            detail: `该组会先占用账号通道，随后执行组 ${queueIndexes.slice(1).map((index) => index + 1).join('、')} 将按同账号顺序排队。${hasMultipleAccounts ? '其他账号组仍可并行启动。' : ''}`,
+          } satisfies ExecutionGroupPlanMeta]
+        }
+
+        return [item.group.id, {
+          label: '同账号串行',
+          tone: 'serial',
+          detail: `该组与执行组 ${queueIndexes[queuePosition - 1] + 1} 共用同一账号，需要等待前序任务释放通道后再启动。`,
+        } satisfies ExecutionGroupPlanMeta]
+      }
+
+      if (hasMultipleAccounts) {
+        return [item.group.id, {
+          label: '不同账号并行',
+          tone: 'parallel',
+          detail: '该组占用独立账号通道，点击开始后可与其他账号组同时推进。',
+        } satisfies ExecutionGroupPlanMeta]
+      }
+
+      return [item.group.id, {
+        label: '独立执行',
+        tone: 'single',
+        detail: '当前仅有这一条账号通道，点击开始后会直接执行。',
+      } satisfies ExecutionGroupPlanMeta]
+    })) as Record<string, ExecutionGroupPlanMeta>
+
+    const serialGroups = completeItems.filter((item) => {
+      const accountId = item.group.accountId
+      return Boolean(accountId && (indexesByAccount.get(accountId)?.length || 0) > 1)
+    }).length
+
+    const summary = completeItems.length === 0
+      ? '补齐账号与岗位后，这里会生成串行/并行执行计划预览。'
+      : serialGroups === 0
+        ? `当前 ${completeItems.length} 组完整方案都会按不同账号直接启动。`
+        : `当前 ${completeItems.length} 组完整方案中，${serialGroups} 组会按同账号串行排队，其余 ${Math.max(completeItems.length - serialGroups, 0)} 组可按不同账号并行启动。`
+
+    return {
+      summary,
+      metaMap,
+    }
+  }, [executionGroupDiagnostics])
   const executionReadinessReasons = useMemo(() => {
     const reasons: string[] = []
     if (!backendReady) reasons.push('后端未连接，无法发起执行。')
@@ -513,7 +591,13 @@ export default function JilingRecruit() {
       laneLabel = '同账号串行'
       laneDetail = execution.queueMessage || `当前与 ${accountSummary} 共用同一执行通道，前方还有 ${execution.blockingExecutionCount || 0} 个任务。`
     } else if (['starting', 'running', 'cancelling'].includes(execution.status)) {
-      if (differentAccountActiveCount > 0) {
+      if (execution.wasQueued) {
+        laneTone = 'serial'
+        laneLabel = differentAccountActiveCount > 0 ? '原串行 → 已启动' : '原串行 → 执行中'
+        laneDetail = differentAccountActiveCount > 0
+          ? `该任务曾因同账号串行排队，当前已轮到 ${accountSummary} 执行；同时与 ${differentAccountActiveCount} 个其他账号任务并行推进。`
+          : `该任务曾因同账号串行排队，当前已轮到 ${accountSummary} 执行。`
+      } else if (differentAccountActiveCount > 0) {
         laneTone = 'parallel'
         laneLabel = '不同账号并行'
         laneDetail = `当前与 ${differentAccountActiveCount} 个其他账号任务并行推进，执行账号：${accountSummary}。`
@@ -1707,8 +1791,14 @@ export default function JilingRecruit() {
                     </div>
                   </div>
 
+                  <div className="rounded-[24px] border border-primary/12 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_78%)] px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Execution Plan</p>
+                    <p className="mt-2 text-sm leading-6 text-foreground/88">{executionPlanPreview.summary}</p>
+                  </div>
+
                   <div className={cn('space-y-3', shouldClampExecutionGroupList && 'max-h-[36rem] overflow-y-auto pr-1 scrollbar-thin')}>
                     {executionGroupDiagnostics.map((item) => {
+                      const planMeta = executionPlanPreview.metaMap[item.group.id]
                       const platformAccounts = accounts.filter((account) => account.platform === item.group.platform && account.status === 'active')
                       const hasAccounts = platformAccounts.length > 0
                       return (
@@ -1724,8 +1814,12 @@ export default function JilingRecruit() {
                                   <Badge variant="outline" className={cn('border text-[10px] uppercase tracking-[0.16em]', item.complete ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : item.duplicateAccount ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' : 'border-border/70 bg-background/82 text-muted-foreground')}>
                                     {item.complete ? '完整' : item.duplicateAccount ? '冲突' : '草稿'}
                                   </Badge>
+                                  <Badge variant="outline" className={cn('border text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[planMeta?.tone || 'recent'])}>
+                                    {planMeta?.label || '待补齐'}
+                                  </Badge>
                                 </div>
                                 <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.complete ? `${item.platformLabel} · ${item.account?.name || '已选账号'} · ${item.job?.title || '已选岗位'}` : item.missing.join(' / ')}</p>
+                                <p className="mt-2 text-[11px] leading-5 text-foreground/78">{planMeta?.detail}</p>
                               </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">

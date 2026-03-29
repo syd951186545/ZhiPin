@@ -46,6 +46,7 @@ export interface WorkflowExecution {
   workflowId: WorkflowId
   workflowName: string
   status: WorkflowStatus
+  wasQueued?: boolean
   accountIds?: string[]
   steps: StepState[]
   currentStepIndex: number
@@ -93,6 +94,7 @@ interface WorkflowStore {
   executionOrder: string[]
   backendReady: boolean
   startWorkflow: (req: WorkflowStartRequest) => Promise<string>
+  hydrateExecutionById: (executionId: string) => Promise<WorkflowExecution | null>
   cancelWorkflow: (executionId: string) => void
   clearExecution: (executionId?: string) => void
   setBackendReady: (ready: boolean) => void
@@ -158,6 +160,10 @@ function normalizeWorkflowStatus(status?: string): WorkflowStatus {
     default:
       return 'completed'
   }
+}
+
+function hasQueuedHistory(events?: Array<{event?: string; data?: Record<string, unknown>}>): boolean {
+  return Array.isArray(events) && events.some((entry) => entry?.event === 'queued' || entry?.event === 'queue_status')
 }
 
 function getQueueStateFromRun(run: RuntimeWorkflowRun) {
@@ -302,6 +308,7 @@ function mapRuntimeRunToExecution(run: RuntimeWorkflowRun): WorkflowExecution {
     workflowId: run.workflow_id,
     workflowName: run.workflow_name || run.workflow_id,
     status: normalizeWorkflowStatus(run.status),
+    wasQueued: hasQueuedHistory(run.events_payload) || normalizeWorkflowStatus(run.status) === 'queued',
     accountIds: requestAccountIds,
     steps,
     currentStepIndex,
@@ -405,6 +412,7 @@ function bindWorkflowSubscription(
       updateExecution((execution) => ({
         ...execution,
         status: 'queued',
+        wasQueued: true,
         queuePosition: data.queue_position,
         blockingExecutionCount: data.blocking_execution_count,
         queueMessage: data.message,
@@ -415,6 +423,7 @@ function bindWorkflowSubscription(
       updateExecution((execution) => ({
         ...execution,
         status: 'queued',
+        wasQueued: true,
         queuePosition: data.queue_position,
         blockingExecutionCount: data.blocking_execution_count,
         queueMessage: data.message,
@@ -609,6 +618,32 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   setBackendReady: (ready) => set({backendReady: ready}),
 
+  hydrateExecutionById: async (executionId) => {
+    try {
+      const run = await getWorkflowRun(executionId) as unknown as RuntimeWorkflowRun
+      const execution = mapRuntimeRunToExecution(run)
+
+      setAndPersist(set, get, (state) => ({
+        executions: {
+          ...state.executions,
+          [executionId]: execution,
+        },
+        executionOrder: prioritizeExecution(state.executionOrder, executionId),
+      }))
+
+      if (execution.status === 'queued' || execution.status === 'starting' || execution.status === 'running' || execution.status === 'cancelling') {
+        bindWorkflowSubscription(executionId, set, get)
+      }
+
+      return execution
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('(404)')) {
+        return null
+      }
+      throw error
+    }
+  },
+
   restoreExecution: async () => {
     const storedExecutionIds = readStoredExecutionIds()
     if (storedExecutionIds.length === 0) return
@@ -669,6 +704,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       workflowId: req.workflow_id,
       workflowName: req.workflow_id,
       status: normalizeWorkflowStatus(response.status),
+      wasQueued: response.queued,
       accountIds: Array.from(new Set([
         ...(typeof req.account_id === 'string' ? [req.account_id] : []),
         ...Object.values(req.platform_account_ids || {}).filter((value): value is string => typeof value === 'string' && Boolean(value.trim())),

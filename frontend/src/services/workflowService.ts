@@ -227,6 +227,29 @@ export interface WorkflowEventHandlers {
 
 // ── API 客户端 ───────────────────────────────────────────
 
+function parseSseMessage(event: Event | MessageEvent, eventName: string): unknown | null {
+  if (!(event instanceof MessageEvent)) {
+    // EventSource 原生 error 事件不是 MessageEvent，没有可解析的 data。
+    return null
+  }
+
+  if (typeof event.data !== 'string') {
+    return null
+  }
+
+  const payload = event.data.trim()
+  if (!payload || payload === 'undefined' || payload === 'null') {
+    return null
+  }
+
+  try {
+    return JSON.parse(payload)
+  } catch (error) {
+    console.error(`[WorkflowSSE] 解析 ${eventName} 事件失败:`, error)
+    return null
+  }
+}
+
 function getApiBase(): string {
   // 开发环境通过 Vite proxy
   if (import.meta.env.DEV) {
@@ -307,16 +330,14 @@ export function subscribeWorkflow(
   }
 
   for (const [eventName, handlerKey] of Object.entries(eventMap)) {
-    eventSource.addEventListener(eventName, (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
-        const handler = handlers[handlerKey]
-        if (handler) {
-          ;(handler as (data: unknown) => void)(data)
-        }
-      } catch (err) {
-        console.error(`[WorkflowSSE] 解析 ${eventName} 事件失败:`, err)
-      }
+    eventSource.addEventListener(eventName, (event) => {
+      const handler = handlers[handlerKey]
+      if (!handler) return
+
+      const data = parseSseMessage(event, eventName)
+      if (data == null) return
+
+      ;(handler as (payload: unknown) => void)(data)
     })
   }
 
