@@ -127,7 +127,6 @@ test.describe('平台配置 - 解绑验证删除 @platform-config', () => {
     await app.gotoRecruit('platform-config')
 
     page.once('dialog', (dialog) => dialog.dismiss())
-    await page.getByTestId('account-actions-account-1').click()
     await page.getByTestId('account-delete-account-1').click()
 
     // 取消后账号行仍在
@@ -144,7 +143,6 @@ test.describe('平台配置 - 解绑验证删除 @platform-config', () => {
     await app.gotoRecruit('platform-config')
 
     page.once('dialog', (dialog) => dialog.accept())
-    await page.getByTestId('account-actions-account-1').click()
     await page.getByTestId('account-delete-account-1').click()
 
     // 确认后该账号被移除
@@ -163,7 +161,6 @@ test.describe('平台配置 - 解绑验证删除 @platform-config', () => {
     await app.gotoRecruit('platform-config')
 
     page.once('dialog', (dialog) => dialog.accept())
-    await page.getByTestId('account-actions-account-1').click()
     await page.getByTestId('account-delete-account-1').click()
 
     // 删除失败后账号仍在
@@ -181,7 +178,6 @@ test.describe('平台配置 - 解绑验证删除 @platform-config', () => {
     await expect(page.getByTestId('account-row-account-1')).toBeVisible()
 
     page.once('dialog', (dialog) => dialog.accept())
-    await page.getByTestId('account-actions-account-1').click()
     await page.getByTestId('account-delete-account-1').click()
 
     await expect(page.getByTestId('account-row-account-1')).toHaveCount(0)

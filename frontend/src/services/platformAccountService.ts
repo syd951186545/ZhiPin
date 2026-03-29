@@ -105,7 +105,6 @@ export async function createPlatformAccount(payload: {
 export interface LiveLoginSession {
   session_id: string
   ws_port: number
-  vnc_token: string
   ws_url: string
   login_url: string
   timeout_seconds: number
@@ -127,13 +126,12 @@ export interface ConfirmLiveLoginResult {
 
 export async function startLiveLogin(
   accountId: string,
-  platform: string,
 ): Promise<LiveLoginSession> {
   const authHeaders = await getAuthHeaders()
   const resp = await fetch('/api/live-login/start', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', ...authHeaders},
-    body: JSON.stringify({account_id: accountId, platform}),
+    body: JSON.stringify({account_id: accountId}),
   })
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
@@ -203,21 +201,6 @@ async function startSimpleAction(accountId: string, action: 'verify' | 'unbind')
   }
   const data = await resp.json()
   return data.item
-}
-
-export async function refreshQrCode(sessionId: string): Promise<string | null> {
-  const token = await getAuthToken()
-  const resp = await fetch(`/api/platform-binding-sessions/${sessionId}/refresh-qr`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({supabase_auth_token: token}),
-  })
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`刷新二维码失败 (${resp.status}): ${text}`)
-  }
-  const data = await resp.json()
-  return data.qr_screenshot_url || null
 }
 
 export async function deletePlatformAccount(accountId: string): Promise<void> {

@@ -23,7 +23,6 @@ def _make_mock_session(**overrides):
         "display": 10,
         "ws_port": 6800,
         "cdp_port": 9220,
-        "vnc_token": "abc123token",
         "started_at": 1700000000.0,
         "login_url": "https://www.zhipin.com/web/geek/job",
         "pids": {},
@@ -65,7 +64,6 @@ async def test_start_success(client):
     data = resp.json()
     assert data["session_id"] == "ls-001"
     assert data["ws_port"] == 6800
-    assert data["vnc_token"] == "abc123token"
 
 
 @pytest.mark.asyncio

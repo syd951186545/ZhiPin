@@ -11,7 +11,6 @@ function buildLiveSession(overrides: Record<string, unknown> = {}) {
   return {
     session_id: 'live-login-1',
     ws_port: 6080,
-    vnc_token: 'mock-token',
     ws_url: 'https://example.com/novnc/live-login-1',
     login_url: 'https://example.com/login/boss_zhipin',
     timeout_seconds: 600,

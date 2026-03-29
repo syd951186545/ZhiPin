@@ -33,7 +33,6 @@ function buildLiveSession(overrides: Record<string, unknown> = {}) {
   return {
     session_id: 'live-login-1',
     ws_port: 6080,
-    vnc_token: 'mock-token',
     ws_url: 'https://example.com/novnc/live-login-1',
     login_url: 'https://example.com/login/boss_zhipin',
     timeout_seconds: 600,
@@ -109,8 +108,10 @@ test.describe('机灵招聘 - 平台和账号配置', () => {
     await app.gotoRecruit('platform-config')
 
     await expect(page.getByTestId('selected-account-panel')).toContainText('华东招聘账号')
-    await selectRadixOption(page, 'default-account-select', '华南招聘账号')
+    await page.getByTestId('account-row-account-2').click()
+    await page.getByRole('button', { name: '设为默认' }).click()
     await expect(page.getByTestId('selected-account-panel')).toContainText('华南招聘账号')
+    await expect(page.getByTestId('account-row-account-2')).toContainText('默认执行')
 
     await page.getByTestId('platform-card-zhilian').click()
     await expect(page.getByTestId('selected-account-panel')).toContainText('智联账号')
@@ -213,12 +214,10 @@ test.describe('机灵招聘 - 平台和账号配置', () => {
     await page.getByRole('button', { name: '关闭' }).click()
 
     page.once('dialog', (dialog) => dialog.dismiss())
-    await page.getByTestId('account-actions-account-1').click()
     await page.getByTestId('account-delete-account-1').click()
     await expect(page.getByTestId('account-row-account-1')).toBeVisible()
 
     page.once('dialog', (dialog) => dialog.accept())
-    await page.getByTestId('account-actions-account-1').click()
     await page.getByTestId('account-delete-account-1').click()
     await expect(page.getByTestId('account-row-account-1')).toHaveCount(0)
   })

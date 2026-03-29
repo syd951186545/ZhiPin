@@ -45,7 +45,6 @@ class StartRequest(BaseModel):
 class StartResponse(BaseModel):
     session_id: str
     ws_port: int
-    vnc_token: str
     ws_url: str
     login_url: str
     timeout_seconds: int
@@ -65,7 +64,6 @@ class StatusResponse(BaseModel):
     active: bool
     time_remaining: float | None = None
     ws_port: int | None = None
-    vnc_token: str | None = None
 
 
 # ── 辅助 ─────────────────────────────────────────────────────────
@@ -139,7 +137,6 @@ async def api_start_live_login(
     return StartResponse(
         session_id=session.session_id,
         ws_port=session.ws_port,
-        vnc_token=session.vnc_token,
         ws_url=ws_url,
         login_url=session.login_url,
         timeout_seconds=SESSION_TIMEOUT,
@@ -287,5 +284,4 @@ async def api_live_login_status(
         active=True,
         time_remaining=get_session_time_remaining(session_id),
         ws_port=session.ws_port,
-        vnc_token=session.vnc_token,
     )

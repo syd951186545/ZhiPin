@@ -51,7 +51,6 @@ interface JobRow {
 interface LiveLoginSession {
   session_id: string
   ws_port: number
-  vnc_token: string
   ws_url: string
   login_url: string
   timeout_seconds: number
@@ -97,18 +96,14 @@ interface MockApp {
   setAutomationTasks(items: Record<string, unknown>[]): void
   queueCreateAccountError(detail: string, status?: number): void
   queueDeleteAccountError(detail: string, status?: number): void
-  queueBindStartResponse(session: BindingSession): void
-  queueBindSubmitResponse(session: BindingSession): void
   queueVerifyResponse(session: BindingSession): void
   queueUnbindResponse(session: BindingSession): void
   setBindingSession(session: BindingSession): void
   setBindingStream(sessionId: string, events: SseEvent[]): void
-  setRefreshQrResponse(sessionId: string, qrScreenshotUrl: string | null): void
   queueWorkflowStartResponse(response: { execution_id: string; workflow_id: string; message?: string }): void
   setWorkflowStream(executionId: string, events: SseEvent[]): void
   setWorkflowRun(executionId: string, payload: Record<string, unknown>): void
   queueJobDetailError(detail: string, status?: number): void
-  queueBindStartError(detail: string, status?: number): void
   queueLiveLoginStartError(detail: string, status?: number): void
   queueLiveLoginStartResponse(session: LiveLoginSession): void
   queueLiveLoginConfirmResponse(result: LiveLoginConfirmResponse): void
@@ -122,8 +117,6 @@ interface MockApp {
   setWorkflowStartDelay(ms: number): void
   gotoRecruit(tab?: 'execute' | 'platform-config'): Promise<void>
   workflowStarts: WorkflowStartPayload[]
-  bindStarts: Record<string, unknown>[]
-  bindSubmits: Record<string, unknown>[]
   cancelRequests: string[]
 }
 
@@ -253,11 +246,8 @@ function createMockApp(page: Page): MockApp {
   let nextCreateAccountError: { detail: string; status: number } | null = null
   let nextDeleteAccountError: { detail: string; status: number } | null = null
   let nextJobDetailError: { detail: string; status: number } | null = null
-  let nextBindStartError: { detail: string; status: number } | null = null
   let nextLiveLoginStartError: { detail: string; status: number } | null = null
   let nextWorkflowStartError: { detail: string; status: number } | null = null
-  const nextBindStartResponses: BindingSession[] = []
-  const nextBindSubmitResponses: BindingSession[] = []
   const nextVerifyResponses: BindingSession[] = []
   const nextUnbindResponses: BindingSession[] = []
   const nextLiveLoginStartResponses: LiveLoginSession[] = []
@@ -266,15 +256,12 @@ function createMockApp(page: Page): MockApp {
   const liveLoginSessionAccounts = new Map<string, string>()
   const bindingSessions = new Map<string, BindingSession>()
   const bindingStreams = new Map<string, SseEvent[]>()
-  const refreshQrResponses = new Map<string, string | null>()
   const liveLoginStatuses = new Map<string, LiveLoginStatusResponse>()
   const nextWorkflowStartResponses: Array<{ execution_id: string; workflow_id: string; message?: string }> = []
   const workflowStreams = new Map<string, SseEvent[]>()
   const workflowRuns = new Map<string, Record<string, unknown>>()
 
   const workflowStarts: WorkflowStartPayload[] = []
-  const bindStarts: Record<string, unknown>[] = []
-  const bindSubmits: Record<string, unknown>[] = []
   const cancelRequests: string[] = []
 
   const abortedWorkflowStreams = new Map<string, number>() // executionId -> cutAfterN
@@ -368,7 +355,6 @@ function createMockApp(page: Page): MockApp {
       nextLiveLoginStartResponses.shift() || {
         session_id: `live-login-${Date.now()}`,
         ws_port: 6080,
-        vnc_token: 'mock-vnc-token',
         ws_url: `https://example.com/novnc/${accountId}`,
         login_url: `https://example.com/login/${platform}`,
         timeout_seconds: 600,
@@ -445,56 +431,6 @@ function createMockApp(page: Page): MockApp {
     await fulfillJson(route, { success: true })
   })
 
-  page.route(/.*\/api\/platform-accounts\/[^/]+\/bind\/start$/, async (route) => {
-    const payload = await parseJson(route)
-    bindStarts.push(payload)
-    if (nextBindStartError) {
-      const error = nextBindStartError
-      nextBindStartError = null
-      await fulfillJson(route, { detail: error.detail }, error.status)
-      return
-    }
-    const accountId = route.request().url().split('/').slice(-3)[0]
-    const session =
-      nextBindStartResponses.shift() || {
-        id: `binding-${Date.now()}`,
-        account_id: accountId,
-        tenant_id: defaultMockUser.tenantId,
-        action: 'bind',
-        status: 'running',
-        step_key: 'INIT',
-        latest_screenshot_url: null,
-        qr_screenshot_url: null,
-        error_message: null,
-      }
-    bindingSessions.set(session.id, session)
-    upsertAccountFromSession(session)
-    await fulfillJson(route, { item: session })
-  })
-
-  page.route(/.*\/api\/platform-binding-sessions\/[^/]+\/submit$/, async (route) => {
-    const payload = await parseJson(route)
-    bindSubmits.push(payload)
-    const sessionId = route.request().url().split('/').slice(-2)[0]
-    const session =
-      nextBindSubmitResponses.shift() || {
-        ...(bindingSessions.get(sessionId) || {
-          id: sessionId,
-          account_id: platformAccounts[0]?.id || 'account-1',
-          tenant_id: defaultMockUser.tenantId,
-          action: 'bind',
-        }),
-        status: 'running',
-        step_key: 'SUBMIT',
-        latest_screenshot_url: null,
-        qr_screenshot_url: null,
-        error_message: null,
-      }
-    bindingSessions.set(session.id, session)
-    upsertAccountFromSession(session)
-    await fulfillJson(route, { item: session })
-  })
-
   page.route(/.*\/api\/platform-binding-sessions\/[^/]+$/, async (route) => {
     const sessionId = route.request().url().split('/').pop() || ''
     const session = bindingSessions.get(sessionId)
@@ -503,11 +439,6 @@ function createMockApp(page: Page): MockApp {
       return
     }
     await fulfillJson(route, { item: session })
-  })
-
-  page.route(/.*\/api\/platform-binding-sessions\/[^/]+\/refresh-qr$/, async (route) => {
-    const sessionId = route.request().url().split('/').slice(-2)[0]
-    await fulfillJson(route, { qr_screenshot_url: refreshQrResponses.get(sessionId) ?? transparentPngDataUrl })
   })
 
   page.route(/.*\/api\/platform-binding-sessions\/[^/]+\/stream(?:\?.*)?$/, async (route) => {
@@ -730,12 +661,6 @@ function createMockApp(page: Page): MockApp {
     queueDeleteAccountError(detail, status = 500) {
       nextDeleteAccountError = { detail, status }
     },
-    queueBindStartResponse(session) {
-      nextBindStartResponses.push(deepClone(session))
-    },
-    queueBindSubmitResponse(session) {
-      nextBindSubmitResponses.push(deepClone(session))
-    },
     queueVerifyResponse(session) {
       nextVerifyResponses.push(deepClone(session))
     },
@@ -748,9 +673,6 @@ function createMockApp(page: Page): MockApp {
     setBindingStream(sessionId, events) {
       bindingStreams.set(sessionId, deepClone(events))
     },
-    setRefreshQrResponse(sessionId, qrScreenshotUrl) {
-      refreshQrResponses.set(sessionId, qrScreenshotUrl)
-    },
     queueWorkflowStartResponse(response) {
       nextWorkflowStartResponses.push(deepClone(response))
     },
@@ -762,9 +684,6 @@ function createMockApp(page: Page): MockApp {
     },
     queueJobDetailError(detail, status = 500) {
       nextJobDetailError = { detail, status }
-    },
-    queueBindStartError(detail, status = 500) {
-      nextBindStartError = { detail, status }
     },
     queueLiveLoginStartError(detail, status = 500) {
       nextLiveLoginStartError = { detail, status }
@@ -799,8 +718,6 @@ function createMockApp(page: Page): MockApp {
       }
     },
     workflowStarts,
-    bindStarts,
-    bindSubmits,
     cancelRequests,
   }
 

@@ -14,7 +14,6 @@ from sse_starlette.sse import EventSourceResponse
 from services.platform_binding_service import (
     get_binding_session_snapshot,
     is_binding_session_running,
-    refresh_qr_session,
     start_unbind_session,
     start_verify_session,
     stream_binding_events,
@@ -256,26 +255,6 @@ async def get_binding_session_route(
     if not session:
         raise HTTPException(status_code=404, detail="绑定会话不存在")
     return {"item": session}
-
-
-@router.post("/api/platform-binding-sessions/{session_id}/refresh-qr")
-async def refresh_qr_route(session_id: str, req: PlatformAccountActionRequest):
-    user = await _validate_request_user(req.supabase_auth_token)
-    binding_session = get_binding_session(session_id, user["tenant_id"], auth_token=req.supabase_auth_token)
-    if not binding_session:
-        raise HTTPException(status_code=404, detail="绑定会话不存在")
-    if binding_session.get("status") != "awaiting_qr":
-        raise HTTPException(status_code=400, detail="当前会话状态不支持刷新二维码")
-    account = get_platform_account(binding_session["account_id"], user["tenant_id"], auth_token=req.supabase_auth_token)
-    if not account:
-        raise HTTPException(status_code=404, detail="平台账号不存在")
-    new_url = await refresh_qr_session(
-        binding_session=binding_session,
-        account=account,
-        tenant_id=user["tenant_id"],
-        auth_token=req.supabase_auth_token,
-    )
-    return {"qr_screenshot_url": new_url}
 
 
 @router.get("/api/platform-binding-sessions/{session_id}/stream")

@@ -221,7 +221,7 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
     setError(null)
     setConfirmMessage('')
     try {
-      const session = await startLiveLoginSession(profileId, profile.platform)
+      const session = await startLiveLoginSession(profileId)
       setLiveSession(session)
       setRemaining(session.timeout_seconds)
       setPhase('running')

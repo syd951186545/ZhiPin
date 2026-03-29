@@ -1,11 +1,10 @@
 import {useCallback, useEffect, useState} from 'react'
-import type {PlatformBindingSession, PlatformCatalogItem} from '@/types/openclaw'
+import type {PlatformCatalogItem} from '@/types/openclaw'
 import {STATIC_PLATFORM_CATALOG} from '@/lib/constants'
 import {
   confirmLiveLogin,
   createPlatformAccount,
   deletePlatformAccount,
-  fetchBindingSession,
   fetchPlatformAccounts,
   getLiveLoginStatus,
   startLiveLogin,
@@ -63,17 +62,8 @@ export function usePlatformAccounts() {
     return created
   }, [])
 
-  const refreshSession = useCallback(async (sessionId: string): Promise<PlatformBindingSession> => {
-    const session = await fetchBindingSession(sessionId)
-    await load()
-    return session
-  }, [load])
-
-  const startLiveLoginSession = useCallback(async (
-    accountId: string,
-    platform: string,
-  ): Promise<LiveLoginSession> => {
-    const session = await startLiveLogin(accountId, platform)
+  const startLiveLoginSession = useCallback(async (accountId: string): Promise<LiveLoginSession> => {
+    const session = await startLiveLogin(accountId)
     return session
   }, [])
 
@@ -114,7 +104,6 @@ export function usePlatformAccounts() {
     error,
     load,
     createAccount,
-    refreshSession,
     startLiveLoginSession,
     confirmLiveLoginSession,
     stopLiveLoginSession,

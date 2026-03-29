@@ -61,7 +61,6 @@ async def test_start_happy_path(mock_deps):
     assert session.session_id
     assert session.account_id == "acc-1"
     assert session.ws_port > 0
-    assert session.vnc_token
     assert session.display >= 10
 
 

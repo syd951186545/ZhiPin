@@ -53,7 +53,6 @@ test.describe('完整用户旅程 @smoke', () => {
     app.queueLiveLoginStartResponse({
       session_id: 'live-journey-1',
       ws_port: 6080,
-      vnc_token: 'journey-token',
       ws_url: 'https://example.com/novnc/live-journey-1',
       login_url: 'https://example.com/login/boss_zhipin',
       timeout_seconds: 600,

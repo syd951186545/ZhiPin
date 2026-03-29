@@ -66,7 +66,6 @@ class LiveSession:
     pids: dict[str, int] = field(default_factory=dict)
     ws_port: int = 0
     cdp_port: int = 0
-    vnc_token: str = ""
     started_at: float = 0.0
     login_url: str = ""
 
@@ -87,7 +86,7 @@ async def start_live_session(
     browser_session_key: str,
     login_url: str | None = None,
 ) -> LiveSession:
-    """启动 noVNC 会话，返回 LiveSession（含 ws_port、vnc_token）。"""
+    """启动 noVNC 会话，返回 LiveSession。"""
 
     if not try_acquire_browser_mutex(browser_session_key, "live_login"):
         raise RuntimeError("该账号正在被其他操作使用，请稍后重试")
@@ -109,7 +108,6 @@ async def start_live_session(
         display=display_num,
         ws_port=_WS_PORT_BASE + (display_num - _DISPLAY_BASE),
         cdp_port=_CDP_PORT_BASE + (display_num - _DISPLAY_BASE),
-        vnc_token=uuid4().hex,
         started_at=time.time(),
         login_url=login_url or _default_login_url(platform),
     )
@@ -521,10 +519,6 @@ async def _cleanup_session(session: LiveSession) -> None:
         pid = session.pids.get(name)
         if pid:
             _safe_kill(pid, name)
-
-    # 清理 token 文件
-    token_file = Path(f"/tmp/vnc-token-{session.session_id}.cfg")
-    token_file.unlink(missing_ok=True)
 
     # 清理 PID 文件
     pid_file = _PID_DIR / f"{session.session_id}.json"

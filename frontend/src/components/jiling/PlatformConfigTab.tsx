@@ -305,15 +305,6 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="gap-2"
-                          data-testid={`account-actions-${selectedAccount.id}`}
-                          onClick={() => undefined}
-                        >
-                          更多操作
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
                           className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
                           onClick={() => onDeleteAccount(selectedAccount.id)}
                           disabled={actionPendingAccountId === selectedAccount.id}

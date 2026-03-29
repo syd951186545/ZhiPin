@@ -39,7 +39,7 @@ pytest -x                       # 遇到第一个失败即停
 
 ### 1.1 现有测试（17 个）
 
-#### 平台和账号配置 `jiling-recruit.platform-config.spec.ts`（9 个）
+#### 平台和账号配置 `jiling-recruit.platform-config.spec.ts`（7 个）
 
 | # | 用例名 | 分类 | 验证要点 |
 |---|--------|------|---------|
@@ -47,11 +47,10 @@ pytest -x                       # 遇到第一个失败即停
 | 2 | 新增账号成功并展示平台预览 | 正常 | 选平台→填名称→提交→预览卡展示 |
 | 3 | 新增账号失败时保留表单并在重新打开后重置 | 异常 | 服务端错误保留表单，关闭重开清空 |
 | 4 | 平台切换和默认账号切换保持正确 | 正常 | 多平台多账号切换，选中状态持久 |
-| 5 | 手机号绑定支持等待验证码、日志过滤和提交成功 | 正常 | SSE 流→等待验证码→提交→完成 |
-| 6 | 扫码绑定支持二维码刷新且替换截图 | 正常 | 二维码截图 src 随刷新更新 |
-| 7 | 账号密码绑定支持二次验证并完成 | 正常 | 密码→2FA→提交→完成 |
-| 8 | 绑定失败后重新打开仍保留最近失败状态和截图 | 异常 | 失败 badge、错误消息、截图持久 |
-| 9 | 验证登录、解绑和删除账号链路可用 | 正常 | verify→unbind→delete dismiss→delete accept |
+| 5 | 远程登录启动并确认成功后账号可复用 | 正常 | noVNC 面板启动→确认登录→账号状态可复用 |
+| 6 | 远程登录确认失败时保留远程桌面并展示错误 | 异常 | confirm 返回未登录→保留 noVNC 面板 + 错误提示 |
+| 7 | 远程登录停止后重新打开恢复到初始态 | 正常 | stop 后 badge=已停止，重开回到未开始 |
+| 8 | 验证登录、解绑和删除账号链路可用 | 正常 | verify→unbind→delete dismiss→delete accept |
 
 #### 招聘执行 `jiling-recruit.execute.spec.ts`（8 个）
 
@@ -96,18 +95,16 @@ pytest -x                       # 遇到第一个失败即停
 | 7 | 纯空格账号名提交禁用 | 边界 | "   " → trim 后 submit disabled |
 | 8 | 快速双击提交不重复创建 | 边界 | 连续两次 click → 只创建 1 个账号 |
 
-#### 1.2.3 绑定方法异常路径 `platform-config/binding-methods.spec.ts`（8 个）`@platform-config`
+#### 1.2.3 远程登录弹窗异常路径 `platform-config/binding-methods.spec.ts`（6 个）`@platform-config`
 
 | # | 用例名 | 分类 | 验证要点 |
 |---|--------|------|---------|
-| 1 | 手机号绑定 - 错误验证码导致绑定失败 | 异常 | 提交后 stream 发 failed → "失败" badge + 错误消息 |
-| 2 | 手机号绑定 - 空验证码无法提交 | 边界 | 不填验证码 → submit disabled |
-| 3 | 扫码绑定 - 多次刷新二维码连续替换截图 | 正常 | 2 次 refresh → src 依次更新 |
-| 4 | 扫码绑定 - 扫码超时后仍可刷新 | 异常 | 超时 reason → 刷新按钮仍可用 |
-| 5 | 密码绑定 - 凭据错误返回失败 | 异常 | stream 发 failed → "失败" badge |
-| 6 | 密码绑定 - 二次验证字段可见 | 正常 | awaiting_password_2fa → secondary 输入框出现 |
-| 7 | 绑定启动 API 返回 500 时显示错误 | 异常 | bind start error → 错误提示 |
-| 8 | 绑定过程中日志正确过滤系统标记 | 正常 | `[LOGIN_STATE:]`、`![截图]` 不展示在日志中 |
+| 1 | 启动远程登录失败时显示错误 | 异常 | live-login start 500 → badge=异常 + 错误提示 |
+| 2 | 启动远程登录后显示 noVNC 面板与确认按钮 | 正常 | noVNC iframe、确认按钮、停止按钮可见 |
+| 3 | 确认已登录成功后显示完成状态 | 正常 | confirm 成功 → badge=已完成 + 成功文案 |
+| 4 | 确认已登录但系统未检测到登录态时保留运行态并展示错误 | 异常 | confirm 失败 → 保留 noVNC 面板 |
+| 5 | 停止远程登录后展示已停止状态并允许重新启动 | 正常 | stop 后可重新启动 |
+| 6 | 远程登录会话超时后显示过期状态 | 异常 | status active=false → badge=已过期 |
 
 #### 1.2.4 解绑验证删除 `platform-config/unbind-delete.spec.ts`（8 个）`@platform-config`
 
@@ -208,22 +205,15 @@ pytest -x                       # 遇到第一个失败即停
 | 18 | test_verify_success | 正常 | → 200, 调用 start_verify_session |
 | 19 | test_unbind_success | 正常 | → 200, 调用 start_unbind_session |
 
-### 2.4 绑定会话 `test_platform_binding_sessions.py`（12 个）
+### 2.4 绑定会话 `test_platform_binding_sessions.py`（5 个）
 
 | # | 用例名 | 分类 | 验证要点 |
 |---|--------|------|---------|
-| 1 | test_submit_verification_success | 正常 | → 200, 返回更新后 session |
-| 2 | test_submit_session_not_found | 异常 | → 404 |
-| 3 | test_submit_account_not_found | 异常 | session 在但 account 不在 → 404 |
-| 4 | test_submit_no_auth | 异常 | → 401 |
-| 5 | test_get_session_success | 正常 | → 200, 返回 item |
-| 6 | test_get_session_not_found | 异常 | → 404 |
-| 7 | test_get_session_no_auth | 异常 | → 401 |
-| 8 | test_refresh_qr_success | 正常 | → 200, 返回新 qr_screenshot_url |
-| 9 | test_refresh_qr_wrong_status | 异常 | 非 awaiting_qr → 400 |
-| 10 | test_refresh_qr_session_not_found | 异常 | → 404 |
-| 11 | test_stream_no_token | 异常 | 无 ?token= → 401 |
-| 12 | test_stream_returns_sse_content_type | 正常 | → 200, text/event-stream |
+| 1 | test_get_session_success | 正常 | → 200, 返回 item |
+| 2 | test_get_session_not_found | 异常 | → 404 |
+| 3 | test_get_session_no_auth | 异常 | → 401 |
+| 4 | test_stream_no_token | 异常 | 无 ?token= → 401 |
+| 5 | test_stream_returns_sse_content_type | 正常 | → 200, text/event-stream |
 
 ### 2.5 工作流 `test_workflow.py`（18 个）
 
@@ -294,7 +284,7 @@ frontend/tests/e2e/
 ├── platform-config/
 │   ├── all-platforms.spec.ts                     # 全平台账号新增 (8) [新建]
 │   ├── edge-cases.spec.ts                        # 边界用例 (8) [新建]
-│   ├── binding-methods.spec.ts                   # 绑定异常路径 (8) [新建]
+│   ├── binding-methods.spec.ts                   # 远程登录弹窗异常路径 (6) [新建]
 │   └── unbind-delete.spec.ts                     # 解绑验证删除 (8) [新建]
 ├── execution/
 │   ├── preconditions.spec.ts                     # 前置条件 (5) [新建]
@@ -317,7 +307,7 @@ backend/
     ├── test_health.py                            # 健康检查 (2) [新建]
     ├── test_platforms_catalog.py                  # 平台目录 (2) [新建]
     ├── test_platform_accounts.py                  # 平台账号 CRUD (19) [新建]
-    ├── test_platform_binding_sessions.py          # 绑定会话 (12) [新建]
+    ├── test_platform_binding_sessions.py          # 绑定会话 (5) [新建]
     ├── test_workflow.py                           # 工作流 (18) [新建]
     └── test_workflow_check_openclaw.py            # OpenClaw 检查 (4) [新建]
 ```
