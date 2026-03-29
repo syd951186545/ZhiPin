@@ -1,56 +1,24 @@
 # TODOS
 
-## P2 — 运行 /design-consultation 生成 DESIGN.md
+## P2 — storageState 持久化安全加固
 
-**What:** 运行 `/design-consultation` 为「机灵」建立设计系统文档 `DESIGN.md`。
+**What:** 补齐 `encrypted_session_state` 的安全治理，包括密钥轮换方案、历史密文兼容、过期/吊销策略，以及合规边界说明。
 
-**Why:** 项目当前缺少统一设计规范，每次扩展 UI 依赖个人判断，随着功能迭代容易出现风格漂移（字体、颜色、间距、组件用法不一致）。
+**Why:** 当前 storageState 提取、AES-256-GCM 加密、Supabase 落库和执行前恢复链路已经可用，但仍依赖单一运行密钥；若后续需要迁移环境、轮换密钥或处理账号解绑后的凭证清理，缺少明确机制。
 
-**Pros:** 统一 UI 风格基线；后续每次 `/plan-design-review` 有明确校准参考；新功能 UI 决策更快。
+**Pros:** 降低长期持有登录态带来的安全风险；便于后续扩容或迁移环境；让“重新绑定/解绑/失效恢复”的行为边界更清晰。
 
-**Cons:** 需要约 30 分钟 CC 时间；Phase 1 验证期不影响核心功能。
+**Cons:** 需要补充迁移策略和运维约束；会引入一定实现与测试成本。
 
-**Context:** Phase 1 完成后、Phase 2 第一个新 UI 功能开始前执行最合适。当前 shadcn/ui + Tailwind CSS 已有隐式规范，`/design-consultation` 会将其显式化并补充缺失决策（如品牌色、排版标尺等）。
+**Context:** 当前代码已实现从 DB 优先恢复、workspace 兜底恢复。此项不再是“功能补齐”，而是“安全与运维加固”。优先考虑：
+- 密钥版本号或 key id，支持未来平滑轮换
+- 账号解绑或判定失效时，是否同步清空 `encrypted_session_state`
+- 是否需要为持久会话增加更新时间/过期时间字段
+- 会话数据是否需要审计记录或最小化存储范围
 
-**Depends on:** Phase 1 完成并通过真实用户验证后。
+**Depends on:** 现有 live login / browser-ready 恢复链路稳定运行后。
 
-**Effort:** S（人工团队：2天 / CC+gstack：~30分钟）| **Priority:** P2
-
----
-
-## P1 — 后端重启后 noVNC 孤儿进程自动清理
-
-**What:** 在 `cleanup_orphaned_running_sessions()` 中增加一步：`docker exec openclaw pkill -f xvfb; pkill -f x11vnc; pkill -f novnc`，也可与进程占用的端口列表结合进行精准清理。
-
-**Why:** 如果后端进程崩溃或重启，Docker 容器内的 Xvfb/x11vnc/noVNC 进程不会自动清理，导致占用端口和显示器编号，下次启动 live login 可能失败。
-
-**Pros:** 防止端口耗尽和显示器编号冲突；幂等安全，多次执行无副作用。
-
-**Cons:** 依赖 docker.sock 访问权限（已有），pkill 会影响所有同名进程（需按 display 编号精准 kill，增加少量复杂度）。
-
-**Context:** `backend/services/live_login_service.py` 实现后，需要在 `backend/main.py` 的 lifespan 函数内的 `cleanup_orphaned_running_sessions()` 调用处扩展。精准清理方式：维护一个进程 PID 列表（写入 Docker volume 的 json 文件），重启时读取并 kill。
-
-**Depends on:** `live_login_service.py` 实现完成后，与 noVNC 实施绑定处理。
-
-**Effort:** XS（人工团队：~1小时 / CC+gstack：~5分钟）| **Priority:** P1（与 noVNC 实施绑定）
-
----
-
-## P2 — storageState 加密导出/导入
-
-**What:** 登录成功后，通过 Playwright CDP 提取 cookies/localStorage，加密存入 Supabase，让 OpenClaw 下次执行任务时可选择「从 DB 恢复会话」而不必依赖 Docker 卷。
-
-**Why:** 当前方案依赖 Docker volume 共享 user-data-dir，如果 OpenClaw 容器重建或迁移服务器，登录态丢失。storageState 导出后会话共享不再依赖文件系统。
-
-**Pros:** 跨部署会话恢复；可以在多个 OpenClaw 实例间共享登录态；为未来水平扩展铺路。
-
-**Cons:** 加密密钥管理增加运维复杂度；storageState 包含敏感凭证，需要 AES-256 + 密钥轮换；PIPL 合规需要评估（登录 cookie 是否属于个人信息）。
-
-**Context:** 可通过 CDP API `Network.getAllCookies` + `Runtime.evaluate(localStorage)` 提取会话数据。加密可用 Supabase Vault 或 backend 侧 AES 密钥（存 env var）。实现时需要为 `platform_configs` 表新增 `encrypted_session_state` 字段（JSONB, encrypted）。
-
-**Depends on:** noVNC 登录方案上线并验证稳定后。
-
-**Effort:** S（人工团队：~1天 / CC+gstack：~20分钟）| **Priority:** P2
+**Effort:** S（人工团队：~1天）| **Priority:** P2
 
 ---
 
