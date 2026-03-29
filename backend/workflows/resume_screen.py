@@ -85,7 +85,7 @@ async def run(execution_id: str, req):
     # 构建完整步骤列表（用于前端显示）
     all_step_meta = []
     for platform in platforms:
-        pname = _get_platform_name(platform)
+        pname = get_platform_name(platform)
         for step in PER_PLATFORM_STEPS:
             all_step_meta.append({
                 "id": f"{step.id}_{platform}",
