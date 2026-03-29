@@ -12,10 +12,10 @@ import {useAutomationTasks} from '@/hooks/useAutomationTasks';
 import {PLATFORMS, TASK_STATUS, TASK_TYPE} from '@/lib/constants';
 
 const statusIcons: Record<string, React.ReactNode> = {
-  running: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
+  running: <Loader2 className="h-4 w-4 animate-spin text-primary" />,
   queued: <Clock className="h-4 w-4 text-muted-foreground" />,
-  paused: <PauseCircle className="h-4 w-4 text-yellow-500" />,
-  completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+  paused: <PauseCircle className="h-4 w-4 text-amber-500" />,
+  completed: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
   failed: <XCircle className="h-4 w-4 text-red-500" />,
   cancelled: <XCircle className="h-4 w-4 text-muted-foreground" />,
 };
@@ -63,7 +63,7 @@ export default function TaskMonitorPanel() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
               {t('monitor.status.running')} ({runningTasks.length})
             </CardTitle>
           </CardHeader>
@@ -85,7 +85,7 @@ export default function TaskMonitorPanel() {
                   </div>
                   {task.status === 'running' && (
                     <div className="flex items-center gap-3">
-                      <Progress value={task.progress} className="h-1.5 flex-1" />
+                      <Progress value={task.progress} className="h-2 flex-1" />
                       <span className="text-xs text-muted-foreground shrink-0">{task.progress}%</span>
                     </div>
                   )}
