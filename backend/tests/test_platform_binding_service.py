@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from prompts.platform_binding import build_correction_prompt
 from services.openclaw_client import StepResult
-from services.platform_binding_service import _execute_openclaw_with_retries
+from services.platform_binding_service import _execute_openclaw_with_retries, _run_action
 
 
 @pytest.mark.asyncio
@@ -44,3 +44,55 @@ def test_correction_prompt_keeps_original_browser_profile():
 
     assert 'profile="tenant-001-platform-boss-account-001"' in prompt
     assert 'profile="openclaw"' not in prompt
+
+
+@pytest.mark.asyncio
+async def test_run_action_marks_verify_session_failed_when_browser_precheck_fails(sample_account, sample_binding_session):
+    account = {
+        **sample_account,
+        "encrypted_session_state": "ciphertext",
+        "status": "active",
+    }
+    binding_session = {
+        **sample_binding_session,
+        "action": "verify",
+        "status": "running",
+    }
+    mock_update_binding_session = MagicMock()
+    mock_update_platform_account = MagicMock()
+    mock_emit = AsyncMock()
+
+    with (
+        patch("services.platform_binding_service.try_acquire_browser_mutex", return_value=True),
+        patch("services.platform_binding_service.write_session_metadata"),
+        patch(
+            "services.platform_binding_service.ensure_verify_session_ready",
+            new_callable=AsyncMock,
+            return_value={
+                "ready": False,
+                "detail": "OpenClaw browser 服务不可达：All connection attempts failed",
+                "http_status": 503,
+                "status_snapshot": {},
+            },
+        ),
+        patch("services.platform_binding_service.update_binding_session", mock_update_binding_session),
+        patch("services.platform_binding_service.update_platform_account", mock_update_platform_account),
+        patch("services.platform_binding_service.emit_binding_event", mock_emit),
+        patch("services.platform_binding_service.release_browser_mutex"),
+        patch("services.platform_binding_service._close_binding_stream"),
+        patch("services.platform_binding_service._execute_openclaw_with_retries", new_callable=AsyncMock) as mock_execute,
+    ):
+        await _run_action(
+            binding_session=binding_session,
+            account=account,
+            action="verify",
+            prompt="verify prompt",
+            tenant_id="tenant-001",
+            auth_token="token",
+        )
+
+    mock_execute.assert_not_called()
+    assert mock_update_binding_session.call_args_list[0].args[2]["status"] == "failed"
+    assert mock_update_binding_session.call_args_list[0].args[2]["step_key"] == "BROWSER_READY_FAILED"
+    assert mock_update_platform_account.call_args_list[0].args[2]["status"] == "active"
+    assert mock_update_platform_account.call_args_list[0].args[2]["last_error"] is None

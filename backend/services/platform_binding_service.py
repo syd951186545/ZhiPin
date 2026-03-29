@@ -196,6 +196,25 @@ def _account_patch_for_status(
     return patch
 
 
+def _account_patch_for_verify_precheck_failure(
+    account: PlatformAccountRow,
+    reason: str,
+) -> dict[str, Any]:
+    if account.get("encrypted_session_state"):
+        return {
+            "status": "active",
+            "is_connected": True,
+            "login_state": account.get("login_state") or "LOGGED_IN",
+            "last_error": None,
+        }
+
+    return {
+        "status": "expired",
+        "is_connected": False,
+        "last_error": reason or None,
+    }
+
+
 def _session_patch_for_status(
     action: str,
     status: str,
@@ -363,6 +382,49 @@ async def _run_action(
                 "browser_session_key": browser_session_key,
             },
         )
+
+        if action == "verify":
+            readiness = await ensure_verify_session_ready(account=account)
+            if not readiness["ready"]:
+                detail = str(readiness.get("detail") or "OpenClaw 验证环境未就绪").strip()
+                update_binding_session(
+                    session_id,
+                    tenant_id,
+                    {
+                        "status": "failed",
+                        "step_key": "BROWSER_READY_FAILED",
+                        "error_message": detail,
+                        "awaiting_payload_schema": None,
+                        "expires_at": None,
+                        "updated_at": _now_iso(),
+                    },
+                    auth_token=auth_token,
+                )
+                update_platform_account(
+                    account["id"],
+                    tenant_id,
+                    _account_patch_for_verify_precheck_failure(account, detail),
+                    auth_token=auth_token,
+                )
+                await emit_binding_event(
+                    session_id,
+                    "state",
+                    {
+                        "status": "failed",
+                        "step_key": "BROWSER_READY_FAILED",
+                        "reason": detail,
+                    },
+                )
+                await emit_binding_event(
+                    session_id,
+                    "error",
+                    {
+                        "status": "failed",
+                        "reason": detail,
+                        "message": detail,
+                    },
+                )
+                return
 
         result, parsed = await _execute_openclaw_with_retries(session_id, account, prompt, auth_token)
         screenshots = result.screenshots or []

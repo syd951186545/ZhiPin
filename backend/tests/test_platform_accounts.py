@@ -280,16 +280,11 @@ async def test_delete_no_session_key_skips_clear(client, sample_account):
 
 @pytest.mark.asyncio
 async def test_verify_success(client, sample_account, sample_binding_session):
-    """验证登录成功。"""
-    verify_session = {**sample_binding_session, "action": "verify", "status": "completed"}
+    """验证登录时应立即返回已创建的会话。"""
+    verify_session = {**sample_binding_session, "action": "verify", "status": "running"}
     with (
         patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
         patch("routers.platform_accounts.list_binding_sessions", return_value=[]),
-        patch(
-            "routers.platform_accounts.ensure_verify_session_ready",
-            new_callable=AsyncMock,
-            return_value={"ready": True, "detail": "", "http_status": 200, "status_snapshot": {}},
-        ),
         patch("routers.platform_accounts.start_verify_session", return_value=verify_session),
     ):
         resp = await client.post("/api/platform-accounts/acc-001/verify", json=auth_body())
@@ -311,10 +306,6 @@ async def test_verify_reuses_running_session(client, sample_account, sample_bind
         patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
         patch("routers.platform_accounts.list_binding_sessions", return_value=[running_session]),
         patch("routers.platform_accounts.is_binding_session_running", return_value=True),
-        patch(
-            "routers.platform_accounts.ensure_verify_session_ready",
-            new_callable=AsyncMock,
-        ) as mock_ready,
         patch("routers.platform_accounts.start_verify_session") as mock_start_verify,
     ):
         resp = await client.post("/api/platform-accounts/acc-001/verify", json=auth_body())
@@ -322,33 +313,27 @@ async def test_verify_reuses_running_session(client, sample_account, sample_bind
     assert resp.status_code == 200
     assert resp.json()["item"]["id"] == "sess-001"
     assert resp.json()["reused_existing"] is True
-    mock_ready.assert_not_called()
     mock_start_verify.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_verify_returns_503_when_browser_not_ready(client, sample_account):
-    """browser-ready 预检失败时，应直接返回明确错误，不创建验证会话。"""
+async def test_verify_route_returns_session_without_sync_browser_ready_check(client, sample_account, sample_binding_session):
+    """browser-ready 预检应下沉到后台任务，路由自身不再同步返回 503。"""
+    verify_session = {**sample_binding_session, "action": "verify", "status": "running"}
     with (
         patch("routers.platform_accounts.get_platform_account", return_value=sample_account),
         patch("routers.platform_accounts.list_binding_sessions", return_value=[]),
         patch(
-            "routers.platform_accounts.ensure_verify_session_ready",
-            new_callable=AsyncMock,
-            return_value={
-                "ready": False,
-                "detail": "OpenClaw 未允许沙箱会话切换到 host browser",
-                "http_status": 503,
-                "status_snapshot": {},
-            },
-        ),
-        patch("routers.platform_accounts.start_verify_session") as mock_start_verify,
+            "routers.platform_accounts.start_verify_session",
+            return_value=verify_session,
+        ) as mock_start_verify,
     ):
         resp = await client.post("/api/platform-accounts/acc-001/verify", json=auth_body())
 
-    assert resp.status_code == 503
-    assert resp.json()["detail"] == "OpenClaw 未允许沙箱会话切换到 host browser"
-    mock_start_verify.assert_not_called()
+    assert resp.status_code == 200
+    assert resp.json()["item"]["id"] == "sess-001"
+    assert resp.json()["reused_existing"] is False
+    mock_start_verify.assert_called_once()
 
 
 # ── POST /api/platform-accounts/{id}/unbind ──────────────────

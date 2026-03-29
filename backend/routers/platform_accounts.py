@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from services.platform_binding_service import (
-    ensure_verify_session_ready,
     get_binding_session_snapshot,
     is_binding_session_running,
     refresh_qr_session,
@@ -312,9 +311,6 @@ async def verify_platform_account(account_id: str, req: PlatformAccountActionReq
     )
     if reusable_session:
         return {"item": reusable_session, "reused_existing": True}
-    readiness = await ensure_verify_session_ready(account=account)
-    if not readiness["ready"]:
-        raise HTTPException(status_code=readiness["http_status"], detail=readiness["detail"])
     session = start_verify_session(account=account, tenant_id=user["tenant_id"], auth_token=req.supabase_auth_token)
     return {"item": session, "reused_existing": False}
 

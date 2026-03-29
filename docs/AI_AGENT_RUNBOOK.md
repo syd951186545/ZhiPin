@@ -10,6 +10,7 @@
 - OpenClaw 运行态数据保存在 Docker volume `/opt/openclaw-home`
 - 部署统一入口是 `deploy/deploy.sh`，支持 `prepare` / `build` / `recreate` / `all`
 - 后端 `HOST/PORT/DEBUG` 已内置默认值（`0.0.0.0/8000/false`），部署链路不再要求在 `deploy/.env.production` 或 `backend/.env.production` 显式配置这三项
+- 后端 `OPENCLAW_BASE_URL/OPENCLAW_BROWSER_BASE_URL` 已内置默认值（`127.0.0.1:18789/127.0.0.1:18791`），同容器部署时不要在 `deploy/.env.production` 或 `backend/.env.production` 显式覆盖
 
 关键事实：
   - 仅在本地开发代码和单元测试，仅在服务器中执行启动和集成测试。
@@ -56,7 +57,7 @@
 - 后端若读取 / 应用 Gateway 配置，先看 `backend/services/openclaw_gateway_config.py`
 
 - OpenClaw 连通性排查顺序
-1. 检查后端启动日志里输出的 `OpenClaw` 地址是否正确
+1. 检查后端启动日志里输出的 `OpenClaw` 地址是否为容器内默认值；同容器部署应为 `http://127.0.0.1:18789`
 2. 检查 `GET /api/health` 的 `openclaw.status` 是否为 `ok`
 3. 如果是配置页异常，优先看 `backend/services/openclaw_gateway_config.py` 是否能成功调用 `/tools/invoke`
 4. 如果是模型执行异常，优先看 `/v1/responses` 调用链路

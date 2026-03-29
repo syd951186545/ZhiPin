@@ -53,9 +53,7 @@ RUN mkdir -p /opt/openclaw-home-seed/.openclaw/skills /opt/openclaw-home-seed/.c
 COPY backend/requirements.txt /tmp/backend-requirements.txt
 RUN python3 -m pip install --break-system-packages -r /tmp/backend-requirements.txt
 
-RUN git clone --depth 1 --branch "${PLAYWRIGHT_SKILL_REF}" https://github.com/lackeyjb/playwright-skill.git /tmp/playwright-skill \
-    && cp -R /tmp/playwright-skill/skills/playwright-skill /opt/openclaw-home-seed/.openclaw/skills/playwright-skill \
-    && rm -rf /tmp/playwright-skill
+COPY deploy/openclaw-skills/playwright-skill /opt/openclaw-home-seed/.openclaw/skills/playwright-skill
 
 COPY deploy/openclaw-skills/browser-guardrails-skill /opt/openclaw-home-seed/.openclaw/skills/browser-guardrails-skill
 COPY deploy/generated/openclaw.generated.json /opt/openclaw-home-seed/.openclaw/openclaw.json

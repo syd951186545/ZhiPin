@@ -1,4 +1,4 @@
-import React, {useState} from 'react'
+import React, {useEffect, useState} from 'react'
 import {AlertTriangle, ExternalLink, Loader2, Smartphone, UserPlus} from 'lucide-react'
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
@@ -7,6 +7,7 @@ import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
 import {Badge} from '@/components/ui/badge'
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {useI18n} from '@/contexts/I18nContext'
 import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
 import type {PlatformKey} from '@/types/openclaw'
@@ -30,6 +31,10 @@ const PLATFORM_COLORS: Record<string, string> = {
   lagou: 'bg-emerald-500',
 }
 
+const AVATAR_TEXT: Record<string, string> = {
+  '58': '58',
+}
+
 const LOGIN_METHODS: Record<string, string> = {
   '58': '手机号登录',
   boss_zhipin: '手机号登录',
@@ -51,11 +56,17 @@ export default function AddProfileDialog({open, onOpenChange, defaultPlatform, o
   const {t} = useI18n()
   const {createAccount} = usePlatformAccounts()
 
+  const [platform, setPlatform] = useState<PlatformKey>(defaultPlatform)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const selectedPlatform = PLATFORMS[defaultPlatform]
+  const selectedPlatform = PLATFORMS[platform]
+
+  // 每次对话框打开时同步父页面当前选中平台
+  useEffect(() => {
+    if (open) setPlatform(defaultPlatform)
+  }, [open, defaultPlatform])
 
   // 关闭时重置表单（BUG-06）
   const handleOpenChange = (nextOpen: boolean) => {
@@ -66,12 +77,12 @@ export default function AddProfileDialog({open, onOpenChange, defaultPlatform, o
   }
 
   const handleSubmit = async () => {
-    if (!defaultPlatform || !name.trim()) return
+    if (!platform || !name.trim()) return
     setSaving(true)
     setError(null)
     try {
       const created = await createAccount({
-        platform: defaultPlatform,
+        platform,
         name: name.trim(),
         platform_url: selectedPlatform?.loginUrl,
       })
@@ -96,37 +107,50 @@ export default function AddProfileDialog({open, onOpenChange, defaultPlatform, o
             {t('settings.profiles.add.title')}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4">
+        <div className="min-w-0 space-y-4 py-4">
           <div className="space-y-2">
             <Label className="text-xs">{t('settings.profiles.add.platform')}</Label>
-            <div
-              className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-foreground"
-              data-testid="add-account-platform-select"
-            >
-              <span className={cn('mr-2 inline-block h-2.5 w-2.5 rounded-full', PLATFORM_COLORS[defaultPlatform] || 'bg-zinc-400')}/>
-              {selectedPlatform?.name || defaultPlatform}
-            </div>
+            <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformKey)} disabled={saving} data-testid="add-account-platform-select">
+              <SelectTrigger className="h-10">
+                <SelectValue placeholder="选择平台"/>
+              </SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                {(Object.keys(PLATFORMS) as PlatformKey[]).map((key) => (
+                  <SelectItem key={key} value={key}>
+                    <span className="flex items-center gap-2">
+                      <span className={cn('inline-block h-2.5 w-2.5 rounded-full', PLATFORM_COLORS[key] || 'bg-zinc-400')}/>
+                      {PLATFORMS[key].name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Platform preview card */}
           {selectedPlatform && (
-            <div className="rounded-xl border bg-gradient-to-br from-muted/30 to-muted/10 p-4" data-testid="add-account-platform-preview">
-              <div className="flex items-center gap-3">
-                <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm', PLATFORM_COLORS[defaultPlatform] || 'bg-zinc-500')}>
-                  {selectedPlatform.name.charAt(0)}
+            <div
+              className="min-w-0 overflow-hidden rounded-xl border bg-gradient-to-br from-muted/30 to-muted/10 p-4"
+              data-testid="add-account-platform-preview"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm', PLATFORM_COLORS[platform] || 'bg-zinc-500')}>
+                  {AVATAR_TEXT[platform] ?? selectedPlatform.name.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{selectedPlatform.name}</p>
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                     <ExternalLink className="h-3 w-3 shrink-0 opacity-50"/>
-                    <span className="truncate">{selectedPlatform.loginUrl}</span>
+                    <span className="block min-w-0 truncate" title={selectedPlatform.loginUrl}>
+                      {selectedPlatform.loginUrl}
+                    </span>
                   </div>
                 </div>
               </div>
               <div className="mt-3 flex items-center gap-2">
                 <Badge variant="outline" className="gap-1 text-[10px]">
                   <Smartphone className="h-2.5 w-2.5"/>
-                  {LOGIN_METHODS[defaultPlatform] || '手机号登录'}
+                  {LOGIN_METHODS[platform] || '手机号登录'}
                 </Badge>
               </div>
             </div>

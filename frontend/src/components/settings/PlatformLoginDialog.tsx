@@ -185,8 +185,10 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
       setRemaining(0)
       setError(null)
       setConfirmMessage('')
+    } else {
+      load()
     }
-  }, [open, cleanup])
+  }, [open, cleanup, load])
 
   useEffect(() => {
     if (phase !== 'running' || !liveSession) return
@@ -432,8 +434,10 @@ export default function PlatformLoginDialog({open, onOpenChange, profileId, onDa
                   disabled={!profileId || !profile || accountsLoading}
                   data-testid="start-live-login"
                 >
-                  <Monitor className="h-4 w-4"/>
-                  {phase === 'idle' ? '启动远程桌面' : '重新启动'}
+                  {accountsLoading
+                    ? <><Loader2 className="h-4 w-4 animate-spin"/>准备中...</>
+                    : <><Monitor className="h-4 w-4"/>{phase === 'idle' ? '启动远程桌面' : '重新启动'}</>
+                  }
                 </Button>
               </>
             )}

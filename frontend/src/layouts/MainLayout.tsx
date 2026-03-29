@@ -368,7 +368,7 @@ export default function MainLayout() {
         </SheetContent>
       </Sheet>
 
-      <aside className="hidden w-64 shrink-0 border-r border-border/70 bg-[linear-gradient(180deg,var(--card),var(--background))] md:flex xl:w-[272px]">
+      <aside className="hidden h-screen w-64 shrink-0 sticky top-0 border-r border-border/70 bg-[linear-gradient(180deg,var(--card),var(--background))] md:flex xl:w-[272px]">
         <SidebarContent
           user={user}
           lang={lang}
