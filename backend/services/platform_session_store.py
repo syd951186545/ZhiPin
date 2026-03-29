@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 
@@ -13,6 +14,23 @@ logger = logging.getLogger(__name__)
 _MUTEX_TTL_MS = 5 * 60 * 1000
 _browser_mutexes: dict[str, dict[str, int | str]] = {}
 _mutex_guard = threading.Lock()
+
+
+def resolve_runtime_browser_profile(profile: str | None) -> str:
+    raw = (profile or "").strip()
+    if not raw:
+        return "openclaw"
+
+    lowered = raw.lower()
+    if lowered in {"openclaw", "user"}:
+        return lowered
+
+    normalized = re.sub(r"[^a-z0-9-]+", "-", lowered).strip("-")
+    if normalized and len(normalized) <= 48:
+        return normalized
+
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+    return f"sess-{digest}"
 
 
 def build_browser_session_key(tenant_id: str, platform: str, account_id: str, version: int = 1) -> str:

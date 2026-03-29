@@ -9,12 +9,14 @@
 - `deploy/.env.production` 中的配置与密钥会在构建阶段写入镜像
 - OpenClaw 运行态数据保存在 Docker volume `/opt/openclaw-home`
 - 部署统一入口是 `deploy/deploy.sh`，支持 `prepare` / `build` / `recreate` / `all`
+- OpenClaw 基础镜像当前固定为 `ghcr.io/openclaw/openclaw:2026.3.24`；不要直接回到 `latest`，`2026.3.28` 已确认会导致 browser control 端口 `127.0.0.1:18791` 缺失
 - 后端 `HOST/PORT/DEBUG` 已内置默认值（`0.0.0.0/8000/false`），部署链路不再要求在 `deploy/.env.production` 或 `backend/.env.production` 显式配置这三项
 - 后端 `OPENCLAW_BASE_URL/OPENCLAW_BROWSER_BASE_URL` 已内置默认值（`127.0.0.1:18789/127.0.0.1:18791`），同容器部署时不要在 `deploy/.env.production` 或 `backend/.env.production` 显式覆盖
 
 关键事实：
   - 仅在本地开发代码和单元测试，仅在服务器中执行启动和集成测试。
   - 服务器中不对外暴露 OpenClaw 端口；如需调试，SSH 到服务器后 `docker exec` 进入 `backopenclaw` 容器
+  - 若在测试服工作区临时恢复、补齐或手工修改了任何被证明有用的项目文件，必须同步回本机仓库；本机工作区与 GitHub 才是最终基线，不能只把有效文件留在服务器
 
 ### 集成测试步骤
   1. 若有数据库迁移，本地连接supabase更新数据库迁移
@@ -30,6 +32,7 @@
 - OpenClaw 运行在局域网主机上，详细地址、SSH 用户、密码、token 统一保存在 `docs/AI_AGENT_SECRETS.local.md`
 - 如果需要登录远端 Docker 主机排查容器，先读取该本地 secrets 文件，再 `docker exec` 到 `backopenclaw` 容器内部
 - 远端项目同路径说明也记录在该文件中
+- 若远端目录中存在本机仓库缺失、但构建/运行确实依赖的文件，先同步回本机，再决定是否提交 GitHub；禁止把“仅服务器存在”的临时文件当作长期解决方案
 ## 2. 生产部署
   暂不涉及，当前项目处于开发调测中。
 

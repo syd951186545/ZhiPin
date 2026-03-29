@@ -13,7 +13,7 @@ FORCE_OPENCLAW_STATE=false
 IMAGE_TAG=""
 
 # OpenClaw 网关/浏览器默认值（与 backopenclaw 单容器网络拓扑一致）
-DEFAULT_OPENCLAW_GATEWAY_TOOLS_ALLOW="gateway"
+DEFAULT_OPENCLAW_GATEWAY_TOOLS_ALLOW="gateway,browser"
 DEFAULT_OPENCLAW_RESPONSES_API_ENABLED="true"
 
 RED='\033[0;31m'
@@ -185,7 +185,7 @@ prepare_artifacts() {
     ensure_env_value "OPENCLAW_MODEL_MAX_TOKENS" "8192"
     ensure_env_value "FRONTEND_IMAGE_REPO" "zhipin/frontend"
     ensure_env_value "BACKOPENCLAW_IMAGE_REPO" "zhipin/backopenclaw"
-    ensure_env_value "OPENCLAW_IMAGE" "ghcr.io/openclaw/openclaw:latest"
+    ensure_env_value "OPENCLAW_IMAGE" "ghcr.io/openclaw/openclaw:2026.3.24"
 
     if ! env_has_key "$ENV_FILE" "OPENCLAW_AUTH_TOKEN" || [ -z "$(read_env_value OPENCLAW_AUTH_TOKEN)" ]; then
         info "OPENCLAW_AUTH_TOKEN 未设置，自动生成并回填到 $ENV_FILE ..."

@@ -6,10 +6,11 @@ from __future__ import annotations
 
 from config import get_settings
 from services.platform_catalog import get_platform_catalog_item, get_platform_name
+from services.platform_session_store import resolve_runtime_browser_profile
 
 
 def _browser_rules(profile: str) -> str:
-    normalized = (profile or "openclaw").strip() or "openclaw"
+    normalized = resolve_runtime_browser_profile(profile)
     return (
         "【浏览器工具强制要求】\n"
         f"- 所有 browser 工具调用都必须显式使用 `target=\"host\"` 和 `profile=\"{normalized}\"`\n"
@@ -57,7 +58,7 @@ def _platform_hints(platform: str) -> str:
 
 def build_verify_prompt(account: dict) -> str:
     platform_name = get_platform_name(account.get("platform", ""))
-    browser_profile = account.get("browser_session_key", "") or "openclaw"
+    browser_profile = resolve_runtime_browser_profile(account.get("browser_session_key", ""))
     return f"""你是招聘平台企业端登录验证助手。
 
 【任务类型】验证账号登录状态
@@ -94,7 +95,7 @@ def build_correction_prompt(
     last_state: str,
     browser_profile: str = "openclaw",
 ) -> str:
-    normalized = (browser_profile or "openclaw").strip() or "openclaw"
+    normalized = resolve_runtime_browser_profile(browser_profile)
     return f"""{original_prompt}
 
 【纠偏要求 - 第 {attempt} 次尝试】
@@ -117,7 +118,7 @@ def build_correction_prompt(
 
 def build_unbind_prompt(account: dict) -> str:
     platform_name = get_platform_name(account.get("platform", ""))
-    browser_profile = account.get("browser_session_key", "") or "openclaw"
+    browser_profile = resolve_runtime_browser_profile(account.get("browser_session_key", ""))
     return f"""你是招聘平台企业端登出助手。
 
 【任务类型】解绑账号

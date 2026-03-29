@@ -24,6 +24,7 @@ from uuid import uuid4
 import httpx
 
 from config import get_settings
+from services.platform_session_store import resolve_runtime_browser_profile
 from services.screenshot_service import service as screenshot_service
 from services.session_crypto import decrypt_storage_state
 
@@ -109,20 +110,7 @@ class OpenClawClient:
         return Path(settings.openclaw_home_mount) / ".openclaw" / "workspace" / session_id / "storage_state.json"
 
     def _browser_profile(self, profile: str | None) -> str:
-        raw = (profile or "").strip()
-        if not raw:
-            return HOST_BROWSER_PROFILE
-
-        lowered = raw.lower()
-        if lowered in {HOST_BROWSER_PROFILE, "user"}:
-            return lowered
-
-        normalized = re.sub(r"[^a-z0-9-]+", "-", lowered).strip("-")
-        if normalized and len(normalized) <= 48:
-            return normalized
-
-        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
-        return f"sess-{digest}"
+        return resolve_runtime_browser_profile(profile)
 
     def _resolve_runtime_profile(self, session_id: str, profile: str | None = None) -> str:
         return self._browser_profile(profile or session_id or HOST_BROWSER_PROFILE)

@@ -94,15 +94,13 @@ export function usePlatformAccounts() {
 
   const startVerify = useCallback(async (accountId: string) => {
     const session = await verifyPlatformAccount(accountId)
-    await load()
     return session
-  }, [load])
+  }, [])
 
   const startUnbind = useCallback(async (accountId: string) => {
     const session = await unbindPlatformAccount(accountId)
-    await load()
     return session
-  }, [load])
+  }, [])
 
   const deleteAccount = useCallback(async (accountId: string) => {
     await deletePlatformAccount(accountId)

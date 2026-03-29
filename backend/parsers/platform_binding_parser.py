@@ -20,7 +20,7 @@ BindingState = Literal[
 ]
 
 _STATE_RE = re.compile(r"\[LOGIN_STATE:(LOGGED_IN|AWAIT_SMS|AWAIT_QR|AWAIT_PASSWORD_2FA|FAILED|LOGGED_OUT)\]")
-_STEP_RE = re.compile(r"\[LOGIN_STEP:([A-Z0-9_:-]+)\]")
+_STEP_RE = re.compile(r"\[LOGIN_STEP:([A-Za-z0-9_:-]+)\]")
 _REASON_RE = re.compile(r"\[LOGIN_REASON:([^\]]{1,300})\]")
 _IDENTIFIER_RE = re.compile(r"\[LOGIN_IDENTIFIER:([^\]]{1,120})\]")
 _ACCOUNT_NAME_RE = re.compile(r"\[LOGIN_ACCOUNT_NAME:([^\]]{1,120})\]")

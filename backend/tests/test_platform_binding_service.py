@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from prompts.platform_binding import build_correction_prompt
+from prompts.platform_binding import build_correction_prompt, build_unbind_prompt, build_verify_prompt
 from services.openclaw_client import StepResult
 from services.platform_binding_service import _execute_openclaw_with_retries, _run_action
 
@@ -33,17 +33,35 @@ async def test_execute_openclaw_with_retries_marks_timeout_as_failed(sample_acco
     assert parsed is None
 
 
-def test_correction_prompt_keeps_original_browser_profile():
+def test_correction_prompt_uses_runtime_browser_profile():
     prompt = build_correction_prompt(
         original_prompt="orig",
         attempt=2,
         last_error="timeout",
         last_state="FAILED",
-        browser_profile="tenant-001-platform-boss-account-001",
+        browser_profile="tenant-001-platform-boss-account-001-v1-abcdefghijklmnopqrstuvwxyz",
     )
 
-    assert 'profile="tenant-001-platform-boss-account-001"' in prompt
+    assert 'profile="sess-' in prompt
     assert 'profile="openclaw"' not in prompt
+
+
+def test_verify_and_unbind_prompts_use_runtime_browser_profile():
+    account = {
+        "platform": "boss_zhipin",
+        "platform_url": "https://www.zhipin.com/web/geek/job",
+        "name": "Test Account",
+        "login_identifier_masked": "138****0000",
+        "browser_session_key": "tenant-001-platform-boss-account-acc-001-v1-abcdefghijklmnopqrstuvwxyz",
+    }
+
+    verify_prompt = build_verify_prompt(account)
+    unbind_prompt = build_unbind_prompt(account)
+
+    assert 'profile="sess-' in verify_prompt
+    assert 'profile="sess-' in unbind_prompt
+    assert 'profile="tenant-001-platform-boss-account-acc-001-v1-abcdefghijklmnopqrstuvwxyz"' not in verify_prompt
+    assert 'profile="tenant-001-platform-boss-account-acc-001-v1-abcdefghijklmnopqrstuvwxyz"' not in unbind_prompt
 
 
 @pytest.mark.asyncio
