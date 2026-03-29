@@ -37,8 +37,6 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
     displayExec,
     queuedExecutionCount,
     activeExecutionCount,
-    activeExecutionAccountCount,
-    runningExecutionCount,
     executionPreviewItems,
     isDisplayExecActive,
     displayExecStatusMeta,
@@ -75,19 +73,23 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
         <CardContent className="pt-4">
           <div className="mb-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">预览任务</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">本批任务</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionPreviewItems.length}</p>
-              <p className="mt-1 text-xs text-muted-foreground">列表中最多保留最近 8 个任务</p>
+              <p className="mt-1 text-xs text-muted-foreground">本次预览最多保留近 8 条</p>
             </div>
-            <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">并行执行</p>
-              <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{runningExecutionCount}</p>
-              <p className="mt-1 text-xs text-muted-foreground">不同账号正在同时推进的任务</p>
+            <div className="rounded-[22px] border border-emerald-200/60 bg-emerald-50/60 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">已完成</p>
+              <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">
+                {executionPreviewItems.filter((e) => e.status === 'completed').length}
+              </p>
+              <p className="mt-1 text-xs text-emerald-700/70 dark:text-emerald-300/70">本批次成功结束的任务</p>
             </div>
-            <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">占用账号</p>
-              <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeExecutionAccountCount}</p>
-              <p className="mt-1 text-xs text-muted-foreground">当前执行通道涉及的账号数量</p>
+            <div className="rounded-[22px] border border-red-200/60 bg-red-50/60 px-4 py-3 dark:border-red-900/40 dark:bg-red-950/15">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-600 dark:text-red-300">失败 / 中止</p>
+              <p className="mt-2 font-mono text-2xl font-semibold text-red-700 dark:text-red-100">
+                {executionPreviewItems.filter((e) => e.status === 'failed' || e.status === 'cancelled').length}
+              </p>
+              <p className="mt-1 text-xs text-red-600/70 dark:text-red-300/70">异常或被手动停止的任务</p>
             </div>
           </div>
 
