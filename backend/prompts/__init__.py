@@ -3,6 +3,7 @@
 """
 
 from config import get_settings
+from services.platform_session_store import resolve_runtime_browser_profile
 
 
 def screenshot_instruction() -> str:
@@ -14,3 +15,14 @@ def screenshot_instruction() -> str:
         f"如果截图工具只能提供文件路径，截图必须生成在稳定媒体目录 {media_mount}/browser/ 下。"
         "禁止输出 /tmp 临时路径。"
     )
+
+
+def runtime_browser_profile(state: dict) -> str:
+    """统一计算运行态 browser profile，避免长 session key 直接透传给 host browser。"""
+    raw_profile = (
+        state.get("browser_profile")
+        or state.get("session_id")
+        or state.get("browser_session_key")
+        or "openclaw"
+    )
+    return resolve_runtime_browser_profile(str(raw_profile))

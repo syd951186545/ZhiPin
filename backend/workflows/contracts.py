@@ -105,7 +105,10 @@ class StepVerificationOutcome:
 
 
 def infer_error_code(message: str = "", text: str = "", step_id: str = "") -> str:
-    haystack = f"{message}\n{text}\n{step_id}".lower()
+    haystack = f"{message}\n{text}".lower()
+
+    if any(token in haystack for token in ("browserprofilenotfounderror", "profile 不存在", "browser profile", "目标 profile", "可用列表中仅有")):
+        return ERROR_TOOL
 
     if any(token in haystack for token in ("未登录", "登录页", "login", "session", "会话失效", "认证失败")):
         return ERROR_AUTH_REQUIRED
@@ -137,7 +140,7 @@ def default_step_verifier(step_id: str, text: str, explicit_error: Optional[str]
     if failed_marker in text:
         return StepVerificationOutcome(
             success=False,
-            error=f"步骤 {step_id} 返回失败标记",
+            error="步骤返回失败标记",
             error_code=infer_error_code(failed_marker, text, step_id),
             details={"failed_marker": failed_marker},
         )

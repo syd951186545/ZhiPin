@@ -17,6 +17,7 @@ from workflows.base import (
 from workflows.contracts import RetryPolicy
 from services.openclaw_client import OpenClawClient
 from services.platform_catalog import get_platform_name
+from services.platform_session_store import resolve_runtime_browser_profile
 from services.supabase_client import (
     complete_automation_task,
     create_candidates_batch,
@@ -103,7 +104,7 @@ async def run(execution_id: str, req):
         "execution_id": execution_id,
         "workflow_id": "talent_explore",
         "session_id": runtime_session_id,
-        "browser_profile": persistent_session_key,
+        "browser_profile": resolve_runtime_browser_profile(persistent_session_key),
         "current_step": "",
         "step_index": 0,
         "total_steps": len(STEPS),

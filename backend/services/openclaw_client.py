@@ -1083,7 +1083,7 @@ class OpenClawClient:
             screenshots=screenshots,
             persisted_screenshots=persisted_screenshots,
             pending_uploads=pending_uploads,
-            error=f"步骤 {step_id} 执行失败" if step_failed else None,
+            error="步骤执行失败" if step_failed else None,
         )
 
     async def capture_screenshot(

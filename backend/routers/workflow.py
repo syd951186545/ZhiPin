@@ -183,6 +183,22 @@ def _collect_execution_account_ids(req: WorkflowStartRequest) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+def _accounts_requiring_browser_ready(req: WorkflowStartRequest) -> list[dict[str, Any]]:
+    return [
+        account
+        for account in (req.platform_accounts or [])
+        if account.get("encrypted_session_state")
+    ]
+
+
+async def _ensure_execution_browser_ready(req: WorkflowStartRequest) -> Optional[dict[str, Any]]:
+    for account in _accounts_requiring_browser_ready(req):
+        readiness = await ensure_verify_session_ready(account=account)
+        if not readiness["ready"]:
+            return readiness
+    return None
+
+
 def _build_automation_task_name(req: WorkflowStartRequest) -> str:
     subject = req.job_title or req.account_name or req.company_name or "未命名任务"
     return f"{_workflow_name(req.workflow_id)} - {subject}"
@@ -271,7 +287,14 @@ def _create_execution_task_record(execution_id: str, req: WorkflowStartRequest, 
         return {}
 
 
-def _start_execution_locked(runner, execution_id: str, req: WorkflowStartRequest, account_ids: list[str]) -> None:
+def _start_execution_locked(
+    runner,
+    execution_id: str,
+    req: WorkflowStartRequest,
+    account_ids: list[str],
+    *,
+    skip_browser_ready_precheck: bool = False,
+) -> None:
     _queued_executions.pop(execution_id, None)
     if execution_id in _queued_execution_order:
         _queued_execution_order.remove(execution_id)
@@ -297,7 +320,12 @@ def _start_execution_locked(runner, execution_id: str, req: WorkflowStartRequest
             logger.exception("更新 automation_task 为 running 失败: %s", execution_id)
 
     task = asyncio.create_task(
-        _run_workflow_safe(runner, execution_id, req),
+        _run_workflow_safe(
+            runner,
+            execution_id,
+            req,
+            skip_browser_ready_precheck=skip_browser_ready_precheck,
+        ),
         name=f"workflow-{execution_id}",
     )
     _running_tasks[execution_id] = task
@@ -393,23 +421,7 @@ async def start_workflow(req: WorkflowStartRequest):
             resolved_accounts.append(account)
         req.platform_accounts = resolved_accounts
 
-    for account in req.platform_accounts:
-        if not account.get("encrypted_session_state"):
-            continue
-        readiness = await ensure_verify_session_ready(account=account)
-        if not readiness["ready"]:
-            raise HTTPException(status_code=readiness["http_status"], detail=readiness["detail"])
-
     execution_id = str(uuid4())
-    _event_queues[execution_id] = asyncio.Queue()
-    _cancelled[execution_id] = False
-    runtime_store.init_run(
-        execution_id,
-        req.workflow_id,
-        req.model_dump(),
-        tenant_id=req.tenant_id,
-        auth_token=req.supabase_auth_token or None,
-    )
 
     runner_map = {
         "publish_job": publish_job.run,
@@ -425,22 +437,21 @@ async def start_workflow(req: WorkflowStartRequest):
 
     async with _execution_queue_lock:
         should_queue = any(_account_running_executions.get(account_id) for account_id in account_ids)
-        _event_queues[execution_id] = asyncio.Queue()
-        _cancelled[execution_id] = False
-        _execution_accounts[execution_id] = account_ids
-
-        task_record = _create_execution_task_record(execution_id, req, queued=should_queue)
-        runtime_store.init_run(
-            execution_id,
-            req.workflow_id,
-            req.model_dump(),
-            tenant_id=req.tenant_id,
-            auth_token=req.supabase_auth_token or None,
-            task_id=task_record.get("id") or None,
-            initial_status="queued" if should_queue else "starting",
-        )
 
         if should_queue:
+            _event_queues[execution_id] = asyncio.Queue()
+            _cancelled[execution_id] = False
+            _execution_accounts[execution_id] = account_ids
+            task_record = _create_execution_task_record(execution_id, req, queued=True)
+            runtime_store.init_run(
+                execution_id,
+                req.workflow_id,
+                req.model_dump(),
+                tenant_id=req.tenant_id,
+                auth_token=req.supabase_auth_token or None,
+                task_id=task_record.get("id") or None,
+                initial_status="queued",
+            )
             _queued_executions[execution_id] = {
                 "runner": runner,
                 "req": req,
@@ -461,7 +472,37 @@ async def start_workflow(req: WorkflowStartRequest):
                 message=f"同账号已有任务执行中，已进入队列，前方还有 {blocking_execution_count} 个任务。",
             )
 
-        _start_execution_locked(runner, execution_id, req, account_ids)
+        _execution_accounts[execution_id] = account_ids
+        for account_id in account_ids:
+            _account_running_executions[account_id] = execution_id
+
+    readiness = await _ensure_execution_browser_ready(req)
+    if readiness:
+        async with _execution_queue_lock:
+            _release_execution_accounts_locked(execution_id)
+            _execution_accounts.pop(execution_id, None)
+        raise HTTPException(status_code=readiness["http_status"], detail=readiness["detail"])
+
+    async with _execution_queue_lock:
+        _event_queues[execution_id] = asyncio.Queue()
+        _cancelled[execution_id] = False
+        task_record = _create_execution_task_record(execution_id, req, queued=False)
+        runtime_store.init_run(
+            execution_id,
+            req.workflow_id,
+            req.model_dump(),
+            tenant_id=req.tenant_id,
+            auth_token=req.supabase_auth_token or None,
+            task_id=task_record.get("id") or None,
+            initial_status="starting",
+        )
+        _start_execution_locked(
+            runner,
+            execution_id,
+            req,
+            account_ids,
+            skip_browser_ready_precheck=True,
+        )
 
     return WorkflowStartResponse(
         execution_id=execution_id,
@@ -577,7 +618,13 @@ async def get_status(execution_id: str):
 # ── 内部辅助 ──────────────────────────────────────────────
 
 
-async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartRequest):
+async def _run_workflow_safe(
+    runner,
+    execution_id: str,
+    req: WorkflowStartRequest,
+    *,
+    skip_browser_ready_precheck: bool = False,
+):
     """
     安全运行工作流，处理三种结束情形：
     1. 正常完成：runner 自行发送 complete/error 事件
@@ -585,6 +632,34 @@ async def _run_workflow_safe(runner, execution_id: str, req: WorkflowStartReques
     3. 未捕获异常：发送 error 事件
     """
     try:
+        if not skip_browser_ready_precheck:
+            readiness = await _ensure_execution_browser_ready(req)
+            if readiness:
+                detail = readiness["detail"]
+                await emit_event(execution_id, "error", {
+                    "step_id": "browser_ready",
+                    "message": detail,
+                    "error_code": "TOOL_ERROR",
+                })
+                await emit_event(execution_id, "run_failed", {
+                    "execution_id": execution_id,
+                    "workflow_id": req.workflow_id,
+                    "message": detail,
+                    "error_code": "TOOL_ERROR",
+                })
+                task_meta = _task_records.get(execution_id) or {}
+                task_id = task_meta.get("task_id")
+                if task_id:
+                    try:
+                        complete_automation_task(
+                            task_id,
+                            "failed",
+                            error_message=detail,
+                            auth_token=task_meta.get("auth_token"),
+                        )
+                    except Exception:
+                        logger.exception("同步 browser-ready 失败 automation_task 失败: %s", execution_id)
+                return
         await runner(execution_id, req)
     except asyncio.CancelledError:
         # 用同步 put_nowait，避免在 cancelled 状态下再次 await 失败

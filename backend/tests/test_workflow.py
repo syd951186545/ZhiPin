@@ -272,6 +272,45 @@ async def test_start_same_account_enters_queue(client):
 
 
 @pytest.mark.asyncio
+async def test_start_same_account_queue_skips_second_browser_ready_precheck(client):
+    release_runner = asyncio.Event()
+    runner_started = asyncio.Event()
+    account = _active_account(encrypted_session_state="ciphertext")
+
+    async def blocking_runner(execution_id, req):
+        from routers.workflow import emit_event
+
+        await emit_event(execution_id, "run_started", {
+            "execution_id": execution_id,
+            "workflow_id": "publish_job",
+            "workflow_name": "发布招聘公告",
+        })
+        runner_started.set()
+        await release_runner.wait()
+
+    with (
+        patch("routers.workflow.get_platform_account", return_value=account),
+        patch(
+            "routers.workflow.ensure_verify_session_ready",
+            new_callable=AsyncMock,
+            return_value={"ready": True, "detail": "", "http_status": 200, "status_snapshot": {}},
+        ) as mock_ready,
+        patch("workflows.publish_job.run", side_effect=blocking_runner),
+    ):
+        first = await client.post("/api/workflow/start", json=_start_body())
+        assert first.status_code == 200
+        await asyncio.wait_for(runner_started.wait(), timeout=1)
+
+        second = await client.post("/api/workflow/start", json=_start_body(job_title="后端工程师"))
+        assert second.status_code == 200
+        assert second.json()["queued"] is True
+        assert mock_ready.await_count == 1
+
+        release_runner.set()
+        await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_cancel_queued_execution(client):
     release_runner = asyncio.Event()
     runner_started = asyncio.Event()
@@ -290,6 +329,7 @@ async def test_cancel_queued_execution(client):
     with (
         patch("routers.workflow.get_platform_account", return_value=_active_account()),
         patch("workflows.publish_job.run", side_effect=blocking_runner),
+        patch("routers.workflow.complete_automation_task", return_value={}),
     ):
         first = await client.post("/api/workflow/start", json=_start_body())
         assert first.status_code == 200
