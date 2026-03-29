@@ -111,7 +111,7 @@ function NavStatusBadge({
   }[tone]
 
   return (
-    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium', toneClass)}>
+    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', toneClass)}>
       {children}
     </span>
   )
@@ -187,14 +187,14 @@ function SidebarContent({
         <div className="flex items-start gap-3">
           <BrandMark />
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Digital Workforce</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Digital Workforce</p>
             <p className="mt-1 text-base font-semibold tracking-tight text-foreground">机灵平台</p>
           </div>
         </div>
 
         <div className="mt-4 rounded-2xl border border-primary/12 bg-[linear-gradient(135deg,rgba(21,94,99,0.1),transparent_72%)] p-4">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
               <Sparkles className="h-3.5 w-3.5" />
               {isZh ? '今日模式' : 'Today'}
             </div>
@@ -203,7 +203,7 @@ function SidebarContent({
           <p className="mt-2 text-sm font-medium text-foreground">
             {isZh ? '先处理异常，再扩大发送。' : 'Handle blockers before scaling execution.'}
           </p>
-          <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
             <span>{execSummary.progressLabel}</span>
             <span className="font-medium text-foreground">{execSummary.progressValue}%</span>
           </div>
@@ -220,7 +220,7 @@ function SidebarContent({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-4 py-5">
-        <div className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">{t('nav.section.business')}</div>
+        <div className="mb-3 px-1 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">{t('nav.section.business')}</div>
 
         <div className="space-y-2">
           <NavLink to="/" end onClick={onNavigate} className={({isActive}) => navLinkClass(isActive)}>
@@ -393,7 +393,7 @@ export default function MainLayout() {
                 <Menu className="h-5 w-5" />
               </Button>
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
                   {pageMeta.eyebrow}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">

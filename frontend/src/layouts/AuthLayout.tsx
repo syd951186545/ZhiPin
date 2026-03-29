@@ -80,7 +80,7 @@ export default function AuthLayout() {
               <CapabilityPill label="账号托管" sublabel="独立隔离 · 统一管理" />
               <CapabilityPill label="断点续跑" sublabel="异常自动重试" />
             </div>
-            <p className="text-[11px] tracking-[0.06em] text-[#3d5566]">
+            <p className="text-xs tracking-[0.06em] text-[#3d5566]">
               机灵科技 · 企业级执行自动化基础设施
             </p>
           </div>
@@ -113,7 +113,7 @@ export default function AuthLayout() {
             <Outlet />
           </motion.div>
 
-          <p className="mt-10 text-center text-[11px] tracking-[0.04em] text-muted-foreground/50">
+          <p className="mt-10 text-center text-xs tracking-[0.04em] text-muted-foreground/50">
             企业级安全登录 · 数据本地化存储
           </p>
         </div>
@@ -155,7 +155,7 @@ function CapabilityPill({ label, sublabel }: { label: string; sublabel: string }
   return (
     <div className="flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.04] px-3 py-1.5">
       <span className="text-[13px] font-medium text-[#eef4f8]">{label}</span>
-      <span className="text-[11px] text-[#5e7a8a]">{sublabel}</span>
+      <span className="text-xs text-[#5e7a8a]">{sublabel}</span>
     </div>
   );
 }

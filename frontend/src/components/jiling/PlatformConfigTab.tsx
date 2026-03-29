@@ -80,26 +80,26 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
         <CardContent className="p-5 md:p-6">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
             <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Platform Assets</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Platform Assets</p>
               <h3 className="mt-2 text-[28px] font-semibold tracking-tight text-foreground">平台与账号配置</h3>
               <p className="mt-3 text-sm leading-7 text-muted-foreground">统一维护六大平台的账号资产和全局预设。先选平台，再管理账号。</p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">平台总数</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">平台总数</p>
                 <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{catalog.length}</p>
               </div>
               <div className="rounded-[24px] border border-emerald-200/60 bg-emerald-50/70 px-4 py-3 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">生效平台</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">生效平台</p>
                 <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{stats.activePlatformAssetCount}</p>
               </div>
               <div className="rounded-[24px] border border-primary/15 bg-primary/[0.06] px-4 py-3 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">生效账号</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">生效账号</p>
                 <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{stats.activeAccounts}</p>
               </div>
               <div className="rounded-[24px] border border-amber-200/70 bg-amber-50/75 px-4 py-3 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">失效账号</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">失效账号</p>
                 <p className="mt-2 font-mono text-2xl font-semibold text-amber-800 dark:text-amber-100">{stats.inactiveAccounts}</p>
               </div>
             </div>
@@ -117,7 +117,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
           <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
             <Card className="overflow-hidden" data-testid="platform-catalog-panel">
               <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Platform Picker</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Platform Picker</p>
                 <CardTitle className="mt-2 text-base">选择平台</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2.5 pt-4">
@@ -154,7 +154,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
                           </div>
                           <div>
                             <p className="text-sm font-medium text-foreground">{item.name}</p>
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">{activeCount}/{Math.max(count, 0)} 可用</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">{activeCount}/{Math.max(count, 0)} 可用</p>
                           </div>
                         </div>
                         {isSelected && <Badge variant="outline" className="border-primary/20 bg-background/80 text-[10px] text-primary">当前</Badge>}
@@ -177,7 +177,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
               <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Account Roster</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Account Roster</p>
                     <CardTitle className="mt-2 text-base">{selectedPlatformLabel}账号列表</CardTitle>
                   </div>
                   <Button size="sm" className="gap-2 shadow-sm shrink-0" onClick={onOpenAddAccount} data-testid="open-add-account-dialog">
@@ -248,15 +248,15 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
                             </div>
                             <div className="mt-3 grid gap-2 sm:grid-cols-3">
                               <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">登录名</p>
+                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">登录名</p>
                                 <p className="mt-1 truncate text-sm text-foreground">{account.accountName || account.loginIdentifierMasked || '未填写'}</p>
                               </div>
                               <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">最近会话</p>
+                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">最近会话</p>
                                 <p className="mt-1 text-sm text-foreground">{bindingStatus(account.latestBindingSession?.status)}</p>
                               </div>
                               <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">上次验证</p>
+                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">上次验证</p>
                                 <p className="mt-1 text-sm text-foreground">{latestVerifySession ? formatSessionTime(latestVerifySession.updated_at || latestVerifySession.created_at) : '-'}</p>
                               </div>
                             </div>
@@ -273,7 +273,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
 
             <Card className="overflow-hidden" data-testid="selected-account-panel">
               <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Selected Account</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Selected Account</p>
                 <CardTitle className="mt-2 text-base">账号详情</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 pt-4" data-testid="account-task-panel">
@@ -327,7 +327,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
                     <div className="rounded-[22px] border border-border/70 bg-background/85 p-4 shadow-sm">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">验证状态</p>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">验证状态</p>
                           <p className="mt-2 text-sm font-medium text-foreground">
                             {selectedAccountIsBound
                               ? selectedLatestVerifySession
@@ -405,12 +405,12 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_360px]">
             <Card className="overflow-hidden">
               <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Global Presets</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Global Presets</p>
                 <CardTitle className="mt-2 text-base">全局执行预设</CardTitle>
               </CardHeader>
               <CardContent className="space-y-5 pt-4">
                 <div className="rounded-[24px] border border-border/70 bg-background/82 p-4 shadow-sm">
-                  <Label htmlFor="platform-config-custom-message" className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  <Label htmlFor="platform-config-custom-message" className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     默认主动沟通话术
                   </Label>
                   <Textarea
@@ -425,7 +425,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
                   <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div className="space-y-1">
                       <p className="text-xs leading-6 text-muted-foreground">{strategyPreview}</p>
-                      <p className={cn('text-[11px]', customMessage.length >= 500 ? 'font-medium text-destructive' : customMessage.length >= 450 ? 'text-amber-600' : 'text-muted-foreground')}>
+                      <p className={cn('text-xs', customMessage.length >= 500 ? 'font-medium text-destructive' : customMessage.length >= 450 ? 'text-amber-600' : 'text-muted-foreground')}>
                         {customMessage.length}/500 字符
                       </p>
                     </div>
@@ -469,7 +469,7 @@ export default function PlatformConfigTab(props: PlatformConfigTabProps) {
 
             <Card className="overflow-hidden">
               <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.07),transparent_72%)] pb-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Preset Coverage</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Preset Coverage</p>
                 <CardTitle className="mt-2 text-base">预设覆盖范围</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 pt-4">

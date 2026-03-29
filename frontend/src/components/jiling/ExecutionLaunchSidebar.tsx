@@ -38,22 +38,22 @@ export default function ExecutionLaunchSidebar(props: ExecutionLaunchSidebarProp
     <div className="space-y-6 xl:sticky xl:top-24 xl:self-start">
       <Card className="overflow-hidden" data-testid="execution-readiness">
         <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Launch Gate</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Launch Gate</p>
           <CardTitle className="mt-2 text-base">启动条件</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 pt-5">
           <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
             <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">当前工作流</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">当前工作流</p>
               <p className="mt-2 text-sm font-semibold text-foreground">{selectedWorkflowCard.title}</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">{workflowStatusMap[selectedWorkflowCard.id].detail}</p>
             </div>
             <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">完整执行组</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">完整执行组</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p>
             </div>
             <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台长期就绪度</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">平台长期就绪度</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{readyPlatformCount}/{catalog.length}</p>
             </div>
           </div>
@@ -103,23 +103,23 @@ export default function ExecutionLaunchSidebar(props: ExecutionLaunchSidebarProp
 
       <Card className="overflow-hidden" data-testid="workflow-progress-overview">
         <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.04),transparent_72%)] pb-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Parallel Overview</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Parallel Overview</p>
           <CardTitle className="mt-2 text-base">并行进度概览</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 pt-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">活跃任务</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">活跃任务</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeExecutionCount}</p>
               <p className="mt-1 text-xs text-muted-foreground">当前仍在执行或等待中的任务</p>
             </div>
             <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">排队任务</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">排队任务</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{queuedExecutionCount}</p>
               <p className="mt-1 text-xs text-muted-foreground">同账号串行等待中的任务数量</p>
             </div>
             <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">参与账号</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">参与账号</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{activeExecutionAccountCount}</p>
               <p className="mt-1 text-xs text-muted-foreground">当前活跃执行占用的账号通道</p>
             </div>
@@ -152,8 +152,8 @@ export default function ExecutionLaunchSidebar(props: ExecutionLaunchSidebarProp
                       <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">排队 {status.queuedCount}</span>
                       <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">账号 {status.accountCount}</span>
                     </div>
-                    <p className="mt-3 text-[11px] leading-5 text-muted-foreground">{status.detail}</p>
-                    <p className="mt-2 text-[11px] leading-5 text-foreground/80">{status.activeCount > 0 ? '当前账号通道' : '最近关联账号'}：{status.accountSummary}</p>
+                    <p className="mt-3 text-xs leading-5 text-muted-foreground">{status.detail}</p>
+                    <p className="mt-2 text-xs leading-5 text-foreground/80">{status.activeCount > 0 ? '当前账号通道' : '最近关联账号'}：{status.accountSummary}</p>
                   </div>
                 </div>
               </button>

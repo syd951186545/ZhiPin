@@ -381,7 +381,7 @@ export default function Dashboard() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <p className="truncate text-sm font-semibold text-[#1b2831]">{task.name}</p>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusTone}`}>
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusTone}`}>
                             {TASK_STATUS[task.status as keyof typeof TASK_STATUS] || task.status}
                           </span>
                         </div>

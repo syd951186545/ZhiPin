@@ -54,7 +54,7 @@ export function ExecutionScreenshotCard({node, onPreview}: Props) {
           <div className="flex h-28 flex-col items-center justify-center gap-1 bg-muted/20 px-4 text-center text-muted-foreground">
             <Camera className="h-7 w-7 opacity-30"/>
             <p className="text-xs">截图加载失败</p>
-            <p className="text-[11px] opacity-80">已尝试备用链接，可直接打开原图重试。</p>
+            <p className="text-xs opacity-80">已尝试备用链接，可直接打开原图重试。</p>
           </div>
         )}
         {node.artifactId && (
@@ -67,13 +67,13 @@ export function ExecutionScreenshotCard({node, onPreview}: Props) {
       <div className="flex items-center justify-between gap-3 border-t bg-muted/10 px-3 py-2">
         <div className="min-w-0">
           <p className="truncate text-xs font-medium text-foreground">{node.action}</p>
-          <p className="text-[11px] text-muted-foreground">{node.time}</p>
+          <p className="text-xs text-muted-foreground">{node.time}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {activeUrl && (
             <button
               type="button"
-              className="text-[11px] font-medium text-primary transition-opacity hover:opacity-80"
+              className="text-xs font-medium text-primary transition-opacity hover:opacity-80"
               onClick={() => onPreview(activeUrl)}
             >
               查看
@@ -84,7 +84,7 @@ export function ExecutionScreenshotCard({node, onPreview}: Props) {
               href={fallbackUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-[11px] font-medium text-muted-foreground transition-opacity hover:text-foreground"
+              className="text-xs font-medium text-muted-foreground transition-opacity hover:text-foreground"
             >
               原图
             </a>
@@ -93,7 +93,7 @@ export function ExecutionScreenshotCard({node, onPreview}: Props) {
       </div>
 
       {allAttemptsFailed && (
-        <div className="border-t bg-amber-50/80 px-3 py-2 text-[11px] text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
+        <div className="border-t bg-amber-50/80 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
           当前卡片内预览未成功加载，但工作流截图已生成。可点击"原图"直接打开，或刷新页面后重试。
         </div>
       )}

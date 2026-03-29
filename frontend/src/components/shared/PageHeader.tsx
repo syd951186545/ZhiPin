@@ -10,7 +10,7 @@ export default function PageHeader({ title, description, children }: PageHeaderP
   return (
     <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Operations View</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">Operations View</p>
         <h1 className="text-[1.75rem] font-semibold tracking-[-0.04em] md:text-[2rem]">{title}</h1>
       </div>
       {children && (

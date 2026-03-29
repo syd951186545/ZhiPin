@@ -66,11 +66,11 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
         <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.06),transparent_72%)] pb-4">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Workflow Selector</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Workflow Selector</p>
               <CardTitle className="mt-2 text-base">三大工作流</CardTitle>
             </div>
             <div className="flex items-center gap-3 rounded-full border border-border/70 bg-background/80 px-3 py-2 shadow-sm shrink-0">
-              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.18em] whitespace-nowrap">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.18em] whitespace-nowrap">
                 筛选阈值 <span className="ml-1 text-foreground font-bold">{matchThreshold}分</span>
               </Label>
               <div className="w-24">
@@ -113,7 +113,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                     )}
                   </div>
                   <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">当前状态</span>
                       <Badge variant="outline" className={cn(
                         'border text-[10px] uppercase tracking-[0.16em]',
@@ -129,7 +129,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                       </Badge>
                     </div>
                     <Progress value={status.progress} className="h-2 rounded-full"/>
-                    <p className="text-[11px] leading-5 text-muted-foreground">{status.detail}</p>
+                    <p className="text-xs leading-5 text-muted-foreground">{status.detail}</p>
                   </div>
                 </motion.button>
               )
@@ -142,7 +142,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
         <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.05),transparent_72%)] pb-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">Execution Composer</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Execution Composer</p>
               <CardTitle className="mt-2 text-base">{selectedWorkflowCard.title}</CardTitle>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -205,7 +205,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               <div className="space-y-2">
                 <Label htmlFor="custom-message" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">本次主动沟通覆盖</Label>
                 <Textarea id="custom-message" placeholder="留空则沿用平台与账号页中的全局预设。" value={customMessage} onChange={(event) => handlers.onCustomMessageChange(event.target.value)} rows={4} maxLength={500} className="rounded-[22px] border-border/70 bg-background/95 text-sm resize-none"/>
-                <p className={cn('text-[11px]', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>
+                <p className={cn('text-xs', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>
                   {customMessage.length}/500 字符。填写后仅覆盖本次运行。
                 </p>
               </div>
@@ -215,7 +215,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                   <Slider value={[messageSendLimit]} onValueChange={([value]) => handlers.onMessageSendLimitChange(value)} min={1} max={50} step={1}/>
                   <div className="mt-4 flex items-center gap-3">
                     <Input type="number" min={1} max={50} value={messageSendLimit} onChange={(event) => handlers.onMessageSendLimitChange(Math.max(1, Math.min(50, Number(event.target.value) || 10)))} className="h-10 rounded-2xl text-center text-sm"/>
-                    <p className="text-[11px] leading-5 text-muted-foreground">限制一次运行内最多发送多少条消息。</p>
+                    <p className="text-xs leading-5 text-muted-foreground">限制一次运行内最多发送多少条消息。</p>
                   </div>
                 </div>
               </div>
@@ -237,7 +237,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
           </div>
 
           <div className="rounded-[24px] border border-primary/12 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_78%)] px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Execution Plan</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">Execution Plan</p>
             <p className="mt-2 text-sm leading-6 text-foreground/88">{executionPlanPreview.summary}</p>
           </div>
 
@@ -262,7 +262,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                           </Badge>
                         </div>
                         <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.complete ? `${item.platformLabel} · ${item.account?.name || '已选账号'} · ${item.job?.title || '已选岗位'}` : item.missing.join(' / ')}</p>
-                        <p className="mt-2 text-[11px] leading-5 text-foreground/78">{planMeta?.detail}</p>
+                        <p className="mt-2 text-xs leading-5 text-foreground/78">{planMeta?.detail}</p>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -325,7 +325,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                   </div>
 
                   <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
                       <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">平台可重复</Badge>
                       <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-sky-700 dark:text-sky-300' : 'text-muted-foreground')}>同账号自动排队</Badge>
                       <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">岗位可重复</Badge>

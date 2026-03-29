@@ -109,27 +109,27 @@ export function ExecutionDetailDialog({
           <DialogHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.12),transparent_72%)] px-6 py-5 text-left">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-2xl">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Detail</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Detail</p>
                 <DialogTitle className="mt-2 text-base">{execution.workflowName || '执行详情'}</DialogTitle>
                 <DialogDescription className="mt-2 text-xs leading-6 text-muted-foreground">
                   完整步骤、截图与 AI 输出都集中在这里查看。
                 </DialogDescription>
                 <p className="mt-3 text-xs text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
-                <p className="mt-2 font-mono text-[11px] text-muted-foreground">{execution.executionId}</p>
+                <p className="mt-2 font-mono text-xs text-muted-foreground">{execution.executionId}</p>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
                   <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(execution.totalSteps, 1)}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{execution.actionNodes.length}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
                   <div className="mt-2">
                     <Badge variant="outline" className={cn('gap-1.5', statusMeta.badgeClassName)}>
                       {execution.status === 'cancelling' || isActive ? <Loader2 className="h-3 w-3 animate-spin" /> : null}

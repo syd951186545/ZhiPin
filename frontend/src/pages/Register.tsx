@@ -46,7 +46,7 @@ export default function Register() {
     <div>
       {/* Form header */}
       <div className="mb-8">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/70">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/70">
           Workspace Setup
         </p>
         <h1 className="mt-1.5 text-[1.75rem] font-bold tracking-[-0.03em]">
