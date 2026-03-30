@@ -125,9 +125,9 @@ export function ExecutionDetailDialog({
                   <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(execution.totalSteps, 1)}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">账号通道</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">任务队列</p>
                   <p className="mt-2 text-sm font-semibold text-foreground">{dispatchMeta?.accountSummary || '待识别账号'}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{dispatchMeta?.laneDetail || '任务启动后会展示账号通道与排队关系。'}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{dispatchMeta?.laneDetail || '任务未启动'}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
@@ -178,7 +178,7 @@ export function ExecutionDetailDialog({
                     <p className="mt-1 font-mono text-xs text-foreground/82">{execution.executionId}</p>
                   </div>
                   <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">任务队列</p>
                     <p className="mt-1 text-sm font-semibold text-foreground">{dispatchMeta?.accountSummary || '待识别账号'}</p>
                   </div>
                   <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
