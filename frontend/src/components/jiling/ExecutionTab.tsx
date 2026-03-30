@@ -115,8 +115,6 @@ export default function ExecutionTab(props: ExecutionTabProps) {
         />
         <ExecutionLaunchSidebar
           model={model}
-          executionMode={executionMode}
-          handlers={handlers}
         />
       </div>
 

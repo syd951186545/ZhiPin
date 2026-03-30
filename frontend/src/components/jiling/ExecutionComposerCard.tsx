@@ -11,7 +11,7 @@ import {EXECUTION_DISPATCH_BADGE_STYLES} from '@/components/jiling/jilingRecruit
 import type {ExecutionTabHandlers} from '@/components/jiling/ExecutionTab'
 import type {ExecutionComposerModel} from '@/components/jiling/useExecutionComposerModel'
 import type {ExecutionMode, ScheduleFrequency} from '@/components/jiling/jilingRecruitHelpers'
-import {ClipboardCopy, Layers, Link as LinkIcon, Play, RefreshCw, Trash2} from 'lucide-react'
+import {CheckCircle2, Circle, ClipboardCopy, Layers, Link as LinkIcon, Loader2, Play, RefreshCw, Trash2} from 'lucide-react'
 
 interface ExecutionComposerCardProps {
   model: ExecutionComposerModel
@@ -52,7 +52,10 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
     completeExecutionGroups,
     draftExecutionGroups,
     executionPlanPreview,
-    executionChannelSummary,
+    canStartSelectedWorkflow,
+    executionReadinessReasons,
+    isSelectedWorkflowLaunching,
+    selectedWorkflowRunningCount,
     shouldClampExecutionGroupList,
     resolveDefaultAccountForPlatform,
     resolveDefaultJobForPlatform,
@@ -171,32 +174,37 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
             </div>
           )}
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_320px]">
-            <div className="rounded-[24px] border border-primary/12 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_78%)] px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">Execution Plan</p>
-              <p className="mt-2 text-sm leading-6 text-foreground/88">{executionPlanPreview.summary}</p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">全部任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p></div>
-                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">并行任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.totalChannels}</p></div>
-                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">串行任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.serialChannelCount}</p></div>
+          <div className="rounded-[24px] border border-border/70 bg-background/82 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {executionReadinessReasons.length === 0 ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 className="h-4 w-4 shrink-0"/>
+                    <span className="font-medium">任务编排通过</span>
+                  </div>
+                ) : executionReadinessReasons.map((reason, index) => (
+                  <div key={`${reason}-${index}`} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Circle className="h-3 w-3 shrink-0"/>
+                    <span>{reason}</span>
+                  </div>
+                ))}
               </div>
+              <Button
+                data-testid={`workflow-action-${selectedWorkflowCard.id}`}
+                className="h-10 gap-2 rounded-full shrink-0"
+                onClick={() => handlers.onStartWorkflow(selectedWorkflowCard.id)}
+                disabled={!canStartSelectedWorkflow || isSelectedWorkflowLaunching}
+              >
+                {executionMode === 'scheduled'
+                  ? <><RefreshCw className="h-4 w-4"/>保存定时任务</>
+                  : isSelectedWorkflowLaunching
+                    ? <><Loader2 className="h-4 w-4 animate-spin"/>下发中</>
+                    : <><Play className="h-4 w-4"/>开始执行（{completeExecutionGroups.length} 组）</>}
+              </Button>
             </div>
-            <div className="rounded-[24px] border border-border/70 bg-background/84 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">任务预览</p>
-              {executionChannelSummary.lanes.length === 0 ? (
-                <div className="mt-4 rounded-[20px] border border-dashed border-border/70 bg-background/72 px-4 py-6 text-xs leading-6 text-muted-foreground">补齐至少 1 组平台、账号、岗位后，此处显示任务执行预览。</div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {executionChannelSummary.lanes.map((lane) => (
-                    <div key={lane.accountId} className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold text-foreground">{lane.accountName}</p><Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[lane.tone])}>{lane.label}</Badge></div>
-                      <p className="mt-2 text-xs text-muted-foreground">平台：{lane.platformSummary}</p>
-                      <p className="mt-1 text-xs leading-5 text-foreground/80">{lane.detail}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {selectedWorkflowRunningCount > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">当前工作流仍有 {selectedWorkflowRunningCount} 个进行中或排队中的任务。</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -306,42 +314,18 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
-                    <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">工作流</p>
-                      <p className="mt-2 text-sm font-semibold text-foreground">{selectedWorkflowCard.title}</p>
-                    </div>
-                    <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">任务队列</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[planMeta?.tone || 'recent'])}>
-                          {planMeta?.label || '待补齐'}
-                        </Badge>
-                        {relatedQueueIndexes.length > 1 ? <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">关联任务 {relatedQueueIndexes.join('、')}</Badge> : null}
-                      </div>
-                      <p className="mt-2 text-xs leading-5 text-foreground/80">{planMeta?.detail}</p>
-                    </div>
-                    <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">任务执行</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">日志流式返回</span>
-                        <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">截图实时采集</span>
-                        <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">步骤按顺序推进</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">每张卡 = 1 个独立任务实例</Badge>
-                      <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-sky-700 dark:text-sky-300' : 'text-muted-foreground')}>任务默认并行</Badge>
-                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">账号占用时排队</Badge>
+                  <div className="mt-4 flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[planMeta?.tone || 'recent'])}>
+                        {planMeta?.label || '待补齐'}
+                      </Badge>
+                      {relatedQueueIndexes.length > 1 ? <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">关联任务 {relatedQueueIndexes.join('、')}</Badge> : null}
                     </div>
                     <Button type="button" variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => {
                       handlers.onSelectedPlatformChange(item.group.platform || selectedPlatform)
                       handlers.onActiveTabChange('platform-config')
                     }}>
-                      <LinkIcon className="h-3.5 w-3.5"/>平台与账号配置
+                      <LinkIcon className="h-3.5 w-3.5"/>平台配置
                     </Button>
                   </div>
 
