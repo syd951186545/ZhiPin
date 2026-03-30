@@ -19,20 +19,21 @@
   - 若在测试服工作区临时恢复、补齐或手工修改了任何被证明有用的项目文件，必须同步回本机仓库；本机工作区与 GitHub 才是最终基线，不能只把有效文件留在服务器
 
 ### 集成测试步骤
-  1. 若有数据库迁移，本地连接supabase更新数据库迁移
+  1. 若没有数据库迁移本条忽略，否则本地连接supabase更新数据库迁移
   - 迁移目录：`supabase/migrations/`
   - 辅助脚本：
     - `deploy/migrate.sh`
     - `deploy/execute_sql.py`
     - `deploy/execute_sql.js`
-  2. 同步本地变更的项目文件到服务器`~/projectworkspace/` 保持服务器文件与本地一致，冲突文件以开发服为准
-  3. 若`deploy/.env.production`有更新，在服务器上重新生成镜像并重启动容器，否则使用docker热更新容器
-  4. 访问 `http://192.168.3.215`进入前段网页，使用/browser skill 或者playwright进行集成测试
+  2. 使用SSH连接服务器 `http://192.168.3.215`，相关秘钥和方法见`docs/AI_AGENT_SECRETS.local.md`。
+  3. 服务器创建`~/projectworkspace/xxxx`,xxxx为测试目录“TestJiLing+日期时间”， git拉取最新[项目](https://github.com/syd951186545/ZhiPin.git) master分支到该目录，将本机`deploy/.env.production`和本地未提交的全部变更代码同步到对应位置，保持服务器文件与本地一致
+  4. 执行`deploy/deploy.sh all`重建镜像，重启容器
+  5. 本机访问 `http://192.168.3.215`进入项目网站，使用/browser skill进行集成测试
 ### 远端宿主机与局域网资源
 - OpenClaw 运行在局域网主机上，详细地址、SSH 用户、密码、token 统一保存在 `docs/AI_AGENT_SECRETS.local.md`
-- 如果需要登录远端 Docker 主机排查容器，先读取该本地 secrets 文件，再 `docker exec` 到 `backopenclaw` 容器内部
-- 远端项目同路径说明也记录在该文件中
+- 如果需要登录远端 Docker 主机排查容器，先读取该本地 AI_AGENT_SECRETS 文件，再 `docker exec` 到 `backopenclaw` 容器内部
 - 若远端目录中存在本机仓库缺失、但构建/运行确实依赖的文件，先同步回本机，再决定是否提交 GitHub；禁止把“仅服务器存在”的临时文件当作长期解决方案
+  
 ## 2. 生产部署
   暂不涉及，当前项目处于开发调测中。
 
