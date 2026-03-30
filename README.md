@@ -103,8 +103,8 @@ cd backend && pytest           # 后端测试（若本地已安装 pytest）
 
 ```bash
 cd deploy
-cp .env.example .env.production   # 首次部署
-./deploy.sh                       # 等价于 all
+# 首次部署需手动配置.env.production 
+bash ./deploy.sh                       # 等价于 all
 ```
 
 常见模式：
