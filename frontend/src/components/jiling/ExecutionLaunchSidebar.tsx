@@ -49,7 +49,7 @@ export default function ExecutionLaunchSidebar(props: ExecutionLaunchSidebarProp
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p>
             </div>
             <div className="rounded-[24px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">任务队列</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.totalChannels}</p>
             </div>
           </div>
@@ -66,8 +66,7 @@ export default function ExecutionLaunchSidebar(props: ExecutionLaunchSidebarProp
                 <div className="flex items-start gap-3 rounded-[22px] border border-emerald-200/70 bg-emerald-50/75 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/>
                   <div>
-                    <p className="font-medium">前端校验已通过</p>
-                    <p className="mt-1 text-xs leading-5">系统会按账号通道分发任务，同账号自动串行，不同账号并行推进。</p>
+                    <p className="font-medium">任务编排通过</p>
                   </div>
                 </div>
               ) : executionReadinessReasons.map((reason, index) => (
@@ -81,13 +80,13 @@ export default function ExecutionLaunchSidebar(props: ExecutionLaunchSidebarProp
 
           <div className="rounded-[24px] border border-border/70 bg-background/82 p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-foreground">账号通道排班</p>
+              <p className="text-sm font-semibold text-foreground">任务队列</p>
               <Badge variant="outline" className="border-border/70 bg-background/88 text-[10px] uppercase tracking-[0.16em]">
-                串行 {executionChannelSummary.serialChannelCount}
+                排队任务 {executionChannelSummary.serialChannelCount}
               </Badge>
             </div>
             {executionChannelSummary.lanes.length === 0 ? (
-              <p className="mt-3 text-xs leading-6 text-muted-foreground">补齐执行组后，这里会列出每条账号通道承载哪些任务。</p>
+              <p className="mt-3 text-xs leading-6 text-muted-foreground">任务队列执行顺序说明</p>
             ) : (
               <div className="mt-3 space-y-3">
                 {executionChannelSummary.lanes.map((lane) => (
