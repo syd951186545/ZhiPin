@@ -100,7 +100,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Execution Composer</p>
               <CardTitle className="mt-2 text-base">{selectedWorkflowCard.title}</CardTitle>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                当前工作流下，每组平台、账号、岗位都会生成一个独立任务实例；同账号走同一条串行通道，不同账号并行推进。
+                工作流支持编排多组独立任务并行推进，同账号可自动排队。
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -165,7 +165,6 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                   <Slider value={[messageSendLimit]} onValueChange={([value]) => handlers.onMessageSendLimitChange(value)} min={1} max={50} step={1}/>
                   <div className="mt-4 flex items-center gap-3">
                     <Input type="number" min={1} max={50} value={messageSendLimit} onChange={(event) => handlers.onMessageSendLimitChange(Math.max(1, Math.min(50, Number(event.target.value) || 10)))} className="h-10 rounded-2xl text-center text-sm"/>
-                    <p className="text-xs leading-5 text-muted-foreground">限制一次运行内最多发送多少条消息。</p>
                   </div>
                 </div>
               </div>
