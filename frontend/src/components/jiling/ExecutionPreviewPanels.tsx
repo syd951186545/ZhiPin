@@ -48,10 +48,8 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
     completedStepCount,
     runningStepLabel,
     shouldClampExecutionPreviewList,
-    getExecutionProgress,
     getExecutionRunningStepLabel,
   } = model
-
   const executionAuthGuide = getExecutionAuthGuide(displayExec?.error, displayExec?.accumulatedText)
 
   if (executionPreviewItems.length === 0) {
@@ -59,13 +57,13 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.18fr)_360px]">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.18fr)_380px]">
       <Card className="overflow-hidden border-primary/12 bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--card)))]" data-testid="execution-running-queue">
         <CardHeader className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_72%)] pb-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Preview</p>
-              <CardTitle className="mt-2 text-base">任务执行预览</CardTitle>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Queue</p>
+              <CardTitle className="mt-2 text-base">任务队列与最近记录</CardTitle>
             </div>
             <Badge variant="outline" className="border-primary/15 bg-primary/[0.06] text-primary">活跃 {activeExecutionCount} · 排队 {queuedExecutionCount}</Badge>
           </div>
@@ -73,23 +71,19 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
         <CardContent className="pt-4">
           <div className="mb-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">本批任务</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">最近任务</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionPreviewItems.length}</p>
-              <p className="mt-1 text-xs text-muted-foreground">本次预览最多保留近 8 条</p>
+              <p className="mt-1 text-xs text-muted-foreground">保留近 8 条执行记录</p>
             </div>
             <div className="rounded-[22px] border border-emerald-200/60 bg-emerald-50/60 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">已完成</p>
-              <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">
-                {executionPreviewItems.filter((e) => e.status === 'completed').length}
-              </p>
-              <p className="mt-1 text-xs text-emerald-700/70 dark:text-emerald-300/70">本批次成功结束的任务</p>
+              <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{executionPreviewItems.filter((e) => e.status === 'completed').length}</p>
+              <p className="mt-1 text-xs text-emerald-700/70 dark:text-emerald-300/70">成功结束的任务</p>
             </div>
             <div className="rounded-[22px] border border-red-200/60 bg-red-50/60 px-4 py-3 dark:border-red-900/40 dark:bg-red-950/15">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-600 dark:text-red-300">失败 / 中止</p>
-              <p className="mt-2 font-mono text-2xl font-semibold text-red-700 dark:text-red-100">
-                {executionPreviewItems.filter((e) => e.status === 'failed' || e.status === 'cancelled').length}
-              </p>
-              <p className="mt-1 text-xs text-red-600/70 dark:text-red-300/70">异常或被手动停止的任务</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-600 dark:text-red-300">异常 / 停止</p>
+              <p className="mt-2 font-mono text-2xl font-semibold text-red-700 dark:text-red-100">{executionPreviewItems.filter((e) => e.status === 'failed' || e.status === 'cancelled').length}</p>
+              <p className="mt-1 text-xs text-red-600/70 dark:text-red-300/70">失败或被手动停止</p>
             </div>
           </div>
 
@@ -98,10 +92,10 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
               const isSelected = selectedExecutionId === execution.executionId
               const isCancelling = execution.status === 'cancelling'
               const isExecutionActive = ['queued', 'starting', 'running', 'cancelling'].includes(execution.status)
-              const progress = getExecutionProgress(execution)
               const statusMeta = getExecutionStatusMeta(execution)
               const previewText = summarizeExecutionOutput(execution.accumulatedText, execution.error, execution.queueMessage)
               const dispatchMeta = executionDispatchMetaMap[execution.executionId]
+              const doneSteps = execution.steps.filter((step) => step.status === 'done').length
 
               return (
                 <div
@@ -125,26 +119,37 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
                           {isExecutionActive ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
                           {statusMeta.label}
                         </Badge>
-                      </div>
-                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{getExecutionRunningStepLabel(execution)}</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
                         <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[dispatchMeta?.laneTone || 'recent'])}>
                           {dispatchMeta?.laneLabel || '最近记录'}
                         </Badge>
-                        {dispatchMeta?.accountNames.map((accountName) => (
-                          <Badge key={`${execution.executionId}-${accountName}`} variant="outline" className="border-border/70 bg-background/90 text-[10px]">{accountName}</Badge>
-                        ))}
-                        {execution.queuePosition ? <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">队列 #{execution.queuePosition}</Badge> : null}
                       </div>
-                      <p className="mt-2 text-xs leading-5 text-foreground/78">{dispatchMeta?.laneDetail}</p>
-                      <p className="mt-2 text-xs leading-5 text-foreground/82">{previewText}</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-border/70 bg-background/88 px-3 py-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+                          <p className="mt-1 text-xs leading-5 text-foreground/82">{dispatchMeta?.accountSummary || '待识别账号'}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/70 bg-background/88 px-3 py-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">当前步骤</p>
+                          <p className="mt-1 text-xs leading-5 text-foreground/82">{getExecutionRunningStepLabel(execution)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/70 bg-background/88 px-3 py-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">执行证据</p>
+                          <p className="mt-1 text-xs leading-5 text-foreground/82">{doneSteps}/{Math.max(execution.totalSteps, 1)} 步 · 截图 {execution.actionNodes.length}</p>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-foreground/78">{dispatchMeta?.laneDetail}</p>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{previewText}</p>
                       <p className="mt-2 font-mono text-xs text-muted-foreground">{execution.executionId}</p>
                     </div>
                     {execution.currentPlatform && <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">{execution.currentPlatform}</Badge>}
                   </div>
-                  <Progress value={progress} className="mt-4 h-2 rounded-full"/>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs text-muted-foreground">{progress}% · {execution.steps.filter((step) => step.status === 'done').length}/{Math.max(execution.totalSteps, 1)} · 截图 {execution.actionNodes.length}</p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      {dispatchMeta?.accountNames.map((accountName) => (
+                        <Badge key={`${execution.executionId}-${accountName}`} variant="outline" className="border-border/70 bg-background/90 text-[10px]">{accountName}</Badge>
+                      ))}
+                      {execution.queuePosition ? <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">队列 #{execution.queuePosition}</Badge> : null}
+                    </div>
                     <div className="flex items-center gap-2">
                       <Button
                         type="button"
@@ -190,8 +195,8 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Snapshot</p>
-                  <CardTitle className="mt-2 text-base">任务摘要</CardTitle>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Focus</p>
+                  <CardTitle className="mt-2 text-base">单任务焦点</CardTitle>
                 </div>
                 <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', displayExecStatusMeta.badgeClassName)}>
                   {isDisplayExecActive ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
@@ -217,16 +222,24 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
             </div>
           </CardHeader>
           <CardContent className="space-y-4 pt-5">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
-                <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
-                <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(displayExec.totalSteps, 1)}</p>
+            <div className="rounded-[24px] border border-border/70 bg-background/82 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">任务推进</p>
+                  <p className="mt-1 text-sm text-foreground/82">{completedStepCount}/{Math.max(displayExec.totalSteps, 1)} 步已完成</p>
+                </div>
+                <span className="font-mono text-2xl font-semibold text-foreground">{progressPercent}%</span>
               </div>
-              <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
-                <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{displayExec.actionNodes.length}</p>
-                <p className="mt-1 text-xs text-muted-foreground">当前步骤：{runningStepLabel}</p>
+              <Progress value={progressPercent} className="mt-4 h-2 rounded-full"/>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/82">{displayExecDispatchMeta?.accountSummary || '待识别账号'}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">截图节点</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/82">{displayExec.actionNodes.length} 张，当前步骤 {runningStepLabel}</p>
+                </div>
               </div>
             </div>
 
@@ -238,14 +251,12 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
             )}
 
             <div className="rounded-[24px] border border-border/70 bg-background/82 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">执行步骤</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">步骤清单</p>
               <div className="mt-3 space-y-2">
                 {displayExec.steps.map((step) => (
                   <div key={step.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/88 px-3 py-2.5">
                     <span className="text-sm text-foreground">{step.nameZh}</span>
-                    <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">
-                      {stepStatusLabel(step.status)}
-                    </Badge>
+                    <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">{stepStatusLabel(step.status)}</Badge>
                   </div>
                 ))}
               </div>
@@ -254,9 +265,7 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
             <div className="rounded-[24px] border border-border/70 bg-background/82 p-4" data-testid="execution-output">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">最近输出摘要</p>
               {displayExec.accumulatedText ? (
-                <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/88">
-                  {displayExec.accumulatedText}
-                </pre>
+                <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/88">{displayExec.accumulatedText}</pre>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-foreground/88">{displayExecSummary}</p>
               )}

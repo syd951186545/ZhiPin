@@ -3,7 +3,6 @@ import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {Input} from '@/components/ui/input'
 import {Label} from '@/components/ui/label'
-import {Progress} from '@/components/ui/progress'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Slider} from '@/components/ui/slider'
 import {Textarea} from '@/components/ui/textarea'
@@ -12,7 +11,7 @@ import {EXECUTION_DISPATCH_BADGE_STYLES, WORKFLOW_THEMES} from '@/components/jil
 import type {ExecutionTabHandlers} from '@/components/jiling/ExecutionTab'
 import type {ExecutionComposerModel} from '@/components/jiling/useExecutionComposerModel'
 import type {ExecutionMode, ScheduleFrequency} from '@/components/jiling/jilingRecruitHelpers'
-import {ClipboardCopy, Layers, Link as LinkIcon, Play, RefreshCw, Trash2} from 'lucide-react'
+import {ArrowRight, ClipboardCopy, Layers, Link as LinkIcon, Play, RefreshCw, Trash2} from 'lucide-react'
 import {motion} from 'motion/react'
 
 interface ExecutionComposerCardProps {
@@ -54,11 +53,13 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
     completeExecutionGroups,
     draftExecutionGroups,
     executionPlanPreview,
+    executionChannelSummary,
     workflowStatusMap,
     shouldClampExecutionGroupList,
     resolveDefaultAccountForPlatform,
     resolveDefaultJobForPlatform,
   } = model
+  const selectedWorkflowStatus = workflowStatusMap[selectedWorkflowCard.id]
 
   return (
     <div className="flex flex-col gap-6">
@@ -98,38 +99,47 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                     isSelected ? 'border-primary/40 shadow-[0_18px_48px_-32px_hsl(var(--primary)/0.55)] ring-1 ring-primary/20' : 'border-border/70 hover:border-border hover:shadow-sm',
                   )}
                 >
-                  <div className={cn('inline-flex h-11 w-11 items-center justify-center rounded-2xl', theme.iconBg)}>
-                    <workflow.icon className="h-5 w-5 text-primary"/>
-                  </div>
-                  <div className="mt-4 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">{workflow.title}</p>
-                      <p className="mt-1 text-xs leading-6 text-muted-foreground">{workflow.desc}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={cn('inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br', theme.iconBg)}>
+                      <workflow.icon className="h-5 w-5 text-primary"/>
                     </div>
-                    {workflow.multiPlatform && (
-                      <Badge variant="outline" className="gap-1 border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">
-                        <Layers className="h-3 w-3"/>多组
-                      </Badge>
-                    )}
+                    <Badge variant="outline" className="border-border/70 bg-background/88 text-[10px] uppercase tracking-[0.16em]">
+                      {workflow.multiPlatform ? '支持多任务' : '单任务模板'}
+                    </Badge>
                   </div>
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">当前状态</span>
+                  <div className="mt-4">
+                    <p className="text-sm font-semibold text-foreground">{workflow.title}</p>
+                    <p className="mt-1 text-xs leading-6 text-muted-foreground">{workflow.desc}</p>
+                  </div>
+                  <div className="mt-4 grid gap-3 rounded-[22px] border border-border/70 bg-background/82 p-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">当前状态</p>
                       <Badge variant="outline" className={cn(
-                        'border text-[10px] uppercase tracking-[0.16em]',
+                        'mt-2 border text-[10px] uppercase tracking-[0.16em]',
                         status.state === 'running'
                           ? 'border-primary/30 bg-primary/[0.08] text-primary'
-                          : status.state === 'completed'
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300'
-                            : status.state === 'failed'
-                              ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'
-                              : 'border-border/70 bg-background/82 text-muted-foreground',
+                          : status.state === 'queued'
+                            ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300'
+                            : status.state === 'completed'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300'
+                              : status.state === 'failed'
+                                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'
+                                : 'border-border/70 bg-background/82 text-muted-foreground',
                       )}>
                         {status.label}
                       </Badge>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{status.detail}</p>
                     </div>
-                    <Progress value={status.progress} className="h-2 rounded-full"/>
-                    <p className="text-xs leading-5 text-muted-foreground">{status.detail}</p>
+                    <div className="grid gap-2">
+                      <div className="rounded-2xl border border-border/70 bg-background/88 px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">当前任务</p>
+                        <p className="mt-1 font-mono text-lg font-semibold text-foreground">{status.activeCount}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-background/88 px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+                        <p className="mt-1 text-xs leading-5 text-foreground/82">{status.accountSummary}</p>
+                      </div>
+                    </div>
                   </div>
                 </motion.button>
               )
@@ -144,6 +154,9 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Execution Composer</p>
               <CardTitle className="mt-2 text-base">{selectedWorkflowCard.title}</CardTitle>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                先选工作流，再把每组平台、账号、岗位编排成独立任务。启动后，每个完整执行组会生成一个任务实例，同账号走同一条串行通道，不同账号并行推进，任务内部子步骤始终顺序执行。
+              </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <button type="button" onClick={() => handlers.onExecutionModeChange('immediate')} className={cn('rounded-[24px] border px-4 py-3 text-left transition-all', executionMode === 'immediate' ? 'border-primary/35 bg-primary/[0.08] shadow-sm' : 'border-border/70 bg-background/82')}>
@@ -167,9 +180,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/70 dark:text-amber-100/80">执行频率</Label>
                 <Select value={scheduleFrequency} onValueChange={(value: ScheduleFrequency) => handlers.onScheduleFrequencyChange(value)}>
-                  <SelectTrigger className="h-10 rounded-2xl border-amber-200/70 bg-background/95 text-sm shadow-none dark:border-amber-900/40">
-                    <SelectValue placeholder="选择频率"/>
-                  </SelectTrigger>
+                  <SelectTrigger className="h-10 rounded-2xl border-amber-200/70 bg-background/95 text-sm shadow-none dark:border-amber-900/40"><SelectValue placeholder="选择频率"/></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="daily">每天</SelectItem>
                     <SelectItem value="weekly">每周</SelectItem>
@@ -183,9 +194,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/70 dark:text-amber-100/80">周执行日</Label>
                 <Select value={scheduleWeekday} onValueChange={handlers.onScheduleWeekdayChange} disabled={scheduleFrequency !== 'weekly'}>
-                  <SelectTrigger className="h-10 rounded-2xl border-amber-200/70 bg-background/95 text-sm shadow-none dark:border-amber-900/40">
-                    <SelectValue placeholder="选择星期"/>
-                  </SelectTrigger>
+                  <SelectTrigger className="h-10 rounded-2xl border-amber-200/70 bg-background/95 text-sm shadow-none dark:border-amber-900/40"><SelectValue placeholder="选择星期"/></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="1">周一</SelectItem>
                     <SelectItem value="2">周二</SelectItem>
@@ -205,9 +214,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               <div className="space-y-2">
                 <Label htmlFor="custom-message" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">本次主动沟通覆盖</Label>
                 <Textarea id="custom-message" placeholder="留空则沿用平台与账号页中的全局预设。" value={customMessage} onChange={(event) => handlers.onCustomMessageChange(event.target.value)} rows={4} maxLength={500} className="rounded-[22px] border-border/70 bg-background/95 text-sm resize-none"/>
-                <p className={cn('text-xs', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>
-                  {customMessage.length}/500 字符。填写后仅覆盖本次运行。
-                </p>
+                <p className={cn('text-xs', customMessage.length >= 500 ? 'text-destructive font-medium' : customMessage.length >= 450 ? 'text-orange-500' : 'text-muted-foreground')}>{customMessage.length}/500 字符。填写后仅覆盖本次运行。</p>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">单次发送上限 <span className="ml-1 text-foreground font-bold">{messageSendLimit} 条</span></Label>
@@ -222,23 +229,62 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
             </div>
           )}
 
+          <div className="grid gap-3 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+            {[
+              {eyebrow: '01', title: '选工作流', detail: `当前选中「${selectedWorkflowCard.title}」，状态 ${selectedWorkflowStatus.label}。`},
+              {eyebrow: '02', title: '编排任务', detail: `已补齐 ${completeExecutionGroups.length} 组，待补齐 ${draftExecutionGroups.length} 组。`},
+              {eyebrow: '03', title: '占用账号通道', detail: executionChannelSummary.summary},
+              {eyebrow: '04', title: '顺序执行子任务', detail: '任务启动后内部步骤按顺序推进，日志、截图和 AI 输出都归到该任务详情里。'},
+            ].map((item, index) => (
+              <div key={item.title} className="rounded-[24px] border border-border/70 bg-background/84 p-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{item.eyebrow}</span>
+                  {index < 3 ? <ArrowRight className="h-4 w-4 text-muted-foreground/60" /> : null}
+                </div>
+                <p className="mt-4 text-sm font-semibold text-foreground">{item.title}</p>
+                <p className="mt-2 text-xs leading-6 text-muted-foreground">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_320px]">
+            <div className="rounded-[24px] border border-primary/12 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_78%)] px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">Execution Plan</p>
+              <p className="mt-2 text-sm leading-6 text-foreground/88">{executionPlanPreview.summary}</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">完整任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p><p className="mt-1 text-xs text-muted-foreground">点击启动后会生成等量任务实例</p></div>
+                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.totalChannels}</p><p className="mt-1 text-xs text-muted-foreground">不同账号即不同通道</p></div>
+                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">串行通道</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.serialChannelCount}</p><p className="mt-1 text-xs text-muted-foreground">同账号复用时自动排队</p></div>
+              </div>
+            </div>
+            <div className="rounded-[24px] border border-border/70 bg-background/84 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">账号通道映射</p>
+              {executionChannelSummary.lanes.length === 0 ? (
+                <div className="mt-4 rounded-[20px] border border-dashed border-border/70 bg-background/72 px-4 py-6 text-xs leading-6 text-muted-foreground">还没有形成账号通道。补齐至少 1 组平台、账号、岗位后，这里会显示哪些任务并行，哪些任务需要排队。</div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {executionChannelSummary.lanes.map((lane) => (
+                    <div key={lane.accountId} className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold text-foreground">{lane.accountName}</p><Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[lane.tone])}>{lane.label}</Badge></div>
+                      <p className="mt-2 text-xs text-muted-foreground">平台：{lane.platformSummary}</p>
+                      <p className="mt-1 text-xs leading-5 text-foreground/80">{lane.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-foreground">执行组编排</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">补齐账号与岗位后即可启动，不同账号可同时运行。</p>
+              <p className="text-sm font-semibold text-foreground">任务操作卡片</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">每一张卡代表一个待创建任务，卡内只负责配置平台、账号、岗位和调度方式。</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">完整 {completeExecutionGroups.length}</Badge>
               <Badge variant="outline" className="border-border/70 bg-background/82 text-[10px] uppercase tracking-[0.16em]">草稿 {draftExecutionGroups.length}</Badge>
-              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => handlers.onAddExecutionGroup({platform: selectedPlatform || catalog[0]?.key || '', accountId: selectedPlatform ? resolveDefaultAccountForPlatform(selectedPlatform) : '', jobId: selectedPlatform ? resolveDefaultJobForPlatform(selectedPlatform) : ''})}>
-                <Layers className="h-3.5 w-3.5"/>新增执行组
-              </Button>
+              <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={() => handlers.onAddExecutionGroup({platform: selectedPlatform || catalog[0]?.key || '', accountId: selectedPlatform ? resolveDefaultAccountForPlatform(selectedPlatform) : '', jobId: selectedPlatform ? resolveDefaultJobForPlatform(selectedPlatform) : ''})}><Layers className="h-3.5 w-3.5"/>新增任务</Button>
             </div>
-          </div>
-
-          <div className="rounded-[24px] border border-primary/12 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_78%)] px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">Execution Plan</p>
-            <p className="mt-2 text-sm leading-6 text-foreground/88">{executionPlanPreview.summary}</p>
           </div>
 
           <div className={cn('space-y-3', shouldClampExecutionGroupList && 'max-h-[36rem] overflow-y-auto pr-1 scrollbar-thin')}>
@@ -246,6 +292,15 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               const planMeta = executionPlanPreview.metaMap[item.group.id]
               const platformAccounts = accounts.filter((account) => account.platform === item.group.platform && account.status === 'active')
               const hasAccounts = platformAccounts.length > 0
+              const relatedQueueIndexes = item.group.accountId
+                ? executionGroupDiagnostics.filter((candidate) => candidate.group.accountId === item.group.accountId && candidate.complete).map((candidate) => candidate.index + 1)
+                : []
+              const dispatchDetail = item.complete
+                ? relatedQueueIndexes.length > 1
+                  ? `该任务会进入账号「${item.account?.name || '未命名账号'}」通道，和任务 ${relatedQueueIndexes.join('、')} 共用执行入口。`
+                  : `该任务会独占账号「${item.account?.name || '未命名账号'}」通道，可与其他账号任务同时启动。`
+                : '补齐平台、账号、岗位后，系统才会为这张卡生成实际任务实例。'
+
               return (
                 <div key={item.group.id} className="rounded-[24px] border border-border/70 bg-background/86 p-4 shadow-sm" data-testid={`execution-group-${item.index}`}>
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -253,16 +308,16 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                       <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-sm font-semibold text-foreground">{String(item.index + 1).padStart(2, '0')}</div>
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-foreground">执行组 {item.index + 1}</p>
+                          <p className="text-sm font-semibold text-foreground">任务 {item.index + 1}</p>
                           <Badge variant="outline" className={cn('border text-[10px] uppercase tracking-[0.16em]', item.complete ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : item.duplicateAccount ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' : 'border-border/70 bg-background/82 text-muted-foreground')}>
-                            {item.complete ? '完整' : item.duplicateAccount ? '冲突' : '草稿'}
+                            {item.complete ? '可启动' : item.duplicateAccount ? '待排队' : '待补齐'}
                           </Badge>
                           <Badge variant="outline" className={cn('border text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[planMeta?.tone || 'recent'])}>
                             {planMeta?.label || '待补齐'}
                           </Badge>
                         </div>
                         <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.complete ? `${item.platformLabel} · ${item.account?.name || '已选账号'} · ${item.job?.title || '已选岗位'}` : item.missing.join(' / ')}</p>
-                        <p className="mt-2 text-xs leading-5 text-foreground/78">{planMeta?.detail}</p>
+                        <p className="mt-2 text-xs leading-5 text-foreground/78">{dispatchDetail}</p>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -309,7 +364,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                                 ? <SelectItem value="_none" disabled>当前平台暂无可用账号</SelectItem>
                                 : platformAccounts.map((account) => {
                                   const usedByOthers = Boolean(accountUsageCount.get(account.id)) && account.id !== item.group.accountId
-                                  return <SelectItem key={account.id} value={account.id}>{account.name}{usedByOthers ? '（同账号串行）' : ''}</SelectItem>
+                                  return <SelectItem key={account.id} value={account.id}>{account.name}{usedByOthers ? '（共享通道，自动排队）' : ''}</SelectItem>
                                 })}
                         </SelectContent>
                       </Select>
@@ -334,11 +389,38 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                     </div>
                   </div>
 
+                  <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
+                    <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">归属工作流</p>
+                      <p className="mt-2 text-sm font-semibold text-foreground">{selectedWorkflowCard.title}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{selectedWorkflowCard.desc}</p>
+                    </div>
+                    <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[planMeta?.tone || 'recent'])}>
+                          {planMeta?.label || '待补齐'}
+                        </Badge>
+                        {relatedQueueIndexes.length > 1 ? <Badge variant="outline" className="border-border/70 bg-background/90 text-[10px]">关联任务 {relatedQueueIndexes.join('、')}</Badge> : null}
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-foreground/80">{planMeta?.detail}</p>
+                    </div>
+                    <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">子任务执行</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">日志流式返回</span>
+                        <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">截图实时采集</span>
+                        <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">步骤按顺序推进</span>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-foreground/80">这层不再预估百分比，实际进度会在任务启动后进入“任务执行预览”和“详情”中展示。</p>
+                    </div>
+                  </div>
+
                   <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">平台可重复</Badge>
+                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">每张卡 = 1 个任务实例</Badge>
                       <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-sky-700 dark:text-sky-300' : 'text-muted-foreground')}>同账号自动排队</Badge>
-                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">岗位可重复</Badge>
+                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">任务内步骤顺序执行</Badge>
                     </div>
                     <Button type="button" variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => {
                       handlers.onSelectedPlatformChange(item.group.platform || selectedPlatform)
@@ -350,7 +432,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
 
                   {!hasAccounts && item.group.platform && (
                     <div className="mt-4 rounded-[22px] border border-amber-200/70 bg-amber-50/75 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
-                      当前平台还没有可用账号。先到“平台与账号配置”绑定账号，再回到这里编排执行组。
+                      当前平台还没有可用账号。先到“平台与账号配置”绑定账号，再回到这里编排任务。
                     </div>
                   )}
                 </div>

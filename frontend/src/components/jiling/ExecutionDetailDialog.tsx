@@ -6,6 +6,7 @@ import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} fro
 import {Progress} from '@/components/ui/progress'
 import {cn} from '@/lib/utils'
 import {ExecutionScreenshotCard} from '@/components/jiling/ExecutionScreenshotCard'
+import type {ExecutionDispatchMeta} from '@/components/jiling/jilingRecruitViewModel'
 import type {WorkflowExecution} from '@/stores/useWorkflowStore'
 
 // ── helpers ──────────────────────────────────────────────────
@@ -83,6 +84,7 @@ export interface ExecutionDetailDialogProps {
   copiedText: boolean
   onCopyText: (text: string) => void
   onPreview: (src: string) => void
+  dispatchMeta?: ExecutionDispatchMeta | null
 }
 
 export function ExecutionDetailDialog({
@@ -97,6 +99,7 @@ export function ExecutionDetailDialog({
   copiedText,
   onCopyText,
   onPreview,
+  dispatchMeta,
 }: ExecutionDetailDialogProps) {
   if (!execution) return null
 
@@ -118,25 +121,36 @@ export function ExecutionDetailDialog({
                 <p className="mt-2 font-mono text-xs text-muted-foreground">{execution.executionId}</p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-4">
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">完成率</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{progressPercent}%</p>
                   <p className="mt-1 text-xs text-muted-foreground">{completedStepCount}/{Math.max(execution.totalSteps, 1)}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
-                  <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{execution.actionNodes.length}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">账号通道</p>
+                  <p className="mt-2 text-sm font-semibold text-foreground">{dispatchMeta?.accountSummary || '待识别账号'}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{dispatchMeta?.laneDetail || '任务启动后会展示账号通道与排队关系。'}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{execution.actionNodes.length}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">执行证据会按时间顺序沉淀在这里</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3 sm:col-span-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Badge variant="outline" className={cn('gap-1.5', statusMeta.badgeClassName)}>
                       {execution.status === 'cancelling' || isActive ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                       {statusMeta.label}
                     </Badge>
+                    {dispatchMeta ? (
+                      <Badge variant="outline" className="border-border/70 bg-background/88 text-[10px] uppercase tracking-[0.16em]">
+                        {dispatchMeta.laneLabel}
+                      </Badge>
+                    ) : null}
                   </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{execution.accumulatedText ? '已收到 AI 输出流' : '等待输出返回'}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{execution.accumulatedText ? '已收到 AI 输出流' : '等待输出返回'}，任务内部子步骤会严格顺序推进。</p>
                 </div>
               </div>
             </div>
@@ -155,6 +169,28 @@ export function ExecutionDetailDialog({
                   </div>
                 </div>
               )}
+
+              <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">任务结构</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-4">
+                  <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">工作流</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{execution.workflowName || execution.workflowId}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">任务实例</p>
+                    <p className="mt-1 font-mono text-xs text-foreground/82">{execution.executionId}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{dispatchMeta?.accountSummary || '待识别账号'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-background/88 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">子任务层</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{execution.totalSteps} 个步骤串行推进</p>
+                  </div>
+                </div>
+              </div>
 
               <div className="grid gap-4 xl:grid-cols-[0.95fr,1fr,1.08fr]">
                 <div className="space-y-3" data-testid="execution-steps">

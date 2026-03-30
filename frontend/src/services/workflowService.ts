@@ -259,6 +259,8 @@ function getApiBase(): string {
 }
 
 let backendHealthRequest: Promise<{ status: string }> | null = null
+const HOST_BROWSER_WARMUP_RETRY_DELAY_MS = 4000
+const HOST_BROWSER_WARMUP_HINT = 'OpenClaw host browser 尚未启动'
 
 async function getOptionalAuthHeaders(): Promise<Record<string, string> | undefined> {
   try {
@@ -271,19 +273,55 @@ async function getOptionalAuthHeaders(): Promise<Record<string, string> | undefi
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function normalizeStartWorkflowError(status: number, text: string): string {
+  const fallback = `启动工作流失败 (${status}): ${text}`
+  if (!text) return fallback
+
+  try {
+    const parsed = JSON.parse(text) as {detail?: unknown}
+    if (typeof parsed?.detail === 'string' && parsed.detail.trim()) {
+      return `启动工作流失败 (${status}): ${parsed.detail.trim()}`
+    }
+  } catch {
+    // ignore JSON parse failure and use original response body
+  }
+
+  return fallback
+}
+
+function shouldRetryStartWorkflow(status: number, text: string): boolean {
+  return status === 503 && text.includes(HOST_BROWSER_WARMUP_HINT)
+}
+
 /**
  * 启动工作流
  */
 export async function startWorkflow(req: WorkflowStartRequest): Promise<WorkflowStartResponse> {
-  const resp = await fetch(`${getApiBase()}/start`, {
+  const startRequest = () => fetch(`${getApiBase()}/start`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(req),
   })
 
+  let resp = await startRequest()
   if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`启动工作流失败 (${resp.status}): ${text}`)
+    let text = await resp.text().catch(() => '')
+    if (shouldRetryStartWorkflow(resp.status, text)) {
+      await sleep(HOST_BROWSER_WARMUP_RETRY_DELAY_MS)
+      resp = await startRequest()
+      if (!resp.ok) {
+        text = await resp.text().catch(() => '')
+        throw new Error(normalizeStartWorkflowError(resp.status, text))
+      }
+    } else {
+      throw new Error(normalizeStartWorkflowError(resp.status, text))
+    }
   }
 
   return resp.json()

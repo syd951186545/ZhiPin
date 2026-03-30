@@ -57,6 +57,23 @@ export interface ExecutionPlanPreview {
   metaMap: Record<string, ExecutionGroupPlanMeta>
 }
 
+export interface ExecutionChannelLane {
+  accountId: string
+  accountName: string
+  platformSummary: string
+  groupIndexes: number[]
+  tone: Extract<ExecutionDispatchTone, 'serial' | 'single'>
+  label: string
+  detail: string
+}
+
+export interface ExecutionChannelSummary {
+  totalChannels: number
+  serialChannelCount: number
+  lanes: ExecutionChannelLane[]
+  summary: string
+}
+
 export interface WorkflowCardRuntime {
   id: string
   title: string
@@ -342,6 +359,56 @@ export function getExecutionPlanPreview(executionGroupDiagnostics: ExecutionGrou
   return {
     summary,
     metaMap,
+  }
+}
+
+export function getExecutionChannelSummary(args: {
+  executionGroupDiagnostics: ExecutionGroupDiagnostic[]
+  accountDirectory: Record<string, AccountDirectoryItem>
+}): ExecutionChannelSummary {
+  const {executionGroupDiagnostics, accountDirectory} = args
+  const completeItems = executionGroupDiagnostics.filter((item) => item.complete && item.group.accountId)
+  const groupedByAccount = new Map<string, ExecutionGroupDiagnostic[]>()
+
+  completeItems.forEach((item) => {
+    const accountId = item.group.accountId
+    if (!accountId) return
+    const entries = groupedByAccount.get(accountId) || []
+    entries.push(item)
+    groupedByAccount.set(accountId, entries)
+  })
+
+  const lanes = Array.from(groupedByAccount.entries()).map(([accountId, items]) => {
+    const accountName = accountDirectory[accountId]?.name || items[0]?.account?.name || trimInlineText(accountId, 12)
+    const platformSummary = summarizeNames(uniqueStrings(items.map((item) => item.platformLabel)), '待识别平台')
+    const groupIndexes = items.map((item) => item.index)
+    const isSerial = items.length > 1
+
+    return {
+      accountId,
+      accountName,
+      platformSummary,
+      groupIndexes,
+      tone: isSerial ? 'serial' : 'single',
+      label: isSerial ? '同账号串行' : '独立通道',
+      detail: isSerial
+        ? `执行组 ${groupIndexes.map((index) => index + 1).join('、')} 共用该账号，启动后会按顺序串行排队。`
+        : `执行组 ${groupIndexes[0] + 1} 独占该账号通道，可与其他账号任务并行启动。`,
+    } satisfies ExecutionChannelLane
+  })
+
+  const serialChannelCount = lanes.filter((lane) => lane.tone === 'serial').length
+  const summary = lanes.length === 0
+    ? '补齐平台、账号、岗位后，系统会把每组方案映射为一个任务实例，并显示账号通道关系。'
+    : serialChannelCount === 0
+      ? `当前 ${lanes.length} 条账号通道彼此独立，点击启动后会直接并行下发。`
+      : `当前共占用 ${lanes.length} 条账号通道，其中 ${serialChannelCount} 条存在同账号串行队列，其余通道可并行推进。`
+
+  return {
+    totalChannels: lanes.length,
+    serialChannelCount,
+    lanes,
+    summary,
   }
 }
 

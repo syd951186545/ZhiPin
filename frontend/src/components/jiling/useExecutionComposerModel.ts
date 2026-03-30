@@ -6,10 +6,12 @@ import {
   getAccountDirectory,
   getAccountUsageCount,
   getExecutionDispatchMetaMap,
+  getExecutionChannelSummary,
   getExecutionGroupDiagnostics,
   getExecutionPlanPreview,
   getWorkflowStatusMap,
   uniqueStrings,
+  type ExecutionChannelSummary,
   type ExecutionDispatchMeta,
   type ExecutionGroupDiagnostic,
   type ExecutionPlanPreview,
@@ -44,6 +46,7 @@ export interface ExecutionComposerModel {
   completeExecutionGroups: ExecutionGroupDiagnostic[]
   draftExecutionGroups: ExecutionGroupDiagnostic[]
   executionPlanPreview: ExecutionPlanPreview
+  executionChannelSummary: ExecutionChannelSummary
   executionReadinessReasons: string[]
   canStartSelectedWorkflow: boolean
   queuedExecutionCount: number
@@ -185,6 +188,13 @@ export function useExecutionComposerModel(args: {
     () => getExecutionPlanPreview(executionGroupDiagnostics),
     [executionGroupDiagnostics],
   )
+  const executionChannelSummary = useMemo(
+    () => getExecutionChannelSummary({
+      executionGroupDiagnostics,
+      accountDirectory,
+    }),
+    [accountDirectory, executionGroupDiagnostics],
+  )
   const executionReadinessReasons = useMemo(() => {
     const reasons: string[] = []
     if (!backendReady) reasons.push('后端未连接，无法发起执行。')
@@ -283,6 +293,7 @@ export function useExecutionComposerModel(args: {
     completeExecutionGroups,
     draftExecutionGroups,
     executionPlanPreview,
+    executionChannelSummary,
     executionReadinessReasons,
     canStartSelectedWorkflow,
     queuedExecutionCount,

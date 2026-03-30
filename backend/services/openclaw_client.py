@@ -33,7 +33,7 @@ SSE_TIMEOUT = 300.0  # 5 minutes per step
 BROWSER_STATUS_TIMEOUT = 5.0
 BROWSER_READY_TIMEOUT = 45.0
 GATEWAY_RESTART_TIMEOUT = 30.0
-HOST_BROWSER_START_TIMEOUT = 15.0
+HOST_BROWSER_START_TIMEOUT = 25.0
 HOST_BROWSER_CDP_READY_TIMEOUT = 5.0
 HOST_BROWSER_RESTORE_RETRIES = 3
 HOST_BROWSER_SCREENSHOT_RETRIES = 3
@@ -899,6 +899,13 @@ class OpenClawClient:
                 status_snapshot=status_result.status_snapshot,
                 profile=resolved_profile,
             )
+            if not status_result.ready and (status_result.status_snapshot or {}).get("running") is True:
+                # 冷启动时 Chromium 进程已经起来，但 CDP 还可能需要几秒才能真正 ready。
+                status_result = await self._wait_for_running_host_browser_ready(
+                    profile=resolved_profile,
+                    status_snapshot=status_result.status_snapshot,
+                    timeout=HOST_BROWSER_CDP_READY_TIMEOUT * 3,
+                )
             if not status_result.ready:
                 return status_result
 

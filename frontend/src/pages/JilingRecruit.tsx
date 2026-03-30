@@ -565,6 +565,7 @@ export default function JilingRecruit() {
         copiedText={copiedText}
         onCopyText={copyText}
         onPreview={setLightboxSrc}
+        dispatchMeta={executionModel.displayExecDispatchMeta}
       />
 
       <AnimatePresence>
