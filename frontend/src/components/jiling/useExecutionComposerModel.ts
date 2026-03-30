@@ -55,6 +55,10 @@ export interface ExecutionComposerModel {
   activeExecutionAccountCount: number
   executionPreviewItems: WorkflowExecution[]
   selectedWorkflowRunningCount: number
+  selectedWorkflowActiveCount: number
+  selectedWorkflowQueuedCount: number
+  selectedWorkflowCompletedCount: number
+  selectedWorkflowFailedCount: number
   isSelectedWorkflowLaunching: boolean
   isDisplayExecActive: boolean
   displayExecStatusMeta: ReturnType<typeof getExecutionStatusMeta>
@@ -230,12 +234,35 @@ export function useExecutionComposerModel(args: {
     () => uniqueStrings(activeExecutions.flatMap((execution) => execution.accountIds || [])).length,
     [activeExecutions],
   )
-  const executionPreviewItems = useMemo(() => orderedExecutions.slice(0, 8), [orderedExecutions])
+  const executionPreviewItems = useMemo(
+    () => orderedExecutions.filter((execution) => execution.workflowId === selectedWorkflowCard.id).slice(0, 8),
+    [orderedExecutions, selectedWorkflowCard.id],
+  )
   const selectedWorkflowRunningExecutions = useMemo(
     () => activeExecutions.filter((execution) => execution.workflowId === selectedWorkflowCard.id),
     [activeExecutions, selectedWorkflowCard.id],
   )
   const selectedWorkflowRunningCount = selectedWorkflowRunningExecutions.length
+  const selectedWorkflowExecutions = useMemo(
+    () => orderedExecutions.filter((execution) => execution.workflowId === selectedWorkflowCard.id),
+    [orderedExecutions, selectedWorkflowCard.id],
+  )
+  const selectedWorkflowActiveCount = useMemo(
+    () => selectedWorkflowExecutions.filter((execution) => ['queued', 'starting', 'running', 'cancelling'].includes(execution.status)).length,
+    [selectedWorkflowExecutions],
+  )
+  const selectedWorkflowQueuedCount = useMemo(
+    () => selectedWorkflowExecutions.filter((execution) => execution.status === 'queued').length,
+    [selectedWorkflowExecutions],
+  )
+  const selectedWorkflowCompletedCount = useMemo(
+    () => selectedWorkflowExecutions.filter((execution) => execution.status === 'completed').length,
+    [selectedWorkflowExecutions],
+  )
+  const selectedWorkflowFailedCount = useMemo(
+    () => selectedWorkflowExecutions.filter((execution) => execution.status === 'failed' || execution.status === 'cancelled').length,
+    [selectedWorkflowExecutions],
+  )
   const isSelectedWorkflowLaunching = launchingWorkflowIds.includes(selectedWorkflowCard.id)
   const isDisplayExecActive = Boolean(displayExec && ['queued', 'starting', 'running', 'cancelling'].includes(displayExec.status))
   const displayExecStatusMeta = useMemo(
@@ -302,6 +329,10 @@ export function useExecutionComposerModel(args: {
     activeExecutionAccountCount,
     executionPreviewItems,
     selectedWorkflowRunningCount,
+    selectedWorkflowActiveCount,
+    selectedWorkflowQueuedCount,
+    selectedWorkflowCompletedCount,
+    selectedWorkflowFailedCount,
     isSelectedWorkflowLaunching,
     isDisplayExecActive,
     displayExecStatusMeta,

@@ -1,15 +1,17 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
-import {AlertTriangle, Cpu, Link as LinkIcon, Loader2, LogIn, Search, ShieldCheck, Unplug, UserPlus, X} from 'lucide-react'
+import {AlertTriangle, Circle, Cpu, Link as LinkIcon, Loader2, LogIn, Search, ShieldCheck, Unplug, UserPlus, X} from 'lucide-react'
 import {AnimatePresence, motion} from 'motion/react'
 import {Button} from '@/components/ui/button'
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import AddProfileDialog from '@/components/settings/AddProfileDialog'
 import PlatformActionDialog from '@/components/settings/PlatformActionDialog'
 import PlatformLoginDialog from '@/components/settings/PlatformLoginDialog'
+import {Badge} from '@/components/ui/badge'
 import PlatformConfigTab from '@/components/jiling/PlatformConfigTab'
 import ExecutionTab, {type ExecutionTabHandlers} from '@/components/jiling/ExecutionTab'
 import {usePlatformConfigModel, type RecruitPlatformCatalogItem} from '@/components/jiling/usePlatformConfigModel'
 import {useExecutionComposerModel} from '@/components/jiling/useExecutionComposerModel'
+import {WORKFLOW_THEMES} from '@/components/jiling/jilingRecruitShared'
 import {useAuth} from '@/contexts/AuthContext'
 import {useI18n} from '@/contexts/I18nContext'
 import {usePlatformAccounts} from '@/hooks/usePlatformAccounts'
@@ -490,6 +492,40 @@ export default function JilingRecruit() {
           <div className="flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-amber-500"/><span className="text-sm text-muted-foreground">失效 <span className="font-semibold text-foreground">{accountsLoading ? '加载中' : platformModel.stats.inactiveAccounts}</span></span></div>
           <div className="flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-primary/40"/><span className="text-sm text-muted-foreground">总账号 <span className="font-semibold text-foreground">{accountsLoading ? '加载中' : platformModel.stats.totalAccounts}</span></span></div>
           <div className="flex items-center gap-2"><span className={cn('inline-block h-2 w-2 rounded-full', backendReady ? 'bg-emerald-500' : 'bg-red-500')}/><span className="text-sm text-muted-foreground">{backendReady ? '后端已连接' : '后端未连接'}</span></div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {executionModel.workflowCards.map((workflow) => {
+            const status = executionModel.workflowStatusMap[workflow.id]
+            const theme = WORKFLOW_THEMES[workflow.id] || WORKFLOW_THEMES.publish_job
+            const hasActive = status.activeCount > 0
+            return (
+              <button
+                key={workflow.id}
+                type="button"
+                onClick={() => { setActiveTab('execute'); setSelectedWorkflowId(workflow.id as WorkflowId) }}
+                className={cn(
+                  'flex items-center gap-2.5 rounded-full border px-3.5 py-2 text-left transition-all',
+                  hasActive
+                    ? 'border-primary/25 bg-primary/[0.06] hover:bg-primary/[0.10]'
+                    : 'border-border/70 bg-background/82 hover:border-border',
+                )}
+              >
+                <div className={cn('flex h-7 w-7 items-center justify-center rounded-xl bg-gradient-to-br', theme.iconBg)}>
+                  <workflow.icon className="h-3.5 w-3.5 text-primary"/>
+                </div>
+                <span className="text-sm font-medium text-foreground">{workflow.title}</span>
+                {hasActive ? (
+                  <Badge variant="outline" className="border-primary/20 bg-primary/[0.08] text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+                    {status.label} {status.activeCount}
+                  </Badge>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Circle className="h-1.5 w-1.5 fill-current"/>空闲
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 

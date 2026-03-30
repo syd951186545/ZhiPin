@@ -73,17 +73,14 @@ export default function ExecutionPreviewPanels(props: ExecutionPreviewPanelsProp
             <div className="rounded-[22px] border border-border/70 bg-background/82 px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">最近任务</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionPreviewItems.length}</p>
-              <p className="mt-1 text-xs text-muted-foreground">保留近 8 条执行记录</p>
             </div>
             <div className="rounded-[22px] border border-emerald-200/60 bg-emerald-50/60 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">已完成</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{executionPreviewItems.filter((e) => e.status === 'completed').length}</p>
-              <p className="mt-1 text-xs text-emerald-700/70 dark:text-emerald-300/70">成功结束的任务</p>
             </div>
             <div className="rounded-[22px] border border-red-200/60 bg-red-50/60 px-4 py-3 dark:border-red-900/40 dark:bg-red-950/15">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-600 dark:text-red-300">异常 / 停止</p>
               <p className="mt-2 font-mono text-2xl font-semibold text-red-700 dark:text-red-100">{executionPreviewItems.filter((e) => e.status === 'failed' || e.status === 'cancelled').length}</p>
-              <p className="mt-1 text-xs text-red-600/70 dark:text-red-300/70">失败或被手动停止</p>
             </div>
           </div>
 
