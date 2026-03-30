@@ -20,7 +20,7 @@
 ## 浏览器调试
 Use the `/browse` skill from gstack for all web browsing. 仅当/browse无法使用时才调用  `Playwright MCP MCP Browser *` 工具.
 
-### Setup
+### gstack Setup
 If you don't have gstack installed, run:
 ```
 git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup
