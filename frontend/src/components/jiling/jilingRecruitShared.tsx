@@ -49,9 +49,9 @@ export interface WorkflowCardView extends WorkflowCardDefinition {
 }
 
 export const WORKFLOW_CARDS: WorkflowCardDefinition[] = [
-  {id: 'publish_job', title: '发布招聘公告', desc: '复用已绑定账号，自动填写岗位信息并发布到招聘平台。', icon: Megaphone, multiPlatform: false},
-  {id: 'talent_explore', title: '市场人才探索', desc: '进入人才库主动搜索、筛选并沟通匹配候选人。', icon: Search, multiPlatform: false},
-  {id: 'resume_screen', title: '简历筛选及AI沟通', desc: '多平台依次复用默认账号，AI 自动筛选简历并沟通。', icon: FileSearch, multiPlatform: true},
+  {id: 'publish_job', title: '发布招聘公告', desc: '自动定时发布岗位招聘公告', icon: Megaphone, multiPlatform: false},
+  {id: 'talent_explore', title: '市场人才探索', desc: '主动搜索、筛选并沟通人才。', icon: Search, multiPlatform: false},
+  {id: 'resume_screen', title: 'AI简历筛选', desc: 'AI 自动筛选批量简历', icon: FileSearch, multiPlatform: true},
 ]
 
 export const WORKFLOW_I18N_KEYS: Record<WorkflowId, {title: TranslationKey; desc: TranslationKey}> = {
@@ -65,7 +65,7 @@ export const pc = (key: string) => PLATFORM_COLORS[key] || PLATFORM_COLORS['58']
 export const platformGlyph = (key: string) => {
   switch (key) {
     case 'boss_zhipin':
-      return 'B'
+      return '直'
     case '58':
       return '58'
     case 'liepin':
