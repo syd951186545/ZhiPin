@@ -306,7 +306,6 @@ export function getExecutionPlanPreview(executionGroupDiagnostics: ExecutionGrou
       return [item.group.id, {
         label: '待补齐',
         tone: 'recent' as ExecutionDispatchTone,
-        detail: '补齐平台、账号和岗位后，这里会预告该组是串行还是并行启动。',
       }]
     }
 
@@ -317,31 +316,27 @@ export function getExecutionPlanPreview(executionGroupDiagnostics: ExecutionGrou
     if (queueIndexes.length > 1) {
       if (queuePosition === 0) {
         return [item.group.id, {
-          label: '串行起点',
+          label: '排队起点',
           tone: 'serial' as ExecutionDispatchTone,
-          detail: `该组会先占用账号通道，随后执行组 ${queueIndexes.slice(1).map((index) => index + 1).join('、')} 将按同账号顺序排队。${hasMultipleAccounts ? '其他账号组仍可并行启动。' : ''}`,
         }]
       }
 
       return [item.group.id, {
-        label: '同账号串行',
+        label: '排队等待',
         tone: 'serial' as ExecutionDispatchTone,
-        detail: `该组与执行组 ${queueIndexes[queuePosition - 1] + 1} 共用同一账号，需要等待前序任务释放通道后再启动。`,
       }]
     }
 
     if (hasMultipleAccounts) {
       return [item.group.id, {
-        label: '不同账号并行',
+        label: '并行任务',
         tone: 'parallel' as ExecutionDispatchTone,
-        detail: '该组占用独立账号通道，点击开始后可与其他账号组同时推进。',
       }]
     }
 
     return [item.group.id, {
-      label: '独立执行',
+      label: '独立任务',
       tone: 'single' as ExecutionDispatchTone,
-      detail: '当前仅有这一条账号通道，点击开始后会直接执行。',
     }]
   })) as Record<string, ExecutionGroupPlanMeta>
 
@@ -351,11 +346,10 @@ export function getExecutionPlanPreview(executionGroupDiagnostics: ExecutionGrou
   }).length
 
   const summary = completeItems.length === 0
-    ? '补齐账号与岗位后，这里会生成串行/并行执行计划预览。'
+    ? '执行计划预览'
     : serialGroups === 0
-      ? `当前 ${completeItems.length} 组完整方案都会按不同账号直接启动。`
-      : `当前 ${completeItems.length} 组完整方案中，${serialGroups} 组会按同账号串行排队，其余 ${Math.max(completeItems.length - serialGroups, 0)} 组可按不同账号并行启动。`
-
+      ? `并行任务执行： ${completeItems.length} `
+      : `并行任务执行： ${Math.max(completeItems.length - serialGroups, 0)}; 排队任务：${serialGroups} `
   return {
     summary,
     metaMap,
@@ -390,18 +384,18 @@ export function getExecutionChannelSummary(args: {
       platformSummary,
       groupIndexes,
       tone: isSerial ? 'serial' : 'single',
-      label: isSerial ? '同账号串行' : '独立通道',
+      label: isSerial ? '排队执行' : '独立执行',
       detail: isSerial
-        ? `执行组 ${groupIndexes.map((index) => index + 1).join('、')} 共用该账号，启动后会按顺序串行排队。`
-        : `执行组 ${groupIndexes[0] + 1} 独占该账号通道，可与其他账号任务并行启动。`,
+        ? `任务 ${groupIndexes.map((index) => index + 1).join('、')} 进入队列执行。`
+        : `任务 ${groupIndexes[0] + 1} 独立执行`,
     } satisfies ExecutionChannelLane
   })
 
   const serialChannelCount = lanes.filter((lane) => lane.tone === 'serial').length
   const summary = lanes.length === 0
-    ? '补齐平台、账号、岗位后，系统会把每组方案映射为一个任务实例，并显示账号通道关系。'
+    ? ''
     : serialChannelCount === 0
-      ? `当前 ${lanes.length} 条账号通道彼此独立，点击启动后会直接并行下发。`
+      ? `并行任务数 ${lanes.length} `
       : `当前共占用 ${lanes.length} 条账号通道，其中 ${serialChannelCount} 条存在同账号串行队列，其余通道可并行推进。`
 
   return {
