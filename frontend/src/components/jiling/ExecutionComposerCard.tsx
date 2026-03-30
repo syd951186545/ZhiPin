@@ -176,9 +176,9 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">Execution Plan</p>
               <p className="mt-2 text-sm leading-6 text-foreground/88">{executionPlanPreview.summary}</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">完整任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p></div>
-                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.totalChannels}</p></div>
-                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">串行通道</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.serialChannelCount}</p></div>
+                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">全部任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{completeExecutionGroups.length}</p></div>
+                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">并行任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.totalChannels}</p></div>
+                <div className="rounded-[20px] border border-border/70 bg-background/82 px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">串行任务</p><p className="mt-2 font-mono text-2xl font-semibold text-foreground">{executionChannelSummary.serialChannelCount}</p></div>
               </div>
             </div>
             <div className="rounded-[24px] border border-border/70 bg-background/84 p-4">
@@ -281,7 +281,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                                 ? <SelectItem value="_none" disabled>当前平台暂无可用账号</SelectItem>
                                 : platformAccounts.map((account) => {
                                   const usedByOthers = Boolean(accountUsageCount.get(account.id)) && account.id !== item.group.accountId
-                                  return <SelectItem key={account.id} value={account.id}>{account.name}{usedByOthers ? '（共享通道，自动排队）' : ''}</SelectItem>
+                                  return <SelectItem key={account.id} value={account.id}>{account.name}{usedByOthers ? '（共享队列，自动排队）' : ''}</SelectItem>
                                 })}
                         </SelectContent>
                       </Select>
@@ -312,7 +312,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                       <p className="mt-2 text-sm font-semibold text-foreground">{selectedWorkflowCard.title}</p>
                     </div>
                     <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">账号通道</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">任务队列</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <Badge variant="outline" className={cn('text-[10px] uppercase tracking-[0.16em]', EXECUTION_DISPATCH_BADGE_STYLES[planMeta?.tone || 'recent'])}>
                           {planMeta?.label || '待补齐'}
@@ -322,7 +322,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
                       <p className="mt-2 text-xs leading-5 text-foreground/80">{planMeta?.detail}</p>
                     </div>
                     <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">子任务执行</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">任务执行</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">日志流式返回</span>
                         <span className="rounded-full border border-border/70 bg-background/90 px-2.5 py-1">截图实时采集</span>
