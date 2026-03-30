@@ -114,9 +114,6 @@ export function ExecutionDetailDialog({
               <div className="max-w-2xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Execution Detail</p>
                 <DialogTitle className="mt-2 text-base">{execution.workflowName || '执行详情'}</DialogTitle>
-                <DialogDescription className="mt-2 text-xs leading-6 text-muted-foreground">
-                  完整步骤、截图与 AI 输出都集中在这里查看。
-                </DialogDescription>
                 <p className="mt-3 text-xs text-muted-foreground">当前焦点步骤：{runningStepLabel}</p>
                 <p className="mt-2 font-mono text-xs text-muted-foreground">{execution.executionId}</p>
               </div>
@@ -135,7 +132,6 @@ export function ExecutionDetailDialog({
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">截图节点</p>
                   <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{execution.actionNodes.length}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">执行证据会按时间顺序沉淀在这里</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-background/82 px-4 py-3 sm:col-span-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">状态</p>
