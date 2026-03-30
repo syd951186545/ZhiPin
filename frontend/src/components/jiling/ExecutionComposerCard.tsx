@@ -100,7 +100,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Execution Composer</p>
               <CardTitle className="mt-2 text-base">{selectedWorkflowCard.title}</CardTitle>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                工作流支持编排多组独立任务并行推进，同账号可自动排队。
+                工作流支持编排多组独立任务并行，同账号占用可自动排队执行。
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -182,9 +182,9 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
               </div>
             </div>
             <div className="rounded-[24px] border border-border/70 bg-background/84 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">账号通道映射</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">任务预览</p>
               {executionChannelSummary.lanes.length === 0 ? (
-                <div className="mt-4 rounded-[20px] border border-dashed border-border/70 bg-background/72 px-4 py-6 text-xs leading-6 text-muted-foreground">还没有形成账号通道。补齐至少 1 组平台、账号、岗位后，这里会显示哪些任务并行，哪些任务需要排队。</div>
+                <div className="mt-4 rounded-[20px] border border-dashed border-border/70 bg-background/72 px-4 py-6 text-xs leading-6 text-muted-foreground">补齐至少 1 组平台、账号、岗位后，此处显示任务执行预览。</div>
               ) : (
                 <div className="mt-4 space-y-3">
                   {executionChannelSummary.lanes.map((lane) => (
@@ -308,7 +308,7 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
 
                   <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
                     <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">归属工作流</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">工作流</p>
                       <p className="mt-2 text-sm font-semibold text-foreground">{selectedWorkflowCard.title}</p>
                     </div>
                     <div className="rounded-[20px] border border-border/70 bg-background/88 px-4 py-3">
@@ -333,15 +333,15 @@ export default function ExecutionComposerCard(props: ExecutionComposerCardProps)
 
                   <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">每张卡 = 1 个任务实例</Badge>
-                      <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-sky-700 dark:text-sky-300' : 'text-muted-foreground')}>同账号自动排队</Badge>
-                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">任务内步骤顺序执行</Badge>
+                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">每张卡 = 1 个独立任务实例</Badge>
+                      <Badge variant="outline" className={cn('border-border/70 bg-background/82', item.duplicateAccount ? 'text-sky-700 dark:text-sky-300' : 'text-muted-foreground')}>任务默认并行</Badge>
+                      <Badge variant="outline" className="border-border/70 bg-background/82 text-muted-foreground">账号占用时排队</Badge>
                     </div>
                     <Button type="button" variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => {
                       handlers.onSelectedPlatformChange(item.group.platform || selectedPlatform)
                       handlers.onActiveTabChange('platform-config')
                     }}>
-                      <LinkIcon className="h-3.5 w-3.5"/>去平台与账号页补齐长期配置
+                      <LinkIcon className="h-3.5 w-3.5"/>平台与账号配置
                     </Button>
                   </div>
 
