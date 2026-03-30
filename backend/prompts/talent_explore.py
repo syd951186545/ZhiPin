@@ -37,16 +37,14 @@ def build_login_check_prompt(state: dict) -> str:
 【持久会话键】{state.get("browser_session_key", "")}
 
 【本步骤要求】
-1. 优先打开企业端地址 `{target_url or state.get("platform", "")}`，不要跳到普通官网首页。
+1. 优先打开企业端地址 `{target_url or state.get("platform", "")}`。
 2. 如果页面看起来空白、过期、或落在旧 tab，先刷新当前企业端地址，再检查登录态。
-3. {shot}
-4. 判断是否已登录，优先检查以下强信号：
+3. 判断是否已登录，优先检查以下强信号：
    - 用户头像、账号昵称、退出登录或切换账号入口
    - 企业名称、企业工作台菜单、人才搜索/简历管理入口
    - 已进入企业工作台业务页，而不是登录页
-   - 若已登录 → 直接输出 [STEP_DONE:login_check]
-   - 若未登录、跳回登录页、出现验证码/扫码/密码校验 → 截图并输出 [STEP_FAILED:login_check]
-
+   - 若已登录 → {shot} 并输出 [STEP_DONE:login_check]
+   - 若未登录、跳回登录页、出现验证码/扫码/密码校验 → {shot}并输出 [STEP_FAILED:login_check]
 【注意事项】
 - 这是业务主工作流，不负责重新绑定账号
 - 仅验证当前持久浏览器 session 是否仍然可用
